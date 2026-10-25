@@ -53,8 +53,14 @@ else
   timeout 120 pveam update || warn "не удалось обновить список шаблонов, пробую с текущим"
   TEMPLATE=$(pveam available --section system | awk '/debian-12-standard/ {print $2}' | sort -V | tail -1)
   [ -n "$TEMPLATE" ] || die "шаблон debian-12-standard не найден. Проверьте интернет и DNS на сервере: ping download.proxmox.com"
-  echo "   Скачиваю $TEMPLATE (~120 МБ)…"
-  pveam download "$TPL_STORAGE" "$TEMPLATE"
+  ok=""
+  for attempt in 1 2 3 4 5; do
+    echo "   Скачиваю $TEMPLATE (~120 МБ), попытка $attempt из 5…"
+    if pveam download "$TPL_STORAGE" "$TEMPLATE"; then ok=1; break; fi
+    warn "скачивание прервалось, повторяю через 5 секунд"
+    sleep 5
+  done
+  [ -n "$ok" ] || die "не удалось скачать шаблон. Скачайте его вручную: $TPL_STORAGE → CT Templates → Templates → debian-12-standard → Download, затем запустите команду снова"
 fi
 
 say "Создаю контейнер $CTID ($CT_HOSTNAME) на хранилище $CT_STORAGE"
