@@ -40,11 +40,20 @@ if [ -z "${CT_STORAGE:-}" ]; then
 fi
 
 say "Готовлю шаблон Debian 12"
-pveam update >/dev/null || warn "не удалось обновить список шаблонов, пробую с текущим"
-TEMPLATE=$(pveam available --section system | awk '/debian-12-standard/ {print $2}' | sort -V | tail -1)
-[ -n "$TEMPLATE" ] || die "шаблон debian-12-standard не найден"
 TPL_STORAGE=$(pvesm status -content vztmpl | awk 'NR>1 && $3=="active" {print $1; exit}')
-if ! pveam list "$TPL_STORAGE" | grep -q "$TEMPLATE"; then
+[ -n "$TPL_STORAGE" ] || die "не нашёл хранилище для шаблонов (vztmpl)"
+echo "   Хранилище шаблонов: $TPL_STORAGE, хранилище контейнеров: $CT_STORAGE"
+
+# Если шаблон Debian 12 уже скачан — используем его и в интернет не ходим.
+TEMPLATE=$(pveam list "$TPL_STORAGE" 2>/dev/null | awk '{print $1}' | grep -o 'debian-12-standard[^ ]*' | sort -V | tail -1 || true)
+if [ -n "$TEMPLATE" ]; then
+  echo "   Шаблон уже есть: $TEMPLATE"
+else
+  echo "   Обновляю список шаблонов (до 2 минут)…"
+  timeout 120 pveam update || warn "не удалось обновить список шаблонов, пробую с текущим"
+  TEMPLATE=$(pveam available --section system | awk '/debian-12-standard/ {print $2}' | sort -V | tail -1)
+  [ -n "$TEMPLATE" ] || die "шаблон debian-12-standard не найден. Проверьте интернет и DNS на сервере: ping download.proxmox.com"
+  echo "   Скачиваю $TEMPLATE (~120 МБ)…"
   pveam download "$TPL_STORAGE" "$TEMPLATE"
 fi
 
