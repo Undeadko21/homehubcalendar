@@ -26,6 +26,11 @@
         </div>
       </header>
 
+      <div v-if="needsAccount && state.view !== 'settings'" class="setup">
+        <span>Подключите Яндекс.Календарь: укажите логин и пароль приложения.</span>
+        <button class="btn primary" @click="setView('settings')">Подключить</button>
+      </div>
+
       <PeopleBar v-if="state.view !== 'settings' && !state.kiosk" />
 
       <main class="main">
@@ -95,6 +100,8 @@ const rangeLabel = computed(() => {
   }
 })
 
+const needsAccount = computed(() => (state.config?.accounts || []).some((a) => !a.username || !a.has_password))
+
 const syncState = computed(() => {
   const src = state.status?.sources || []
   if (!src.length) return 'unknown'
@@ -157,6 +164,9 @@ onUnmounted(() => timers.forEach(clearInterval))
 .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); display: inline-block; }
 .sync-dot.ok { background: #22a06b; }
 .sync-dot.error { background: var(--now); }
+.setup { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin: 12px 20px 0; padding: 12px 16px; border-radius: var(--radius-m);
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); font-weight: 600; }
 .main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
 @media (max-width: 760px) {

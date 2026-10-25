@@ -129,24 +129,17 @@ run "mkdir -p $APP_DIR/config $APP_DIR/data && cd $APP_DIR && [ -f config/config
 run "cd $APP_DIR && [ -f config/.env ] || cp .env.example config/.env; chmod 600 config/.env"
 run "sed -i 's|^timezone:.*|timezone: $TZ_NAME|' $APP_DIR/config/config.yaml"
 
-echo
-echo "Нужен логин Яндекса и ПАРОЛЬ ПРИЛОЖЕНИЯ для календаря (не основной пароль)."
-echo "Создать: https://id.yandex.ru/security/app-passwords → «Календарь»."
-echo "Пароль вводится здесь и хранится только на сервере. Можно пропустить (Enter) и заполнить позже в $APP_DIR/config/.env"
-if run "grep -qE '^YANDEX_APP_PASSWORD=.+' $APP_DIR/config/.env"; then
-  echo "Логин и пароль Яндекса уже сохранены. Нажмите Enter, чтобы оставить их, или введите новые."
-fi
-read -r -p "Логин Яндекса (например, ivanov@yandex.ru): " YA_LOGIN
-read -r -s -p "Пароль приложения: " YA_PASS; echo
-if [ -n "$YA_LOGIN" ]; then
+# Логин и пароль Яндекса вводятся в веб-интерфейсе (⚙ Настройки), здесь ничего не спрашиваем.
+# Для установки без интерфейса можно передать их заранее:
+#   YANDEX_LOGIN=... YANDEX_APP_PASSWORD=... bash install-proxmox.sh
+if [ -n "${YANDEX_LOGIN:-}" ] && [ -n "${YANDEX_APP_PASSWORD:-}" ]; then
   # Передаём значения через временный файл, чтобы пароль не светился в списке процессов.
   TMP=$(mktemp); chmod 600 "$TMP"
-  printf 'YANDEX_LOGIN=%s\nYANDEX_APP_PASSWORD=%s\n' "$YA_LOGIN" "$YA_PASS" > "$TMP"
+  printf 'YANDEX_LOGIN=%s\nYANDEX_APP_PASSWORD=%s\n' "$YANDEX_LOGIN" "$YANDEX_APP_PASSWORD" > "$TMP"
   pct push "$CTID" "$TMP" /tmp/homecal_secrets --perms 600
   rm -f "$TMP"
   run "cd $APP_DIR/config && grep -v -E '^(YANDEX_LOGIN|YANDEX_APP_PASSWORD)=' .env > .env.new || true; cat /tmp/homecal_secrets >> .env.new; mv .env.new .env; chmod 600 .env; rm -f /tmp/homecal_secrets"
 fi
-unset YA_PASS
 
 # ---------- 5. запуск и автообновление ----------
 say "Собираю и запускаю (первая сборка займёт несколько минут)"
@@ -183,4 +176,5 @@ echo "  Экран на стене: http://$IP:${PORT:-8080}/?kiosk&view=today"
 echo "  Контейнер:      $CTID ($CT_HOSTNAME)"
 echo "  Настройки:      pct enter $CTID, затем $APP_DIR/config/"
 echo
-echo "Откройте календарь → ⚙ Настройки и укажите, чей какой календарь."
+echo "Откройте календарь → «Подключить» → введите логин Яндекса и пароль приложения."
+echo "Потом в ⚙ Настройки укажите, чей какой календарь."

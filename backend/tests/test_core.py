@@ -175,3 +175,16 @@ def test_holidays_fixed(db):
     hs = HolidayService(db, {"provider": "fixed"})
     days = {d["date"]: d for d in hs.between(datetime(2026, 11, 1).date(), datetime(2026, 11, 10).date())}
     assert days["2026-11-04"]["name"] == "День народного единства"
+
+
+def test_ui_credentials_override_empty_config(db):
+    engine = SyncEngine(db, [{"id": "yandex", "type": "caldav", "url": "https://caldav.example", "username": "", "password": ""}])
+    report = engine.run()
+    assert not report["yandex"]["ok"] and "пароль" in report["yandex"]["error"]
+    assert engine.accounts()[0]["has_password"] is False
+    engine.set_credentials("yandex", " me@yandex.ru ", "secret")
+    acc = engine.accounts()[0]
+    assert acc == {"id": "yandex", "url": "https://caldav.example", "username": "me@yandex.ru", "has_password": True}
+    # пустой пароль при повторном сохранении не стирает прежний
+    engine.set_credentials("yandex", "me@yandex.ru", "")
+    assert engine.effective_config(engine.sources[0])["password"] == "secret"

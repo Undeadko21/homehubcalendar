@@ -1,5 +1,27 @@
 <template>
   <div class="settings">
+    <section v-for="acc in accounts" :key="acc.id" id="accounts">
+      <h2>Учётная запись Яндекса</h2>
+      <p class="muted">
+        Нужен логин и <strong>пароль приложения</strong>, а не основной пароль. Создайте его на
+        <a href="https://id.yandex.ru/security/app-passwords" target="_blank" rel="noopener">id.yandex.ru → Пароли приложений</a>,
+        тип «Календарь». Пароль хранится только на вашем сервере.
+      </p>
+      <form class="account" @submit.prevent="saveAccount(acc)">
+        <label>Логин
+          <input v-model="acc.username" type="email" autocomplete="username" autocapitalize="off" placeholder="ivanov@yandex.ru" />
+        </label>
+        <label>Пароль приложения
+          <input v-model="acc.password" type="password" autocomplete="new-password"
+                 :placeholder="acc.has_password ? 'сохранён — оставьте пустым, чтобы не менять' : 'вставьте пароль приложения'" />
+        </label>
+        <button class="btn primary" :disabled="acc.busy || !acc.username">{{ acc.busy ? 'Проверяю…' : 'Сохранить и подключить' }}</button>
+        <p v-if="acc.result" :class="acc.result.ok ? 'ok' : 'err'">
+          {{ acc.result.ok ? `Подключено: календарей ${acc.result.calendars}, записей ${acc.result.objects}.` : 'Не удалось подключиться: ' + acc.result.error }}
+        </p>
+      </form>
+    </section>
+
     <section>
       <h2>Синхронизация</h2>
       <p v-if="!sources.length" class="muted">
@@ -73,10 +95,13 @@ const newName = ref('')
 const sources = computed(() => state.status?.sources || [])
 const editPeople = ref([])
 const editCals = ref([])
+const accounts = ref([])
 
 watch(() => state.config, (c) => {
   editPeople.value = (c?.people || []).filter((p) => !p.id.startsWith('_')).map((p) => ({ ...p, hidden: !!p.hidden }))
   editCals.value = (c?.calendars || []).map((x) => ({ ...x, hidden: !!x.hidden, private: !!x.private }))
+  const prev = Object.fromEntries(accounts.value.map((a) => [a.id, a]))
+  accounts.value = (c?.accounts || []).map((a) => ({ ...a, password: '', busy: false, result: prev[a.id]?.result || null }))
 }, { immediate: true })
 
 const kioskUrl = computed(() => `${location.origin}/?kiosk&view=today`)
@@ -86,6 +111,20 @@ const colorOf = (c) => editPeople.value.find((p) => p.id === c.person_id)?.color
 async function sync() {
   busy.value = true
   try { await syncNow() } finally { busy.value = false }
+}
+async function saveAccount(acc) {
+  acc.busy = true
+  acc.result = null
+  try {
+    const res = await api.saveAccount(acc.id, acc.username, acc.password || null)
+    acc.result = res
+    acc.password = ''
+    await reload()
+  } catch (e) {
+    acc.result = { ok: false, error: e.message }
+  } finally {
+    acc.busy = false
+  }
 }
 async function savePerson(p) {
   await api.savePerson({ ...p, hidden: !!p.hidden, sort: Number(p.sort) || 0 })
@@ -128,6 +167,12 @@ input[type='color'] { width: 38px; height: 34px; border: 1px solid var(--line); 
 .emoji { width: 54px; text-align: center; }
 .name { flex: 1; min-width: 140px; }
 .chk { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); white-space: nowrap; }
+.account { display: flex; flex-direction: column; gap: 10px; max-width: 420px; }
+.account label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; }
+.account label input { font-weight: 400; }
+.account .btn { align-self: flex-start; }
+.ok { color: #22a06b; margin: 0; }
+.account .err { margin: 0; }
 .add { display: flex; gap: 8px; flex-wrap: wrap; }
 .add input { flex: 1; min-width: 200px; }
 .table { display: flex; flex-direction: column; gap: 4px; }

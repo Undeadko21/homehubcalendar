@@ -31,6 +31,20 @@ def calendar_defaults(source_cfg: dict, name: str, remote_color: str | None) -> 
     return d
 
 
+def friendly_error(e: Exception) -> str:
+    """Понятное описание ошибки для интерфейса."""
+    name = type(e).__name__
+    text = str(e)
+    low = (name + " " + text).lower()
+    if "authorization" in low or "401" in low or "unauthorized" in low or "forbidden" in low or "403" in low:
+        return "Неверный логин или пароль приложения. Проверьте, что пароль создан для «Календаря»."
+    if any(s in low for s in ("connection", "timeout", "timed out", "name or service", "resolve", "proxy", "unreachable")):
+        return "Нет связи с сервером календаря. Проверьте интернет на сервере и адрес источника."
+    if isinstance(e, RuntimeError):
+        return text
+    return f"{name}: {text}"
+
+
 class SyncEngine:
     def __init__(self, db: Database, sources: list[dict], on_change: Callable[[], None] | None = None):
         self.db = db
@@ -58,6 +72,39 @@ class SyncEngine:
             self.db.upsert_person({"id": pid, "name": pid, "color": PALETTE[(len(existing) + i) % len(PALETTE)],
                                    "sort": 100 + i})
 
+    def credentials(self, source_id: str) -> dict:
+        """Логин и пароль, сохранённые через веб-интерфейс (хранятся в базе на сервере)."""
+        value, _ = self.db.kv_get(f"auth:{source_id}")
+        return value or {}
+
+    def effective_config(self, scfg: dict) -> dict:
+        """Конфиг источника с учётом учётных данных из интерфейса (они важнее пустых из config.yaml)."""
+        creds = self.credentials(scfg.get("id", ""))
+        out = dict(scfg)
+        for k in ("username", "password"):
+            if creds.get(k):
+                out[k] = creds[k]
+        return out
+
+    def accounts(self) -> list[dict]:
+        """Источники, которым нужны логин и пароль, без самих паролей."""
+        out = []
+        for s in self.sources:
+            if s.get("type") != "caldav":
+                continue
+            eff = self.effective_config(s)
+            out.append({"id": s["id"], "url": s.get("url", ""), "username": eff.get("username") or "",
+                        "has_password": bool(eff.get("password"))})
+        return out
+
+    def set_credentials(self, source_id: str, username: str, password: str | None) -> None:
+        if source_id not in {s.get("id") for s in self.sources}:
+            raise KeyError(source_id)
+        current = self.credentials(source_id)
+        value = {"username": username.strip()}
+        value["password"] = password if password else current.get("password", "")
+        self.db.kv_set(f"auth:{source_id}", value)
+
     def run(self) -> dict:
         if not self._lock.acquire(blocking=False):
             return {"status": "already_running"}
@@ -69,6 +116,9 @@ class SyncEngine:
                 if scfg.get("enabled", True) is False:
                     continue
                 try:
+                    scfg = self.effective_config(scfg)
+                    if scfg.get("type") == "caldav" and not (scfg.get("username") and scfg.get("password")):
+                        raise RuntimeError("не указаны логин и пароль приложения — откройте ⚙ Настройки → Учётные записи")
                     src = build_source(scfg)
                     calendars = src.fetch()
                     total = 0
@@ -88,7 +138,7 @@ class SyncEngine:
                     report[sid] = {"ok": True, "calendars": len(calendars), "objects": total}
                     log.info("Синхронизирован %s: %d календарей, %d объектов", sid, len(calendars), total)
                 except Exception as e:  # noqa: BLE001
-                    msg = f"{type(e).__name__}: {e}"
+                    msg = friendly_error(e)
                     self.db.set_sync_status(sid, ok=False, error=msg[:500])
                     report[sid] = {"ok": False, "error": msg}
                     log.exception("Ошибка синхронизации %s", sid)

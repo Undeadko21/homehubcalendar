@@ -107,6 +107,7 @@ def get_config():
         "calendars": cals,
         "weather": settings.weather,
         "pin_enabled": bool(settings.pin),
+        "accounts": engine.accounts(),
     }
 
 
@@ -136,6 +137,20 @@ def get_status():
 @app.post("/api/sync")
 def trigger_sync():
     return engine.run()
+
+
+class AccountIn(BaseModel):
+    username: str
+    password: str | None = None  # пусто — оставить прежний
+
+
+@app.put("/api/accounts/{source_id}")
+def put_account(source_id: str, body: AccountIn):
+    try:
+        engine.set_credentials(source_id, body.username, body.password)
+    except KeyError:
+        raise HTTPException(404, "Источник не найден")
+    return engine.run().get(source_id, {"ok": False, "error": "источник выключен"})
 
 
 class PersonIn(BaseModel):
