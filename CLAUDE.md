@@ -33,7 +33,8 @@
 | `main.py` | API, PIN-защита, раздача SPA |
 
 API: `GET /api/config`, `GET /api/events?start&end`, `GET /api/holidays?start&end`,
-`GET /api/status`, `POST /api/sync`, `PUT|DELETE /api/people/{id}`, `PATCH /api/calendars/{key}`.
+`GET /api/status`, `POST /api/sync`, `PUT|DELETE /api/people/{id}`, `PATCH /api/calendars/{key}`,
+`PUT /api/accounts/{source_id}` (логин/пароль CalDAV из интерфейса, хранятся в `kv` как `auth:<id>`, важнее пустых значений из config.yaml).
 Время в запросах без пояса трактуется в поясе из config.yaml.
 
 ## Фронтенд (`frontend/src`)
