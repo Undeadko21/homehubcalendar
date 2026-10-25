@@ -1,0 +1,16 @@
+services:
+  homecal:
+    build: .
+    image: homehub-calendar:local
+    container_name: homehub-calendar
+    restart: unless-stopped
+    ports:
+      - "${HOMECAL_PORT:-8080}:8080"
+    env_file:
+      - path: ./config/.env
+        required: false
+    environment:
+      TZ: ${TZ:-Asia/Yekaterinburg}
+    volumes:
+      - ./config:/config:ro
+      - ./data:/data

@@ -1,0 +1,103 @@
+/* Токены дизайна. Цвет в интерфейсе несут люди — всё остальное нейтрально. */
+:root {
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #eceff5;
+  --ink: #1c2333;
+  --ink-2: #5b6478;
+  --ink-3: #8a93a6;
+  --line: #dde2eb;
+  --now: #e5484d;
+  --holiday: #d6455d;
+  --focus: #3b6cf6;
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 16px;
+  --shadow: 0 1px 2px rgba(28, 35, 51, .06), 0 8px 24px rgba(28, 35, 51, .06);
+  --font: 'Onest', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #12161f; --surface: #1a1f2b; --surface-2: #232938;
+    --ink: #e9edf4; --ink-2: #a0a9bb; --ink-3: #6f788b; --line: #2c3343;
+    --now: #ff6166; --holiday: #ff7a8e; --focus: #7b9cff;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  --bg: #12161f; --surface: #1a1f2b; --surface-2: #232938;
+  --ink: #e9edf4; --ink-2: #a0a9bb; --ink-3: #6f788b; --line: #2c3343;
+  --now: #ff6166; --holiday: #ff7a8e; --focus: #7b9cff;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+a { color: var(--focus); }
+
+.btn {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius-m);
+  padding: 7px 12px;
+  line-height: 1.2;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn:hover { background: var(--surface-2); }
+.btn.icon { padding: 7px 9px; }
+.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn:disabled { opacity: .5; cursor: default; }
+
+.muted { color: var(--ink-2); }
+.faint { color: var(--ink-3); }
+
+/* «Таблетка» события — общий элемент всех видов */
+.pill {
+  --c: #8a94a6;
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-left: 3px solid var(--c);
+  background: color-mix(in srgb, var(--c) 14%, var(--surface));
+  color: var(--ink);
+  border-radius: var(--radius-s);
+  padding: 5px 8px;
+  overflow: hidden;
+}
+.pill:hover { background: color-mix(in srgb, var(--c) 24%, var(--surface)); }
+.pill.allday { background: var(--c); color: #fff; border-left-color: transparent; font-weight: 600; }
+.pill.allday:hover { filter: brightness(1.06); }
+.pill.past { opacity: .5; }
+.pill.private { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 10%, var(--surface)) 0 6px, color-mix(in srgb, var(--c) 18%, var(--surface)) 6px 12px); color: var(--ink-2); }
+.pill .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.pill .s { font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.pill.allday .s { color: rgba(255,255,255,.85); }
+
+.dots { display: inline-flex; gap: 3px; vertical-align: middle; }
+.dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); display: block; }
+
+.empty { color: var(--ink-3); padding: 16px 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* Ночной режим киоска: приглушаем экран */
+.kiosk.night { filter: brightness(.55); }
+.kiosk { cursor: none; }

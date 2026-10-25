@@ -1,0 +1,56 @@
+# Настройки домашнего календаря.
+# Рабочая копия лежит на сервере в config/config.yaml (в git не попадает).
+# Секреты — в config/.env и подставляются через ${ИМЯ}.
+
+title: Домашний календарь
+timezone: Asia/Yekaterinburg
+
+sync:
+  interval_minutes: 10   # как часто забирать данные из календарей
+
+# Производственный календарь: isdayoff (с переносами, нужен интернет) | fixed | none
+holidays:
+  provider: isdayoff
+  country: ru
+
+# Погода на экране «Сегодня» (open-meteo.com, без ключа). Уберите блок, чтобы отключить.
+weather:
+  latitude: 56.84
+  longitude: 60.61
+  city: Екатеринбург
+
+# Склеивать события с одинаковыми названием и временем из разных календарей.
+dedup:
+  fuzzy: true
+
+# Люди. Можно не заполнять: их удобнее добавить в интерфейсе (⚙ → Люди)
+# и там же указать, чей какой календарь.
+people: []
+#  - id: papa
+#    name: Папа
+#    color: "#4f7cff"
+#    emoji: "🧔"
+
+sources:
+  - id: yandex
+    type: caldav
+    url: https://caldav.yandex.ru
+    username: ${YANDEX_LOGIN}
+    password: ${YANDEX_APP_PASSWORD}
+    # Необязательно: фильтр календарей по названию (подстрока, без учёта регистра)
+    # include: ["Семья", "Работа"]
+    # exclude: ["Дни рождения"]
+    # Необязательно: владелец по умолчанию и правила по названию календаря.
+    # Настройки из интерфейса имеют приоритет над этими правилами.
+    # person: papa
+    # calendars:
+    #   - match: "Маша"
+    #     person: masha
+    #   - match: "Семья"
+    #     person: family
+
+  # Пример подписки по ICS-ссылке:
+  # - id: school
+  #   type: ics
+  #   url: https://example.com/school.ics
+  #   person: masha
