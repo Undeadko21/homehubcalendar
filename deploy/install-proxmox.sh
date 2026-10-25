@@ -33,46 +33,54 @@ command -v pct >/dev/null || die "это нужно запускать на хо
 [ "$(id -u)" = 0 ] || die "нужны права root"
 
 # ---------- 1. контейнер ----------
-CTID="${CTID:-$(pvesh get /cluster/nextid)}"
-if [ -z "${CT_STORAGE:-}" ]; then
-  CT_STORAGE=$(pvesm status -content rootdir 2>/dev/null | awk 'NR>1 && $3=="active" {print $1; exit}')
-  [ -n "$CT_STORAGE" ] || die "не нашёл хранилище для контейнеров, укажите CT_STORAGE=..."
-fi
-
-say "Готовлю шаблон Debian 12"
-TPL_STORAGE=$(pvesm status -content vztmpl | awk 'NR>1 && $3=="active" {print $1; exit}')
-[ -n "$TPL_STORAGE" ] || die "не нашёл хранилище для шаблонов (vztmpl)"
-echo "   Хранилище шаблонов: $TPL_STORAGE, хранилище контейнеров: $CT_STORAGE"
-
-# Если шаблон Debian 12 уже скачан — используем его и в интернет не ходим.
-TEMPLATE=$(pveam list "$TPL_STORAGE" 2>/dev/null | awk '{print $1}' | grep -o 'debian-12-standard[^ ]*' | sort -V | tail -1 || true)
-if [ -n "$TEMPLATE" ]; then
-  echo "   Шаблон уже есть: $TEMPLATE"
+# Повторный запуск продолжает работу с уже созданным контейнером (по имени хоста).
+EXISTING=$(pct list | awk -v h="$CT_HOSTNAME" 'NR>1 && $NF==h {print $1; exit}')
+if [ -n "$EXISTING" ] && [ -z "${CTID:-}" ]; then
+  CTID="$EXISTING"
+  say "Контейнер $CTID ($CT_HOSTNAME) уже есть — продолжаю установку в нём"
+  pct status "$CTID" | grep -q running || pct start "$CTID"
 else
-  echo "   Обновляю список шаблонов (до 2 минут)…"
-  timeout 120 pveam update || warn "не удалось обновить список шаблонов, пробую с текущим"
-  TEMPLATE=$(pveam available --section system | awk '/debian-12-standard/ {print $2}' | sort -V | tail -1)
-  [ -n "$TEMPLATE" ] || die "шаблон debian-12-standard не найден. Проверьте интернет и DNS на сервере: ping download.proxmox.com"
-  ok=""
-  for attempt in 1 2 3 4 5; do
-    echo "   Скачиваю $TEMPLATE (~120 МБ), попытка $attempt из 5…"
-    if pveam download "$TPL_STORAGE" "$TEMPLATE"; then ok=1; break; fi
-    warn "скачивание прервалось, повторяю через 5 секунд"
-    sleep 5
-  done
-  [ -n "$ok" ] || die "не удалось скачать шаблон. Скачайте его вручную: $TPL_STORAGE → CT Templates → Templates → debian-12-standard → Download, затем запустите команду снова"
-fi
+  CTID="${CTID:-$(pvesh get /cluster/nextid)}"
+  if [ -z "${CT_STORAGE:-}" ]; then
+    CT_STORAGE=$(pvesm status -content rootdir 2>/dev/null | awk 'NR>1 && $3=="active" {print $1; exit}')
+    [ -n "$CT_STORAGE" ] || die "не нашёл хранилище для контейнеров, укажите CT_STORAGE=..."
+  fi
 
-say "Создаю контейнер $CTID ($CT_HOSTNAME) на хранилище $CT_STORAGE"
-pct create "$CTID" "$TPL_STORAGE:vztmpl/$TEMPLATE" \
-  --hostname "$CT_HOSTNAME" \
-  --cores 2 --memory "$CT_MEMORY" --swap 512 \
-  --rootfs "$CT_STORAGE:$CT_DISK" \
-  --net0 "name=eth0,bridge=$CT_BRIDGE,ip=dhcp" \
-  --unprivileged 1 --features nesting=1,keyctl=1 \
-  --onboot 1 --timezone "$TZ_NAME" \
-  --description "HomeHub Calendar — домашний календарь. Репозиторий: $REPO_HTTPS"
-pct start "$CTID"
+  say "Готовлю шаблон Debian 12"
+  TPL_STORAGE=$(pvesm status -content vztmpl | awk 'NR>1 && $3=="active" {print $1; exit}')
+  [ -n "$TPL_STORAGE" ] || die "не нашёл хранилище для шаблонов (vztmpl)"
+  echo "   Хранилище шаблонов: $TPL_STORAGE, хранилище контейнеров: $CT_STORAGE"
+
+  # Если шаблон Debian 12 уже скачан — используем его и в интернет не ходим.
+  TEMPLATE=$(pveam list "$TPL_STORAGE" 2>/dev/null | awk '{print $1}' | grep -o 'debian-12-standard[^ ]*' | sort -V | tail -1 || true)
+  if [ -n "$TEMPLATE" ]; then
+    echo "   Шаблон уже есть: $TEMPLATE"
+  else
+    echo "   Обновляю список шаблонов (до 2 минут)…"
+    timeout 120 pveam update || warn "не удалось обновить список шаблонов, пробую с текущим"
+    TEMPLATE=$(pveam available --section system | awk '/debian-12-standard/ {print $2}' | sort -V | tail -1)
+    [ -n "$TEMPLATE" ] || die "шаблон debian-12-standard не найден. Проверьте интернет и DNS на сервере: ping download.proxmox.com"
+    ok=""
+    for attempt in 1 2 3 4 5; do
+      echo "   Скачиваю $TEMPLATE (~120 МБ), попытка $attempt из 5…"
+      if pveam download "$TPL_STORAGE" "$TEMPLATE"; then ok=1; break; fi
+      warn "скачивание прервалось, повторяю через 5 секунд"
+      sleep 5
+    done
+    [ -n "$ok" ] || die "не удалось скачать шаблон. Скачайте его вручную: $TPL_STORAGE → CT Templates → Templates → debian-12-standard → Download, затем запустите команду снова"
+  fi
+
+  say "Создаю контейнер $CTID ($CT_HOSTNAME) на хранилище $CT_STORAGE"
+  pct create "$CTID" "$TPL_STORAGE:vztmpl/$TEMPLATE" \
+    --hostname "$CT_HOSTNAME" \
+    --cores 2 --memory "$CT_MEMORY" --swap 512 \
+    --rootfs "$CT_STORAGE:$CT_DISK" \
+    --net0 "name=eth0,bridge=$CT_BRIDGE,ip=dhcp" \
+    --unprivileged 1 --features nesting=1,keyctl=1 \
+    --onboot 1 --timezone "$TZ_NAME" \
+    --description "HomeHub Calendar — домашний календарь. Репозиторий: $REPO_HTTPS"
+  pct start "$CTID"
+fi
 
 say "Жду сеть в контейнере"
 for _ in $(seq 1 60); do
@@ -86,11 +94,14 @@ run() { pct exec "$CTID" -- bash -lc "$1"; }
 # ---------- 2. Docker и git ----------
 say "Ставлю Docker и git (несколько минут)"
 run "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl git ca-certificates >/dev/null"
-run "curl -fsSL https://get.docker.com | sh >/dev/null"
+run "command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh >/dev/null"
 
 # ---------- 3. репозиторий ----------
 say "Получаю код"
-if run "git clone -q --branch $BRANCH $REPO_HTTPS $APP_DIR" 2>/dev/null; then
+if run "[ -d $APP_DIR/.git ]"; then
+  run "cd $APP_DIR && git pull -q --ff-only"
+  echo "Код уже скачан — обновил до последней версии."
+elif run "git clone -q --branch $BRANCH $REPO_HTTPS $APP_DIR" 2>/dev/null; then
   echo "Репозиторий публичный — клонирован по HTTPS."
 else
   run "mkdir -p /root/.ssh && chmod 700 /root/.ssh && [ -f /root/.ssh/homecal_deploy ] || ssh-keygen -q -t ed25519 -N '' -C 'homehub-calendar@$CT_HOSTNAME' -f /root/.ssh/homecal_deploy"
@@ -122,6 +133,9 @@ echo
 echo "Нужен логин Яндекса и ПАРОЛЬ ПРИЛОЖЕНИЯ для календаря (не основной пароль)."
 echo "Создать: https://id.yandex.ru/security/app-passwords → «Календарь»."
 echo "Пароль вводится здесь и хранится только на сервере. Можно пропустить (Enter) и заполнить позже в $APP_DIR/config/.env"
+if run "grep -qE '^YANDEX_APP_PASSWORD=.+' $APP_DIR/config/.env"; then
+  echo "Логин и пароль Яндекса уже сохранены. Нажмите Enter, чтобы оставить их, или введите новые."
+fi
 read -r -p "Логин Яндекса (например, ivanov@yandex.ru): " YA_LOGIN
 read -r -s -p "Пароль приложения: " YA_PASS; echo
 if [ -n "$YA_LOGIN" ]; then
