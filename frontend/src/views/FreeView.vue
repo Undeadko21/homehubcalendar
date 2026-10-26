@@ -48,18 +48,44 @@
             <span class="dname" :class="{ off: d.off }">{{ d.label }}</span>
             <span v-if="d.holiday" class="hname">{{ d.holiday }}</span>
           </h3>
-          <div class="bar" :aria-label="'Занятость ' + d.label">
-            <span v-for="(b, i) in d.busyBlocks" :key="'b' + i" class="busy" :style="b.style" :title="b.title"></span>
-            <span v-for="(w, i) in d.windowBlocks" :key="'w' + i" class="win" :style="w.style"></span>
+          <!-- Шкала: строка на каждого человека и общая строка «Вместе» -->
+          <div class="lanes">
+            <div v-for="lane in d.lanes" :key="lane.id" class="lane">
+              <span class="ln" :title="lane.name">{{ lane.short }}</span>
+              <div class="track">
+                <span v-for="(b, i) in lane.blocks" :key="i" class="blk" :class="{ escort: b.kind === 'escort' }"
+                      :style="{ ...b.style, '--c': lane.color }" :title="b.title">{{ b.label }}</span>
+              </div>
+            </div>
+            <div class="lane together">
+              <span class="ln">Вместе</span>
+              <div class="track">
+                <span v-for="(w, i) in d.windowBlocks" :key="i" class="win" :style="w.style"></span>
+              </div>
+            </div>
+            <div class="ticks"><span v-for="h in d.ticks" :key="h.label" :style="{ left: h.x + '%' }">{{ h.label }}</span></div>
           </div>
-          <div class="ticks"><span v-for="h in d.ticks" :key="h.label" :style="{ left: h.x + '%' }">{{ h.label }}</span></div>
-          <ul v-if="d.windows.length" class="wins">
-            <li v-for="(w, i) in d.windows" :key="i">
-              <strong>{{ w.text }}</strong>
-              <span class="muted">{{ durLabel(w.minutes) }}</span>
+
+          <!-- Хронология: события и свободные окна по порядку -->
+          <ul class="agenda">
+            <li v-for="(it, i) in d.items" :key="i" :class="it.type">
+              <span class="tm">{{ it.time }}</span>
+              <span class="what">
+                <template v-if="it.type === 'free'">
+                  <strong>Все свободны</strong> <span class="muted">{{ durLabel(it.minutes) }}</span>
+                </template>
+                <template v-else>
+                  <span class="ttl">{{ it.title }}</span>
+                  <span class="who">
+                    <span v-for="pid in it.people" :key="pid" class="pp">
+                      <i :style="{ background: personById[pid]?.color }"></i>{{ personById[pid]?.name || pid }}
+                    </span>
+                  </span>
+                </template>
+              </span>
             </li>
           </ul>
-          <p v-else class="faint none-text">Нет общего окна</p>
+          <p v-if="!d.windows.length" class="faint none-text">Общего окна нет</p>
         </section>
       </template>
     </div>
@@ -177,10 +203,26 @@ const days = computed(() =>
           minutes: Math.round((w.e - w.s) / 60000),
         })),
         windowBlocks: windows.map((w) => ({ style: pct(w.s, w.e) })),
-        busyBlocks: d.busy.map((b) => ({
-          style: pct(new Date(b.start), new Date(b.end)),
-          title: `${b.title} (${b.people.map((p) => personById.value[p]?.name || p).join(', ')}), ${formatTime(new Date(b.start))}–${formatTime(new Date(b.end))}`,
-        })),
+        lanes: who.value.map((pid) => {
+          const person = personById.value[pid] || { name: pid, color: '#8e8e93' }
+          return {
+            id: pid,
+            name: person.name,
+            short: person.name,
+            color: person.color,
+            blocks: d.busy.filter((b) => b.people.includes(pid)).map((b) => {
+              const s = new Date(b.start), e = new Date(b.end)
+              const widthPct = ((Math.min(e, to) - Math.max(s, from)) / span) * 100
+              return {
+                kind: b.kind,
+                style: pct(s, e),
+                label: widthPct > 14 ? b.title : '',
+                title: `${b.title}, ${timeText(b)}`,
+              }
+            }),
+          }
+        }),
+        items: buildItems(d.busy, windows),
         ticks: hours,
       }
     })
@@ -193,6 +235,29 @@ const whoText = computed(() => {
   return names.slice(0, -1).join(', ') + ' и ' + names[names.length - 1]
 })
 const partText = computed(() => ({ all: 'днём и вечером', morning: 'утром', day: 'днём', evening: 'вечером' })[part.value])
+
+// Время события — настоящее, а не обрезанное по выбранной части дня.
+function timeText(b) {
+  if (b.all_day) return 'весь день'
+  const s = new Date(b.event_start || b.start), e = new Date(b.event_end || b.end)
+  return `${formatTime(s)}–${formatTime(e)}`
+}
+
+// Одна хронология дня: события (одинаковые у нескольких людей — одной строкой) и общие окна.
+function buildItems(busy, windows) {
+  const merged = new Map()
+  for (const b of busy) {
+    const key = `${b.title}|${b.event_start || b.start}|${b.event_end || b.end}`
+    if (merged.has(key)) merged.get(key).people.push(...b.people.filter((p) => !merged.get(key).people.includes(p)))
+    else merged.set(key, { type: b.kind === 'escort' ? 'escort' : 'busy', title: b.title, people: [...b.people],
+      sort: b.all_day ? -1 : +new Date(b.start), time: timeText(b) })
+  }
+  const items = [...merged.values()]
+  for (const w of windows) {
+    items.push({ type: 'free', sort: +w.s, time: `${formatTime(w.s)}–${formatTime(w.e)}`, minutes: Math.round((w.e - w.s) / 60000) })
+  }
+  return items.sort((a, b) => a.sort - b.sort || (a.type === 'free') - (b.type === 'free'))
+}
 
 function roundUp(d) {
   const x = new Date(d)
@@ -242,18 +307,37 @@ function plural(n, one, few, many) {
 .day h3 { margin: 0 0 10px; font-size: 15px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .dname.off { color: var(--red); }
 .hname { color: var(--red); font-weight: 400; font-size: 13px; }
-.bar { position: relative; height: 22px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
-.busy { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, var(--fill) 0 4px, transparent 4px 8px), color-mix(in srgb, var(--ink-3) 30%, transparent); }
+.lanes { --ln: 64px; display: flex; flex-direction: column; gap: 3px; }
+.lane { display: flex; align-items: center; gap: 8px; }
+.ln { width: var(--ln); flex: none; font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track { position: relative; flex: 1; height: 20px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+.blk {
+  --c: #8e8e93; position: absolute; top: 0; bottom: 0; border-radius: 4px;
+  background: color-mix(in srgb, var(--c) 30%, var(--surface)); box-shadow: inset 2px 0 0 var(--c);
+  color: color-mix(in srgb, var(--c) 60%, var(--ink)); font-size: 11px; font-weight: 600; line-height: 20px;
+  padding: 0 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.blk.escort { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 30%, var(--surface)) 0 4px, color-mix(in srgb, var(--c) 14%, var(--surface)) 4px 8px); }
+.together .ln { color: var(--ok); font-weight: 600; }
 .win { position: absolute; top: 3px; bottom: 3px; background: var(--ok); border-radius: 4px; }
-.ticks { position: relative; height: 16px; margin-top: 2px; }
+.ticks { position: relative; height: 14px; }
 .ticks span { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--ink-3); }
 .ticks span:first-child { transform: none; }
 .ticks span:last-child { transform: translateX(-100%); }
-.wins { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
-.wins li { display: flex; gap: 6px; align-items: baseline; }
-.wins strong { color: var(--ok); font-size: 16px; }
+.lanes .ticks { margin-left: calc(var(--ln) + 8px); }
+
 .none-text { margin: 6px 0 0; font-size: 13px; }
-.day.none .bar { opacity: .7; }
+.agenda { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; }
+.agenda li { display: grid; grid-template-columns: 96px 1fr; gap: 10px; padding: 5px 0; align-items: baseline; }
+.agenda li + li { border-top: .5px solid var(--line); }
+.tm { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.what { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; min-width: 0; }
+.ttl { font-weight: 500; }
+.who { display: inline-flex; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
+.pp { display: inline-flex; align-items: center; gap: 4px; }
+.pp i { width: 7px; height: 7px; border-radius: 50%; }
+.agenda li.free .tm, .agenda li.free strong { color: var(--ok); font-weight: 600; }
+.agenda li.escort .ttl { font-style: normal; color: var(--ink-2); }
 
 @media (max-width: 899px) {
   .free { grid-template-columns: 1fr; padding: 0 12px 30px; }

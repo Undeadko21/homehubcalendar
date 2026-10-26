@@ -340,7 +340,9 @@ def test_free_time(db):
                     time(8), time(22), 60)[0]
     # Оля занята 9:00–16:45, Толя отвозит 16:30–17:00 → свободны 8–9 и 17–22
     assert [(w["start"][11:16], w["end"][11:16]) for w in day["windows"]] == [("08:00", "09:00"), ("17:00", "22:00")]
-    assert any(b["title"].startswith("Отвезти") for b in day["busy"])
+    assert any(b["title"].startswith("Отвезти") and b["kind"] == "escort" for b in day["busy"])
+    work = next(b for b in day["busy"] if b["title"] == "Работа")
+    assert work["people"] == ["olya"] and work["event_start"].startswith("2026-10-27T09:00")
     # Только Толя — свободен почти весь день, кроме поездки
     day = find_free(items, ["tolya"], date(2026, 10, 27), date(2026, 10, 28), TZ, time(8), time(22), 60)[0]
     assert [(w["start"][11:16], w["end"][11:16]) for w in day["windows"]] == [("08:00", "16:30"), ("17:00", "22:00")]

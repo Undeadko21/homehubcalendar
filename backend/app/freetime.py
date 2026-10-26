@@ -35,16 +35,19 @@ def find_free(events: list[dict], people: list[str], start: date, end: date, tz:
             if include_all_day:
                 s = datetime.combine(date.fromisoformat(e["start"]), time(0), tz)
                 en = datetime.combine(date.fromisoformat(e["end"]), time(0), tz)
-                busy.append((s, en, {"title": e["title"], "people": who, "all_day": True}))
+                busy.append((s, en, {"title": e["title"], "people": who, "all_day": True, "kind": "event",
+                                     "event_start": e["start"], "event_end": e["end"]}))
             continue
         if not e.get("busy", True):
             continue
         busy.append((datetime.fromisoformat(e["start"]), datetime.fromisoformat(e["end"]),
-                     {"title": e["title"], "people": who, "all_day": False}))
+                     {"title": e["title"], "people": who, "all_day": False, "kind": "event",
+                      "event_start": e["start"], "event_end": e["end"]}))
     for person, w0, w1, e, role in duty_intervals(events):
         if person in wanted:
             verb = "Отвезти" if role == "dropoff" else "Забрать"
-            busy.append((w0, w1, {"title": f"{verb}: {e['title']}", "people": [person], "all_day": False}))
+            busy.append((w0, w1, {"title": f"{verb}: {e['title']}", "people": [person], "all_day": False,
+                                  "kind": "escort", "event_start": w0.isoformat(), "event_end": w1.isoformat()}))
 
     days = []
     d = start
