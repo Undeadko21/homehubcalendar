@@ -6,7 +6,7 @@
         <small v-if="g.holiday" class="hname">{{ g.holiday.name }}</small>
       </h2>
       <button v-for="e in g.events" :key="e.id" class="item" :style="{ '--c': eventColor(e) }"
-              :class="{ past: isPast(e) }" @click="openEvent(e)">
+              :class="{ past: isPast(e), duty: e.duty, conflict: e.duty && e.escort_issue === 'conflict' }" @click="openEvent(e)">
         <span class="time">
           <template v-if="e.all_day">весь день</template>
           <template v-else>{{ startText(e, g.date) }}<br /><span class="faint">{{ endText(e, g.date) }}</span></template>
@@ -85,6 +85,9 @@ const groups = computed(() => {
 }
 .item:hover { background: color-mix(in srgb, var(--fill) 50%, transparent); }
 .item.past { opacity: .5; }
+.item.duty .bar { background: repeating-linear-gradient(180deg, var(--c) 0 4px, transparent 4px 7px); }
+.item.duty .t { font-weight: 500; }
+.item.conflict .t { color: var(--red); }
 .time { font-size: 13px; font-weight: 500; line-height: 1.35; padding-top: 1px; text-align: right; }
 .bar { background: var(--c); border-radius: 2px; }
 .body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }

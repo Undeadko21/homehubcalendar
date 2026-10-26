@@ -56,9 +56,12 @@
                       :class="{ on: e.escort.mode === m.id }" :disabled="saving" @click="setMode(m.id)">{{ m.label }}</button>
             </div>
             <p class="hint muted">
-              <template v-if="e.escort.mode === 'together'">Едут все вместе — выбирать, кто везёт, не нужно.</template>
+              <template v-if="e.escort.mode === 'together'">
+                Едут все вместе — выбирать, кто везёт, не нужно.
+                <template v-if="(e.escort.together_people || []).length">Событие показано у: {{ e.escort.together_people.map(personName).join(', ') }} (поменять — в «Чьё событие»).</template>
+              </template>
               <template v-else-if="e.escort.mode === 'home'">Событие дома — везти никуда не нужно.</template>
-              <template v-else>Кто-то отвозит и забирает — выберите кто ниже.</template>
+              <template v-else>Кто-то отвозит и забирает — выберите кто ниже. Поездка появится в календаре у этого взрослого.</template>
               <template v-if="e.escort.mode_auto && e.escort.mode_reason"> Определено само: {{ e.escort.mode_reason }}.</template>
               <template v-if="!e.escort.mode_auto">
                 Выбрано вручную{{ e.escort.mode_scope === 'once' ? ' на этот день' : '' }}.

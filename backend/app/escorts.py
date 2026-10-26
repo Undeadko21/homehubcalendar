@@ -172,3 +172,72 @@ def duty_intervals(events: list[dict]) -> list[tuple[str, datetime, datetime, di
                 w0, w1 = (_dt(x) for x in r["window"])
                 out.append((r["person"], w0, w1, e, role))
     return out
+
+
+def accusative(name: str) -> str:
+    """Имя в винительном падеже для «Отвезти Марка / Машу / Олю». Простые правила, без словаря."""
+    if not name or not name[-1].isalpha() or not any("а" <= ch.lower() <= "я" or ch.lower() == "ё" for ch in name):
+        return name
+    last = name[-1].lower()
+    if last == "а":
+        return name[:-1] + ("у" if name[-1] == "а" else "У")
+    if last == "я":
+        return name[:-1] + ("ю" if name[-1] == "я" else "Ю")
+    if last in "йь":
+        return name[:-1] + "я"
+    if last in "бвгджзклмнпрстфхцчшщ":
+        return name + "а"
+    return name
+
+
+def add_to_adults(events: list[dict], people: dict[str, dict]) -> list[dict]:
+    """Показывает поездки и «все вместе» в календарях взрослых.
+
+    - Для каждого назначенного «отвезти/забрать» добавляет взрослому событие-поездку
+      (поле duty, ссылка на исходное событие в duty.parent).
+    - Событие в режиме «все вместе» без взрослых участников показывается у всех взрослых.
+    Возвращает новые события-поездки (исходный список дополняется участниками на месте).
+    """
+    adults = [pid for pid, p in people.items() if not p.get("needs_escort") and not p.get("hidden")]
+    duties: list[dict] = []
+    for e in events:
+        esc = e.get("escort")
+        if not esc:
+            continue
+        kids = " и ".join(accusative(people[k].get("name", k)) for k in esc["children"] if k in people)
+        if esc["mode"] == "together":
+            if not any(p in adults for p in e["people"]):
+                e["people"] = list(dict.fromkeys([*e["people"], *adults]))
+            esc["together_people"] = [p for p in e["people"] if p in adults]
+            continue
+        if esc["mode"] != "escort":
+            continue
+        parent = {k: v for k, v in e.items()}
+        for role in ROLES:
+            r = esc[role]
+            if r["skip"] or not r["person"] or r["person"] not in adults:
+                continue
+            verb = "Отвезти" if role == "dropoff" else "Забрать"
+            w0, w1 = r["window"]
+            duties.append({
+                "id": f"{e['id']}:{role}",
+                "uid": e["uid"],
+                "title": f"{verb} {kids}: {e['title']}",
+                "start": w0,
+                "end": w1,
+                "all_day": False,
+                "location": e.get("location", ""),
+                "description": "",
+                "url": "",
+                "private": False,
+                "busy": True,
+                "tentative": False,
+                "recurring": e.get("recurring", False),
+                "attendees": [],
+                "people": [r["person"]],
+                "people_override": False,
+                "calendars": e.get("calendars", []),
+                "duty": {"role": role, "parent": parent},
+                "escort_issue": "conflict" if r["conflicts"] else None,
+            })
+    return duties

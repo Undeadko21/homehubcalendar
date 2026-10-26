@@ -1,7 +1,7 @@
 <template>
   <button
     class="pill"
-    :class="{ allday: e.all_day && !e.private, past, private: e.private, now: current, issue: e.escort_issue }"
+    :class="{ allday: e.all_day && !e.private, past, private: e.private, now: current, issue: e.escort_issue, duty: e.duty, conflict: e.duty && e.escort_issue === 'conflict' }"
     :style="{ '--c': color }"
     @click="openEvent(e)"
   >
@@ -52,6 +52,7 @@ const meta = computed(() => {
 
 <style scoped>
 .pill.now { box-shadow: inset 0 0 0 1.5px var(--c); }
+.pill.conflict { box-shadow: inset 0 0 0 1.5px var(--red); }
 .pill.issue { padding-bottom: 6px; }
 .dots { margin-right: 4px; }
 .esc { margin-top: 4px; }

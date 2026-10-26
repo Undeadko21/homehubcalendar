@@ -42,7 +42,8 @@ mq?.addEventListener?.('change', (e) => { screen.narrow = e.matches })
 export const weekDays = () => (screen.narrow ? 3 : 7)
 
 export function openEvent(e) {
-  state.selected = e
+  // Поездка («Отвезти Марка…») открывает карточку исходного события ребёнка.
+  state.selected = e?.duty ? e.duty.parent : e
 }
 
 // Перечитать открытое событие после изменений (участники, поездки).

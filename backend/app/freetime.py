@@ -28,6 +28,8 @@ def find_free(events: list[dict], people: list[str], start: date, end: date, tz:
     wanted = set(people)
     busy: list[tuple[datetime, datetime, dict]] = []
     for e in events:
+        if e.get("duty"):
+            continue  # поездки учитываются ниже через duty_intervals
         who = [p for p in e["people"] if p in wanted]
         if not who:
             continue

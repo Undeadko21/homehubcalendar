@@ -41,7 +41,7 @@
             </div>
             <button
               v-for="b in lane.blocks" :key="b.key"
-              class="block" :class="[{ allday: b.allDay, past: b.past, private: b.e.private, multi: b.e.people.length > 1 }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
+              class="block" :class="[{ allday: b.allDay, past: b.past, private: b.e.private, multi: b.e.people.length > 1, 'duty-style': b.e.duty }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
               :style="{ left: b.x + 'px', width: b.w + 'px', top: b.y + 'px', height: (b.allDay ? ALLDAY_H : ROW_H) - 4 + 'px' }"
               :title="b.e.title"
               @click="openEvent(b.e)"
@@ -254,6 +254,7 @@ const nowX = computed(() => {
 .block.esc-conflict { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--red); }
 .block.esc-unassigned { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--warn); }
 .block.past { opacity: .45; }
+.block.duty-style { background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--c) 10%, var(--surface)) 0 5px, color-mix(in srgb, var(--c) 24%, var(--surface)) 5px 10px); }
 .block.private { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 12%, var(--surface)) 0 5px, color-mix(in srgb, var(--c) 24%, var(--surface)) 5px 10px); color: var(--ink-2); }
 .block.multi::after { content: ''; position: absolute; right: 4px; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); }
 .bt { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }

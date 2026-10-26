@@ -45,7 +45,7 @@ const fcEvents = computed(() =>
       backgroundColor: e.all_day ? `color-mix(in srgb, ${c} 85%, var(--surface))` : `color-mix(in srgb, ${c} 18%, var(--surface))`,
       borderColor: c,
       textColor: e.all_day ? '#fff' : `color-mix(in srgb, ${c} 62%, var(--ink))`,
-      classNames: [e.private ? 'is-private' : '', e.escort_issue ? 'esc-' + e.escort_issue : ''],
+      classNames: [e.private ? 'is-private' : '', e.escort_issue ? 'esc-' + e.escort_issue : '', e.duty ? 'is-duty' : ''],
       extendedProps: { src: e },
     }
   }),
@@ -162,6 +162,7 @@ watch(() => [state.cursor, viewName.value], () => {
 .cal .fc-popover-header { background: transparent; font-weight: 600; }
 
 .cal .fc-event { cursor: pointer; }
+.cal .is-duty { background-image: repeating-linear-gradient(-45deg, transparent 0 5px, rgba(127,127,127,.16) 5px 10px); }
 .cal .is-private { background-image: repeating-linear-gradient(135deg, transparent 0 5px, rgba(127,127,127,.14) 5px 10px); }
 .cal .fc-timegrid-event.esc-conflict { box-shadow: inset 0 0 0 1.5px var(--red) !important; }
 .cal .fc-timegrid-event.esc-unassigned { box-shadow: inset 0 0 0 1.5px var(--warn) !important; }

@@ -60,6 +60,9 @@ class EventService:
         escorts.annotate(wide, people, self.db.escorts(), cfg["before_minutes"], cfg["after_minutes"],
                          [w.strip() for w in str(cfg.get("home_words") or "").split(",") if w.strip()],
                          str(cfg.get("home_address") or "").strip())
+        # Поездки и «все вместе» — в календари взрослых.
+        wide += escorts.add_to_adults(wide, people)
+        wide.sort(key=lambda e: (e["start"][:10], not e["all_day"], e["start"], e["title"]))
         result = [e for e in wide if _in_range(e, start, end)]
         with self._lock:
             if len(self._cache) > 64:

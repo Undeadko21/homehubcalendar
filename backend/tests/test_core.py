@@ -278,7 +278,7 @@ END:VCALENDAR
 
 
 def _by_start(items, uid):
-    return {i["start"][:10]: i for i in items if i["uid"] == uid}
+    return {i["start"][:10]: i for i in items if i["uid"] == uid and not i.get("duty")}
 
 
 def test_escort_series_once_and_conflicts(db):
@@ -325,7 +325,7 @@ def test_escort_double_booking(db):
     db.set_escort("pool@test", "*", "dropoff", "tolya")
     db.set_escort("art@test", "*", "dropoff", "tolya")
     items = EventService(db, TZ).events(*rng())
-    art = [i for i in items if i["uid"] == "art@test"][0]
+    art = [i for i in items if i["uid"] == "art@test" and not i.get("duty")][0]
     assert any(c["kind"] == "escort" for c in art["escort"]["dropoff"]["conflicts"])
 
 
@@ -387,3 +387,30 @@ def test_home_address_and_whole_words():
     assert _home_match({"title": "Ужин дома"}, ["дома"], "") is not None
     assert _home_match({"title": "Дом культуры", "location": ""}, ["дома"], "") is None
     assert _home_match({"title": "Гости", "location": "ул. Ленина, 5, кв 3"}, ["дома"], "ленина, 5") is not None
+
+
+def test_duties_and_together_in_adult_calendars(db):
+    _family(db)
+    db.set_escort("pool@test", "*", "dropoff", "olya")
+    db.set_escort("pool@test", "*", "pickup", "tolya")
+    items = EventService(db, TZ).events(*rng())
+    duties = [i for i in items if i.get("duty") and i["uid"] == "pool@test" and i["start"].startswith("2026-10-27")]
+    by_role = {d["duty"]["role"]: d for d in duties}
+    assert by_role["dropoff"]["people"] == ["olya"] and by_role["dropoff"]["title"] == "Отвезти Марка: Бассейн"
+    assert by_role["dropoff"]["start"].startswith("2026-10-27T16:30")
+    assert by_role["dropoff"]["escort_issue"] == "conflict"  # Оля на работе до 16:45
+    assert by_role["pickup"]["people"] == ["tolya"] and by_role["pickup"]["duty"]["parent"]["uid"] == "pool@test"
+
+    # «Все вместе» без взрослых участников — показывается у всех взрослых
+    tue = next(i for i in items if i["uid"] == "pool@test" and not i.get("duty") and i["start"].startswith("2026-10-27"))
+    db.set_escort("pool@test", tue["start"], "mode", "together")
+    items = EventService(db, TZ).events(*rng())
+    tue = next(i for i in items if i["uid"] == "pool@test" and not i.get("duty") and i["start"].startswith("2026-10-27"))
+    assert set(tue["people"]) == {"mark", "olya", "tolya"}
+    assert not [i for i in items if i.get("duty") and i["start"].startswith("2026-10-27")]
+
+
+def test_accusative():
+    from app.escorts import accusative
+    assert [accusative(n) for n in ["Марк", "Маша", "Оля", "Толик", "Игорь", "Тимофей", "Mark"]] == \
+        ["Марка", "Машу", "Олю", "Толика", "Игоря", "Тимофея", "Mark"]

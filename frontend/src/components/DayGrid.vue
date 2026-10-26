@@ -35,7 +35,7 @@
             <div v-for="col in columns" :key="col.person.id" class="col" :style="{ '--c': col.person.color }">
               <button
                 v-for="b in col.blocks" :key="b.e.id"
-                class="blk" :class="[{ past: b.past, now: b.current, private: b.e.private, short: b.h < 34 }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
+                class="blk" :class="[{ past: b.past, now: b.current, private: b.e.private, short: b.h < 34, 'duty-style': b.e.duty }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
                 :style="{ top: b.y + 'px', height: b.h + 'px', left: b.left + '%', width: b.width + '%' }"
                 :title="`${b.e.title}, ${b.time}`"
                 @click="openEvent(b.e)"
@@ -194,6 +194,7 @@ const nowY = computed(() => {
 .blk.short { flex-direction: row; align-items: center; gap: 6px; padding-top: 1px; padding-bottom: 1px; }
 .blk.short .t { -webkit-line-clamp: 1; white-space: nowrap; }
 .blk.past { opacity: .5; }
+.blk.duty-style { background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--c) 10%, var(--surface)) 0 5px, color-mix(in srgb, var(--c) 24%, var(--surface)) 5px 10px); }
 .blk.now { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--c); }
 .blk.private { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 10%, var(--surface)) 0 6px, color-mix(in srgb, var(--c) 18%, var(--surface)) 6px 12px); }
 .blk.esc-conflict { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--red); }
