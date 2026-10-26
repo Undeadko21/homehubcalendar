@@ -64,6 +64,14 @@ def expand_ics(ics_text: str, range_start: datetime, range_end: datetime, tz: Zo
         log.warning("Ошибка разворачивания повторов: %s", e)
         return []
 
+    # Повторяющиеся — только серии из исходного файла (RRULE/RDATE или перенесённые вхождения).
+    # Смотреть на развёрнутые вхождения нельзя: библиотека ставит RECURRENCE-ID каждому.
+    recurring_uids = {
+        str(c.get("UID"))
+        for c in cal.walk("VEVENT")
+        if c.get("RRULE") is not None or c.get("RDATE") is not None or c.get("RECURRENCE-ID") is not None
+    }
+
     out: list[Occurrence] = []
     for comp in components:
         if _text(comp, "STATUS").upper() == "CANCELLED":
@@ -106,7 +114,7 @@ def expand_ics(ics_text: str, range_start: datetime, range_end: datetime, tz: Zo
                 private=cls in ("PRIVATE", "CONFIDENTIAL"),
                 busy=_text(comp, "TRANSP").upper() != "TRANSPARENT",
                 tentative=_text(comp, "STATUS").upper() == "TENTATIVE",
-                recurring=comp.get("RRULE") is not None or comp.get("RECURRENCE-ID") is not None,
+                recurring=_text(comp, "UID") in recurring_uids,
                 attendees=[str(a).lower().removeprefix("mailto:") for a in attendees],
             )
         )

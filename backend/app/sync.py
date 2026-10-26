@@ -15,8 +15,13 @@ PALETTE = ["#4f7cff", "#f2643d", "#22a06b", "#b45cf0", "#e8a400", "#0fa5b5", "#e
 
 def calendar_defaults(source_cfg: dict, name: str, remote_color: str | None) -> dict:
     """Значения по умолчанию для календаря: уровень источника + правила `calendars:`."""
+    def as_list(v):
+        if not v:
+            return []
+        return [v] if isinstance(v, str) else list(v)
+
     d = {
-        "person": source_cfg.get("person"),
+        "people": as_list(source_cfg.get("people")) or as_list(source_cfg.get("person")),
         "color": None,
         "hidden": False,
         "private": bool(source_cfg.get("private", False)),
@@ -24,7 +29,9 @@ def calendar_defaults(source_cfg: dict, name: str, remote_color: str | None) -> 
     for rule in source_cfg.get("calendars", []) or []:
         match = str(rule.get("match", "")).lower()
         if match and match in name.lower():
-            d.update({k: rule[k] for k in ("person", "color", "hidden", "private") if k in rule})
+            d.update({k: rule[k] for k in ("color", "hidden", "private") if k in rule})
+            if "people" in rule or "person" in rule:
+                d["people"] = as_list(rule.get("people")) or as_list(rule.get("person"))
             break
     if not d["color"]:
         d["color"] = remote_color
@@ -63,11 +70,10 @@ class SyncEngine:
         existing = {p["id"] for p in self.db.list_people()}
         refs = set()
         for s in self.sources:
-            if s.get("person"):
-                refs.add(s["person"])
-            for r in s.get("calendars", []) or []:
-                if r.get("person"):
-                    refs.add(r["person"])
+            for item in [s, *(s.get("calendars", []) or [])]:
+                for key in ("person", "people"):
+                    v = item.get(key)
+                    refs.update([v] if isinstance(v, str) else (v or []))
         for i, pid in enumerate(sorted(refs - existing)):
             self.db.upsert_person({"id": pid, "name": pid, "color": PALETTE[(len(existing) + i) % len(PALETTE)],
                                    "sort": 100 + i})

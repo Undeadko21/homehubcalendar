@@ -97,9 +97,10 @@ def health():
 def get_config():
     people = db.list_people()
     cals = db.list_calendars()
-    if any(c["person_id"] not in {p["id"] for p in people} for c in cals if not c["hidden"]):
+    known = {p["id"] for p in people}
+    if any(not (set(c["people"]) & known) for c in cals if not c["hidden"]):
         people = people + [{"id": UNASSIGNED, "name": "Без владельца", "color": "#8a94a6",
-                            "emoji": "", "sort": 999, "hidden": 0}]
+                            "emoji": "", "sort": 999, "hidden": 0, "keywords": ""}]
     return {
         "title": settings.title,
         "timezone": settings.timezone,
@@ -161,6 +162,7 @@ class PersonIn(BaseModel):
     emoji: str = ""
     sort: int = 0
     hidden: bool = False
+    keywords: str = ""  # слова автопривязки через запятую
 
 
 @app.get("/api/people")
@@ -185,7 +187,8 @@ def delete_person(person_id: str):
 
 
 class CalendarPatch(BaseModel):
-    person_id: str | None = None
+    people: list[str] | None = None
+    person_id: str | None = None  # устаревшее: один владелец
     color: str | None = None
     hidden: bool | None = None
     private: bool | None = None
@@ -196,6 +199,23 @@ def patch_calendar(key: str, body: CalendarPatch):
     if not db.get_calendar(key):
         raise HTTPException(404, "Календарь не найден")
     db.update_calendar(key, body.model_dump(exclude_unset=True))
+    events.invalidate()
+    return {"ok": True}
+
+
+class EventPeople(BaseModel):
+    uid: str
+    people: list[str] | None = None  # None — вернуть участников по умолчанию
+
+
+@app.post("/api/event-people")
+def set_event_people(body: EventPeople):
+    if body.people is not None:
+        known = {p["id"] for p in db.list_people()}
+        unknown = [p for p in body.people if p not in known]
+        if unknown:
+            raise HTTPException(400, f"Неизвестные люди: {', '.join(unknown)}")
+    db.set_event_people(body.uid, body.people)
     events.invalidate()
     return {"ok": True}
 

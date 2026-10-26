@@ -31,5 +31,6 @@ export const api = {
   savePerson: (p) => request('PUT', `/api/people/${encodeURIComponent(p.id)}`, p),
   deletePerson: (id) => request('DELETE', `/api/people/${encodeURIComponent(id)}`),
   saveAccount: (id, username, password) => request('PUT', `/api/accounts/${encodeURIComponent(id)}`, { username, password }),
+  setEventPeople: (uid, people) => request('POST', '/api/event-people', { uid, people }),
   patchCalendar: (key, patch) => request('PATCH', `/api/calendars/${key}`, patch),
 }

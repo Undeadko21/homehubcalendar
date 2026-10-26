@@ -60,6 +60,22 @@ MIGRATIONS: list[str] = [
         updated TEXT NOT NULL
     );
     """,
+    # 2 — несколько владельцев у календаря, участники отдельных событий, слова автопривязки
+    """
+    CREATE TABLE calendar_people (
+        calendar_key TEXT NOT NULL,
+        person_id TEXT NOT NULL,
+        PRIMARY KEY (calendar_key, person_id)
+    );
+    INSERT INTO calendar_people (calendar_key, person_id)
+        SELECT key, person_id FROM calendars WHERE person_id IS NOT NULL;
+    CREATE TABLE event_people (
+        uid TEXT PRIMARY KEY,
+        people TEXT NOT NULL,
+        updated TEXT NOT NULL
+    );
+    ALTER TABLE people ADD COLUMN keywords TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 
@@ -105,10 +121,11 @@ class Database:
     def upsert_person(self, p: dict) -> None:
         with self.tx() as c:
             c.execute(
-                """INSERT INTO people (id, name, color, emoji, sort, hidden)
-                   VALUES (:id, :name, :color, :emoji, :sort, :hidden)
+                """INSERT INTO people (id, name, color, emoji, sort, hidden, keywords)
+                   VALUES (:id, :name, :color, :emoji, :sort, :hidden, :keywords)
                    ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color,
-                   emoji=excluded.emoji, sort=excluded.sort, hidden=excluded.hidden""",
+                   emoji=excluded.emoji, sort=excluded.sort, hidden=excluded.hidden,
+                   keywords=excluded.keywords""",
                 {
                     "id": p["id"],
                     "name": p.get("name", p["id"]),
@@ -116,6 +133,7 @@ class Database:
                     "emoji": p.get("emoji", ""),
                     "sort": int(p.get("sort", 0)),
                     "hidden": int(bool(p.get("hidden", False))),
+                    "keywords": str(p.get("keywords", "") or ""),
                 },
             )
 
@@ -123,14 +141,34 @@ class Database:
         with self.tx() as c:
             c.execute("DELETE FROM people WHERE id=?", (person_id,))
             c.execute("UPDATE calendars SET person_id=NULL WHERE person_id=?", (person_id,))
+            c.execute("DELETE FROM calendar_people WHERE person_id=?", (person_id,))
 
     # ---------- календари ----------
+    def _attach_people(self, rows: list[dict]) -> list[dict]:
+        links: dict[str, list[str]] = {}
+        for r in self.query(
+            """SELECT cp.calendar_key, cp.person_id FROM calendar_people cp
+               LEFT JOIN people p ON p.id = cp.person_id
+               ORDER BY COALESCE(p.sort, 999), cp.person_id"""
+        ):
+            links.setdefault(r["calendar_key"], []).append(r["person_id"])
+        for r in rows:
+            r["people"] = links.get(r["key"], [])
+        return rows
+
     def list_calendars(self) -> list[dict]:
-        return self.query("SELECT * FROM calendars ORDER BY source_id, name")
+        return self._attach_people(self.query("SELECT * FROM calendars ORDER BY source_id, name"))
 
     def get_calendar(self, key: str) -> dict | None:
-        rows = self.query("SELECT * FROM calendars WHERE key=?", (key,))
+        rows = self._attach_people(self.query("SELECT * FROM calendars WHERE key=?", (key,)))
         return rows[0] if rows else None
+
+    @staticmethod
+    def _set_people(c: sqlite3.Connection, key: str, people: list[str]) -> None:
+        c.execute("DELETE FROM calendar_people WHERE calendar_key=?", (key,))
+        c.executemany("INSERT OR IGNORE INTO calendar_people (calendar_key, person_id) VALUES (?,?)",
+                      [(key, p) for p in dict.fromkeys(people) if p])
+        c.execute("UPDATE calendars SET person_id=? WHERE key=?", (people[0] if people else None, key))
 
     def touch_calendar(self, key: str, source_id: str, remote_id: str, name: str, defaults: dict) -> None:
         """Регистрирует календарь, найденный при синхронизации.
@@ -138,34 +176,55 @@ class Database:
         Настройки, заданные пользователем в интерфейсе (configured=1),
         не перезаписываются значениями из config.yaml.
         """
+        people = list(defaults.get("people") or ([defaults["person"]] if defaults.get("person") else []))
         with self.tx() as c:
             row = c.execute("SELECT configured FROM calendars WHERE key=?", (key,)).fetchone()
             if row is None:
                 c.execute(
-                    """INSERT INTO calendars (key, source_id, remote_id, name, person_id, color, hidden, private, last_seen)
-                       VALUES (?,?,?,?,?,?,?,?,?)""",
-                    (key, source_id, remote_id, name, defaults.get("person"), defaults.get("color"),
+                    """INSERT INTO calendars (key, source_id, remote_id, name, color, hidden, private, last_seen)
+                       VALUES (?,?,?,?,?,?,?,?)""",
+                    (key, source_id, remote_id, name, defaults.get("color"),
                      int(bool(defaults.get("hidden"))), int(bool(defaults.get("private"))), now_iso()),
                 )
+                self._set_people(c, key, people)
             elif row["configured"]:
                 c.execute("UPDATE calendars SET name=?, last_seen=? WHERE key=?", (name, now_iso(), key))
             else:
                 c.execute(
-                    """UPDATE calendars SET name=?, person_id=?, color=?, hidden=?, private=?, last_seen=?
+                    """UPDATE calendars SET name=?, color=?, hidden=?, private=?, last_seen=?
                        WHERE key=?""",
-                    (name, defaults.get("person"), defaults.get("color"), int(bool(defaults.get("hidden"))),
+                    (name, defaults.get("color"), int(bool(defaults.get("hidden"))),
                      int(bool(defaults.get("private"))), now_iso(), key),
                 )
+                self._set_people(c, key, people)
 
     def update_calendar(self, key: str, fields: dict) -> None:
-        allowed = {"person_id", "color", "hidden", "private"}
-        sets = {k: v for k, v in fields.items() if k in allowed}
-        if not sets:
-            return
+        fields = dict(fields)
+        if "person_id" in fields and "people" not in fields:  # старый формат API
+            fields["people"] = [fields["person_id"]] if fields["person_id"] else []
+        sets = {k: v for k, v in fields.items() if k in {"color", "hidden", "private"}}
         sets["configured"] = 1
         cols = ", ".join(f"{k}=:{k}" for k in sets)
         with self.tx() as c:
             c.execute(f"UPDATE calendars SET {cols} WHERE key=:key", {**sets, "key": key})
+            if "people" in fields:
+                self._set_people(c, key, list(fields["people"] or []))
+
+    # ---------- участники отдельных событий ----------
+    def event_people(self) -> dict[str, list[str]]:
+        return {r["uid"]: json.loads(r["people"]) for r in self.query("SELECT uid, people FROM event_people")}
+
+    def set_event_people(self, uid: str, people: list[str] | None) -> None:
+        """people=None — вернуть участников по умолчанию (по календарю и словам)."""
+        with self.tx() as c:
+            if people is None:
+                c.execute("DELETE FROM event_people WHERE uid=?", (uid,))
+            else:
+                c.execute(
+                    "INSERT INTO event_people (uid, people, updated) VALUES (?,?,?) "
+                    "ON CONFLICT(uid) DO UPDATE SET people=excluded.people, updated=excluded.updated",
+                    (uid, json.dumps(list(dict.fromkeys(people)), ensure_ascii=False), now_iso()),
+                )
 
     # ---------- объекты ----------
     def replace_objects(self, calendar_key: str, objects: dict[str, str]) -> None:

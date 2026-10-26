@@ -48,8 +48,14 @@
           <input v-model="p.name" class="name" aria-label="Имя" @change="savePerson(p)" />
           <label class="chk"><input v-model="p.hidden" type="checkbox" @change="savePerson(p)" /> скрыть</label>
           <button class="btn icon" :aria-label="'Удалить ' + p.name" @click="removePerson(p)">✕</button>
+          <input v-model="p.keywords" class="keywords" :aria-label="'Слова автопривязки: ' + p.name"
+                 placeholder="Слова для автопривязки через запятую, например: Марк, бассейн, садик"
+                 @change="savePerson(p)" />
         </div>
       </div>
+      <p class="faint small">
+        Если слово встречается в названии события из любого календаря, событие появится и у этого человека.
+      </p>
       <form class="add" @submit.prevent="addPerson">
         <input v-model="newName" placeholder="Имя, например «Бабушка»" aria-label="Имя нового человека" />
         <button class="btn" :disabled="!newName.trim()">Добавить человека</button>
@@ -58,17 +64,20 @@
 
     <section>
       <h2>Календари</h2>
-      <p class="muted">Укажите, чей это календарь. Изменения сохраняются сразу и не сбрасываются при синхронизации.</p>
+      <p class="muted">
+        Отметьте, чьи события в календаре, — можно несколько человек. Изменения сохраняются сразу
+        и не сбрасываются при синхронизации. Участников отдельного события можно поменять в его карточке.
+      </p>
       <div class="table">
         <div v-for="c in editCals" :key="c.key" class="crow" :class="{ hidden: c.hidden }">
           <span class="swatch" :style="{ background: colorOf(c) }"></span>
-          <span class="cname">{{ c.name }}<small class="faint">{{ c.source_id }}</small></span>
-          <select v-model="c.person_id" :aria-label="'Владелец календаря ' + c.name" @change="patch(c, { person_id: c.person_id })">
-            <option :value="null">— без владельца —</option>
-            <option v-for="p in editPeople" :key="p.id" :value="p.id">{{ p.emoji }} {{ p.name }}</option>
-          </select>
-          <label class="chk"><input v-model="c.private" type="checkbox" @change="patch(c, { private: c.private })" /> только «занят»</label>
-          <label class="chk"><input v-model="c.hidden" type="checkbox" @change="patch(c, { hidden: c.hidden })" /> скрыть</label>
+          <span class="cname">{{ c.name }}<small class="faint">{{ c.people.length ? '' : 'нет владельца — события попадут в «Без владельца»' }}</small></span>
+          <div class="flags">
+            <label class="chk"><input v-model="c.private" type="checkbox" @change="patch(c, { private: c.private })" /> только «занят»</label>
+            <label class="chk"><input v-model="c.hidden" type="checkbox" @change="patch(c, { hidden: c.hidden })" /> скрыть</label>
+          </div>
+          <PeoplePicker v-model="c.people" class="owners" :label="'Чей календарь ' + c.name"
+                        @update:model-value="(v) => patch(c, { people: v })" />
         </div>
         <p v-if="!editCals.length" class="muted">Календари появятся после первой синхронизации.</p>
       </div>
@@ -89,6 +98,7 @@
 import { computed, ref, watch } from 'vue'
 import { api } from '../lib/api'
 import { state, reload, syncNow } from '../lib/store'
+import PeoplePicker from '../components/PeoplePicker.vue'
 
 const busy = ref(false)
 const newName = ref('')
@@ -99,14 +109,14 @@ const accounts = ref([])
 
 watch(() => state.config, (c) => {
   editPeople.value = (c?.people || []).filter((p) => !p.id.startsWith('_')).map((p) => ({ ...p, hidden: !!p.hidden }))
-  editCals.value = (c?.calendars || []).map((x) => ({ ...x, hidden: !!x.hidden, private: !!x.private }))
+  editCals.value = (c?.calendars || []).map((x) => ({ ...x, people: [...(x.people || [])], hidden: !!x.hidden, private: !!x.private }))
   const prev = Object.fromEntries(accounts.value.map((a) => [a.id, a]))
   accounts.value = (c?.accounts || []).map((a) => ({ ...a, password: '', busy: false, result: prev[a.id]?.result || null }))
 }, { immediate: true })
 
 const kioskUrl = computed(() => `${location.origin}/?kiosk&view=today`)
 const fmt = (s) => new Date(s).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-const colorOf = (c) => editPeople.value.find((p) => p.id === c.person_id)?.color || c.color || '#8a94a6'
+const colorOf = (c) => editPeople.value.find((p) => p.id === c.people[0])?.color || c.color || '#8a94a6'
 
 async function sync() {
   busy.value = true
@@ -127,11 +137,11 @@ async function saveAccount(acc) {
   }
 }
 async function savePerson(p) {
-  await api.savePerson({ ...p, hidden: !!p.hidden, sort: Number(p.sort) || 0 })
+  await api.savePerson({ ...p, hidden: !!p.hidden, sort: Number(p.sort) || 0, keywords: p.keywords || '' })
   await reload()
 }
 async function removePerson(p) {
-  if (!confirm(`Удалить «${p.name}»? Его календари останутся без владельца.`)) return
+  if (!confirm(`Удалить «${p.name}»? Его календари и события останутся у других владельцев или без владельца.`)) return
   await api.deletePerson(p.id)
   await reload()
 }
@@ -139,7 +149,7 @@ async function addPerson() {
   const name = newName.value.trim()
   const id = translit(name) || 'p' + Date.now()
   const palette = ['#4f7cff', '#e0457b', '#22a06b', '#e8a400', '#b45cf0', '#0fa5b5', '#f2643d']
-  await api.savePerson({ id, name, color: palette[editPeople.value.length % palette.length], emoji: '', sort: editPeople.value.length, hidden: false })
+  await api.savePerson({ id, name, color: palette[editPeople.value.length % palette.length], emoji: '', sort: editPeople.value.length, hidden: false, keywords: '' })
   newName.value = ''
   await reload()
 }
@@ -176,7 +186,10 @@ input[type='color'] { width: 38px; height: 34px; border: 1px solid var(--line); 
 .add { display: flex; gap: 8px; flex-wrap: wrap; }
 .add input { flex: 1; min-width: 200px; }
 .table { display: flex; flex-direction: column; gap: 4px; }
-.crow { display: grid; grid-template-columns: 12px minmax(140px, 1fr) minmax(150px, 200px) auto auto; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.crow { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 6px 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.crow .owners { grid-column: 2 / -1; }
+.flags { display: flex; gap: 12px; flex-wrap: wrap; }
+.keywords { flex-basis: 100%; font-size: 14px; }
 .crow.hidden .cname { color: var(--ink-3); text-decoration: line-through; }
 .swatch { width: 12px; height: 12px; border-radius: 50%; }
 .cname { display: flex; flex-direction: column; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
@@ -186,6 +199,6 @@ input[type='color'] { width: 38px; height: 34px; border: 1px solid var(--line); 
 @media (max-width: 760px) {
   .settings { padding: 12px 12px 36px; }
   .crow { grid-template-columns: 12px 1fr; }
-  .crow select, .crow .chk { grid-column: 2; }
+  .crow .flags, .crow .owners { grid-column: 2; }
 }
 </style>

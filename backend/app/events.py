@@ -54,33 +54,47 @@ class EventService:
         for cal in self.db.list_calendars():
             if cal["hidden"]:
                 continue
-            person_id = cal["person_id"] if cal["person_id"] in people else UNASSIGNED
-            if person_id != UNASSIGNED and people[person_id]["hidden"]:
-                continue
+            owners = [pid for pid in cal["people"] if pid in people]
             for ics in self.db.objects_for(cal["key"]):
                 for occ in expand_ics(ics, start, end, self.tz):
                     d = occ.to_dict()
                     d["calendar"] = cal["key"]
-                    d["person"] = person_id
+                    d["owners"] = owners
                     d["cal_private"] = bool(cal["private"])
                     raw.append(d)
-        return self._merge(raw)
+        return self._merge(raw, people, self.db.event_people())
 
-    def _merge(self, raw: list[dict]) -> list[dict]:
-        """Склейка дублей.
+    def _merge(self, raw: list[dict], people: dict[str, dict] | None = None,
+               overrides: dict[str, list[str]] | None = None) -> list[dict]:
+        """Склейка дублей и определение, чьё это событие.
 
-        1) Точная: одинаковые UID и время начала (приглашение, которое лежит
-           в календарях нескольких людей).
-        2) Нечёткая (dedup.fuzzy): одинаковые название, начало и конец в разных
-           календарях — когда событие вручную скопировали.
+        Склейка:
+        1) точная — одинаковые UID и время начала (приглашение, которое лежит
+           в календарях нескольких людей);
+        2) нечёткая (dedup.fuzzy) — одинаковые название, начало и конец в разных
+           календарях (событие скопировали вручную).
+
+        Чьё событие (по приоритету):
+        1) участники, выбранные вручную в карточке события (по UID, на все повторы);
+        2) иначе владельцы всех календарей, где лежит событие,
+           плюс люди, чьи слова автопривязки встречаются в названии.
+        Скрытые люди убираются; событие без людей попадает в «Без владельца».
         """
+        people = people or {}
+        overrides = overrides or {}
+        keywords = {
+            pid: [w.strip().lower() for w in (p.get("keywords") or "").split(",") if w.strip()]
+            for pid, p in people.items()
+        }
+
         merged: dict[str, dict] = {}
         for e in raw:
             k = _event_id("uid", e["uid"], e["start"])
-            merged.setdefault(k, {**e, "people": [], "calendars": [], "_priv": []})
+            merged.setdefault(k, {**e, "owners": [], "calendars": [], "uids": [], "_priv": []})
             m = merged[k]
-            m["people"].append(e["person"])
+            m["owners"] += e["owners"]
             m["calendars"].append(e["calendar"])
+            m["uids"].append(e["uid"])
             m["_priv"].append(e["cal_private"] or (self.respect_event_class and e["private"]))
 
         if self.fuzzy_dedup:
@@ -90,21 +104,33 @@ class EventService:
                 sig = (_norm_title(m["title"]), m["start"], m["end"])
                 if sig in by_sig and not set(merged[by_sig[sig]]["calendars"]) & set(m["calendars"]):
                     target = merged[by_sig[sig]]
-                    target["people"] += m["people"]
-                    target["calendars"] += m["calendars"]
-                    target["_priv"] += m["_priv"]
+                    for f in ("owners", "calendars", "uids", "_priv"):
+                        target[f] += m[f]
                     del merged[k]
                 else:
                     by_sig.setdefault(sig, k)
 
         out = []
         for k, m in merged.items():
+            uids = list(dict.fromkeys(m.pop("uids")))
+            override = next((overrides[u] for u in uids if u in overrides), None)
+            if override is not None:
+                assigned = list(override)
+            else:
+                title = m["title"].lower()
+                auto = [pid for pid, words in keywords.items() if any(w in title for w in words)]
+                assigned = list(m["owners"]) + auto
+            assigned = [pid for pid in dict.fromkeys(assigned) if pid in people]
+            visible = [pid for pid in assigned if not people[pid].get("hidden")]
+            if assigned and not visible:
+                continue  # событие только скрытых людей
+            m["people"] = visible or [UNASSIGNED]
+            m["people_override"] = override is not None
+
             # Событие приватно, только если оно приватно во всех копиях.
             private = all(m.pop("_priv"))
-            m.pop("cal_private", None)
-            m.pop("calendar", None)
-            m.pop("person", None)
-            m["people"] = list(dict.fromkeys(m["people"]))
+            for f in ("cal_private", "calendar", "owners"):
+                m.pop(f, None)
             m["calendars"] = list(dict.fromkeys(m["calendars"]))
             m["id"] = k
             m["private"] = private

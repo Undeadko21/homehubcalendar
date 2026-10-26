@@ -99,6 +99,7 @@ def test_recurrence_exdate_and_override():
 def test_allday_private_cancelled():
     occ = {o.uid: o for o in expand_ics(ALLDAY, *rng(), TZ)}
     assert "cancel@test" not in occ
+    assert not any(o.recurring for o in occ.values())  # разовые события не «повторяются»
     trip = occ["trip@test"]
     assert trip.all_day and trip.start == "2026-10-30" and trip.end == "2026-11-02"
     assert occ["secret@test"].private
@@ -111,10 +112,12 @@ def db(tmp_path):
     return Database(tmp_path / "t.sqlite3")
 
 
-def _setup(db, objects_by_cal: dict[str, tuple[str, list[str]]]):
+def _setup(db, objects_by_cal: dict[str, tuple[str | list[str], list[str]]]):
     for key, (person, objs) in objects_by_cal.items():
-        db.upsert_person({"id": person, "name": person})
-        db.touch_calendar(key, "s", key, key, {"person": person})
+        owners = [person] if isinstance(person, str) else person
+        for pid in owners:
+            db.upsert_person({"id": pid, "name": pid})
+        db.touch_calendar(key, "s", key, key, {"people": owners})
         db.replace_objects(key, {str(i): o for i, o in enumerate(objs)})
 
 
@@ -148,15 +151,20 @@ def test_private_masked_and_hidden(db):
 
 def test_ui_settings_survive_resync(db):
     db.touch_calendar("s/work", "s", "work", "Работа", {"person": "dad"})
-    db.update_calendar("s/work", {"person_id": "mom"})
+    assert db.get_calendar("s/work")["people"] == ["dad"]
+    db.update_calendar("s/work", {"people": ["mom", "dad"]})
     db.touch_calendar("s/work", "s", "work", "Работа", {"person": "dad"})
-    assert db.get_calendar("s/work")["person_id"] == "mom"
+    assert sorted(db.get_calendar("s/work")["people"]) == ["dad", "mom"]
+    db.update_calendar("s/work", {"person_id": "mom"})  # старый формат API
+    assert db.get_calendar("s/work")["people"] == ["mom"]
 
 
 def test_calendar_rules():
     cfg = {"person": "dad", "calendars": [{"match": "семья", "person": "family", "color": "#123456"}]}
-    assert calendar_defaults(cfg, "Семья", None)["person"] == "family"
-    assert calendar_defaults(cfg, "Работа", "#abcdef")["person"] == "dad"
+    assert calendar_defaults(cfg, "Семья", None)["people"] == ["family"]
+    assert calendar_defaults(cfg, "Работа", "#abcdef")["people"] == ["dad"]
+    cfg2 = {"calendars": [{"match": "цыган", "people": ["olya", "tolya"]}]}
+    assert calendar_defaults(cfg2, "Цыганская семья", None)["people"] == ["olya", "tolya"]
     assert calendar_defaults(cfg, "Работа", "#abcdef")["color"] == "#abcdef"
 
 
@@ -167,7 +175,7 @@ def test_sync_from_ics_file(db, tmp_path):
     engine.seed_people([])
     report = engine.run()
     assert report["file"]["ok"]
-    assert db.list_calendars()[0]["person_id"] == "kid"
+    assert db.list_calendars()[0]["people"] == ["kid"]
     assert len(EventService(db, TZ).events(*rng())) == 5
 
 
@@ -195,3 +203,53 @@ def test_ui_credentials_override_empty_config(db):
     # пустой пароль при повторном сохранении не стирает прежний
     engine.set_credentials("yandex", "me@yandex.ru", "")
     assert engine.effective_config(engine.sources[0])["password"] == "secret"
+
+
+def test_multiple_owners_keywords_and_override(db):
+    pool = ev("pool@test", "Бассейн Марк", "20261028T180000", "20261028T190000")
+    dinner = ev("dinner@test", "Ужин", "20261029T180000", "20261029T190000")
+    _setup(db, {"family": (["olya", "tolya"], [pool, dinner])})
+    db.upsert_person({"id": "mark", "name": "Марк", "keywords": "марк, садик"})
+    svc = EventService(db, TZ)
+    by_uid = {i["uid"]: i for i in svc.events(*rng())}
+    assert by_uid["dinner@test"]["people"] == ["olya", "tolya"]
+    assert by_uid["pool@test"]["people"] == ["olya", "tolya", "mark"]  # слово «марк» в названии
+    assert not by_uid["pool@test"]["people_override"]
+
+    # Ручной выбор участников важнее календаря и слов
+    db.set_event_people("dinner@test", ["mark", "olya"])
+    svc.invalidate()
+    by_uid = {i["uid"]: i for i in svc.events(*rng())}
+    assert by_uid["dinner@test"]["people"] == ["mark", "olya"] and by_uid["dinner@test"]["people_override"]
+
+    # Скрытый человек убирается, а событие только скрытых людей не показывается
+    db.upsert_person({"id": "olya", "name": "olya", "hidden": True})
+    db.set_event_people("pool@test", ["olya"])
+    svc.invalidate()
+    by_uid = {i["uid"]: i for i in svc.events(*rng())}
+    assert by_uid["dinner@test"]["people"] == ["mark"]
+    assert "pool@test" not in by_uid
+
+    # Сброс возвращает участников по умолчанию
+    db.set_event_people("pool@test", None)
+    db.upsert_person({"id": "olya", "name": "olya", "hidden": False})
+    svc.invalidate()
+    by_uid = {i["uid"]: i for i in svc.events(*rng())}
+    assert by_uid["pool@test"]["people"] == ["olya", "tolya", "mark"]
+
+
+def test_migration_from_v1_keeps_owner(tmp_path):
+    import sqlite3
+    from app.db import MIGRATIONS
+    path = tmp_path / "old.sqlite3"
+    conn = sqlite3.connect(path)
+    conn.executescript(MIGRATIONS[0])
+    conn.execute("PRAGMA user_version = 1")
+    conn.execute("INSERT INTO people (id, name) VALUES ('mark', 'Марк')")
+    conn.execute("INSERT INTO calendars (key, source_id, remote_id, name, person_id, configured) "
+                 "VALUES ('y/1', 'y', '1', 'Марк', 'mark', 1)")
+    conn.commit()
+    conn.close()
+    db = Database(path)
+    assert db.get_calendar("y/1")["people"] == ["mark"]
+    assert db.list_people()[0]["keywords"] == ""
