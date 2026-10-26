@@ -22,8 +22,11 @@ def _event_id(*parts: str) -> str:
 
 
 class EventService:
-    def __init__(self, db: Database, tz: ZoneInfo, fuzzy_dedup: bool = True):
+    def __init__(self, db: Database, tz: ZoneInfo, fuzzy_dedup: bool = True, respect_event_class: bool = False):
         self.db = db
+        # Яндекс помечает CLASS:PRIVATE почти все события собственных календарей,
+        # поэтому по умолчанию детали скрывает только флаг календаря «только занят».
+        self.respect_event_class = respect_event_class
         self.tz = tz
         self.fuzzy_dedup = fuzzy_dedup
         self._cache: dict[tuple, list[dict]] = {}
@@ -78,7 +81,7 @@ class EventService:
             m = merged[k]
             m["people"].append(e["person"])
             m["calendars"].append(e["calendar"])
-            m["_priv"].append(e["private"] or e["cal_private"])
+            m["_priv"].append(e["cal_private"] or (self.respect_event_class and e["private"]))
 
         if self.fuzzy_dedup:
             by_sig: dict[tuple, str] = {}

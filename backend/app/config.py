@@ -44,6 +44,7 @@ class Settings:
     holidays: dict = field(default_factory=lambda: {"provider": "isdayoff", "country": "ru"})
     weather: dict = field(default_factory=dict)
     dedup: dict = field(default_factory=lambda: {"fuzzy": True})
+    privacy: dict = field(default_factory=lambda: {"respect_event_class": False})
     pin: str = ""
 
     @property
@@ -68,6 +69,7 @@ def load_settings(path: str | os.PathLike | None = None) -> Settings:
         holidays=raw.get("holidays") or {"provider": "isdayoff", "country": "ru"},
         weather=raw.get("weather") or {},
         dedup=raw.get("dedup") or {"fuzzy": True},
+        privacy=raw.get("privacy") or {"respect_event_class": False},
         pin=os.environ.get("HOMECAL_PIN", str(raw.get("pin", "") or "")),
     )
     settings.data_dir.mkdir(parents=True, exist_ok=True)

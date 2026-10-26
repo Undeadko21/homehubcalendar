@@ -132,9 +132,16 @@ def test_dedup_exact_and_fuzzy(db):
 
 def test_private_masked_and_hidden(db):
     _setup(db, {"kid": ("kid", [ALLDAY])})
+    # CLASS:PRIVATE у события по умолчанию не скрывает детали (Яндекс ставит его почти везде)
     items = EventService(db, TZ).events(*rng())
-    secret = [i for i in items if i["uid"] == "secret@test"][0]
-    assert secret["title"] == "Занят" and secret["description"] == ""
+    assert [i for i in items if i["uid"] == "secret@test"][0]["title"] == "Сюрприз"
+    # …но учитывается, если включить privacy.respect_event_class
+    items = EventService(db, TZ, respect_event_class=True).events(*rng())
+    assert [i for i in items if i["uid"] == "secret@test"][0]["title"] == "Занят"
+    # галочка «только занят» у календаря скрывает всё
+    db.update_calendar("kid", {"private": True})
+    items = EventService(db, TZ).events(*rng())
+    assert all(i["title"] == "Занят" and i["description"] == "" for i in items)
     db.update_calendar("kid", {"hidden": True})
     assert EventService(db, TZ).events(*rng()) == []
 

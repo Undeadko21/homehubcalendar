@@ -20,7 +20,7 @@
       </p>
       <p v-if="e.url" class="row"><span class="k">Ссылка</span><a :href="e.url" target="_blank" rel="noopener">{{ e.url }}</a></p>
       <p v-if="e.description" class="desc">{{ e.description }}</p>
-      <p v-if="e.private" class="faint">Детали скрыты: событие отмечено как личное.</p>
+      <p v-if="e.private" class="faint">Детали скрыты: у этого календаря в настройках включено «только занят».</p>
       <p class="faint src">Календари: {{ calNames }}</p>
     </section>
   </div>
