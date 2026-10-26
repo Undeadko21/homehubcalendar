@@ -98,7 +98,7 @@ const tomorrow = computed(() =>
 const trips = computed(() =>
   events.value
     .filter((e) => e.escort && !e.all_day && eventRange(e).end > now.value)
-    .filter((e) => ['dropoff', 'pickup'].some((r) => !e.escort[r].skip))
+    .filter((e) => e.escort.mode === 'escort' && ['dropoff', 'pickup'].some((r) => !e.escort[r].skip))
     .map((e) => {
       const r = eventRange(e)
       const issue = e.escort_issue

@@ -42,7 +42,7 @@
 
       <!-- Кто отвозит / забирает -->
       <template v-if="e.escort">
-        <h3 class="group-title">Отвезти и забрать: {{ childNames }}</h3>
+        <h3 class="group-title">Как добирается {{ childNames }}</h3>
         <div class="group">
           <div v-if="e.recurring" class="row">
             <div class="seg scope" role="tablist" aria-label="Как применить">
@@ -50,7 +50,23 @@
               <button :class="{ on: scope === 'once' }" @click="scope = 'once'">Только {{ shortDay }}</button>
             </div>
           </div>
-          <div v-for="role in ROLES" :key="role.id" class="row stack">
+          <div class="row stack">
+            <div class="seg modes" role="radiogroup" aria-label="Как добирается">
+              <button v-for="m in MODES" :key="m.id" role="radio" :aria-checked="e.escort.mode === m.id"
+                      :class="{ on: e.escort.mode === m.id }" :disabled="saving" @click="setMode(m.id)">{{ m.label }}</button>
+            </div>
+            <p class="hint muted">
+              <template v-if="e.escort.mode === 'together'">Едут все вместе — выбирать, кто везёт, не нужно.</template>
+              <template v-else-if="e.escort.mode === 'home'">Событие дома — везти никуда не нужно.</template>
+              <template v-else>Кто-то отвозит и забирает — выберите кто ниже.</template>
+              <template v-if="e.escort.mode_auto && e.escort.mode_reason"> Определено само: {{ e.escort.mode_reason }}.</template>
+              <template v-if="!e.escort.mode_auto">
+                Выбрано вручную{{ e.escort.mode_scope === 'once' ? ' на этот день' : '' }}.
+                <button class="btn link inline" :disabled="saving" @click="resetMode">Определять само</button>
+              </template>
+            </p>
+          </div>
+          <div v-for="role in (e.escort.mode === 'escort' ? ROLES : [])" :key="role.id" class="row stack">
             <div class="row-head">
               <span class="label">{{ role.label }} <span class="faint win">{{ windowText(role.id) }}</span></span>
               <button v-if="e.escort[role.id].scope === 'once'" class="btn link" :disabled="saving"
@@ -83,7 +99,7 @@
             </p>
           </div>
         </div>
-        <p class="group-note">
+        <p v-if="e.escort.mode === 'escort'" class="group-note">
           Учитывается {{ escortCfg.before_minutes }} мин до начала и {{ escortCfg.after_minutes }} мин после конца.
           Поменять можно в настройках.
         </p>
@@ -115,6 +131,11 @@ import { api } from '../lib/api'
 import PeoplePicker from './PeoplePicker.vue'
 import Sheet from './Sheet.vue'
 
+const MODES = [
+  { id: 'escort', label: 'Отвозят' },
+  { id: 'together', label: 'Все вместе' },
+  { id: 'home', label: 'Дома' },
+]
 const ROLES = [
   { id: 'dropoff', label: 'Отвезти' },
   { id: 'pickup', label: 'Забрать' },
@@ -193,6 +214,15 @@ function setEscort(role, person, forceScope) {
   return run(() => api.setEscort(e.value.uid, sc === 'once' ? e.value.start : null, role, person))
 }
 
+// «Как добирается»: с учётом выбранного «Всегда / Только этот день».
+function setMode(mode) {
+  return setEscort('mode', mode)
+}
+function resetMode() {
+  const sc = e.value.escort.mode_scope || 'series'
+  return run(() => api.setEscort(e.value.uid, sc === 'once' ? e.value.start : null, 'mode', null))
+}
+
 function close() { state.selected = null }
 </script>
 
@@ -220,7 +250,9 @@ h2 { flex: 1; margin: 0; font-size: 22px; line-height: 1.2; font-weight: 700; le
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .group-title { margin: 22px 4px 6px; }
 .group-note { margin: 6px 4px 0; }
-.scope { width: 100%; }
+.scope, .modes { width: 100%; }
+.modes button { flex: 1; }
+.btn.link.inline { padding: 0; font-size: 13px; vertical-align: baseline; }
 .scope button { flex: 1; }
 
 .choices { display: flex; flex-wrap: wrap; gap: 6px; }

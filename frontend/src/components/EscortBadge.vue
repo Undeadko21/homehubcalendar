@@ -1,5 +1,7 @@
 <template>
   <span class="escort" :class="e.escort_issue || 'ok'">
+    <span v-if="e.escort.mode === 'home'" class="role mode">⌂ дома</span>
+    <span v-else-if="e.escort.mode === 'together'" class="role mode">все вместе</span>
     <span v-for="r in roles" :key="r.role" class="role" :class="{ bad: r.conflict, none: r.missing }" :title="r.title">
       <span class="dir" aria-hidden="true">{{ r.role === 'dropoff' ? '→' : '←' }}</span>
       {{ r.label }}
@@ -36,6 +38,7 @@ const roles = computed(() =>
 .role { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .dir { font-weight: 700; }
 .role.none { color: var(--warn); }
+.role.mode { font-weight: 500; }
 .role.bad { color: var(--red); }
 .role.bad::after { content: '!'; display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: var(--red); color: #fff; font-size: 10px; margin-left: 2px; }
 </style>

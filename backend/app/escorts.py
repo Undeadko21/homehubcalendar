@@ -8,13 +8,34 @@
 
 Конфликт: у назначенного взрослого в окне есть другое занятое событие
 (со временем, не «свободен») или другая поездка.
+
+Как добирается (role='mode', значения escort | together | home):
+  escort   — кто-то отвозит и забирает (роли выше);
+  together — едут все вместе, выбирать водителя не нужно;
+  home     — событие дома, везти не нужно.
+Если не задано вручную, определяется само: «дома» — по словам в названии/месте
+или домашнему адресу; «вместе» — если среди участников есть взрослый.
 """
 from __future__ import annotations
+
+import re
 
 from datetime import datetime, timedelta
 
 ROLES = ("dropoff", "pickup")
 SKIP = "-"
+MODES = ("escort", "together", "home")
+
+
+def _home_match(e: dict, words: list[str], address: str) -> str | None:
+    """Почему событие «дома» (или None). Слова ищутся целиком, без учёта регистра."""
+    text = f"{e.get('title', '')} {e.get('location', '')}".lower()
+    for w in words:
+        if w and re.search(rf"(?<!\w){re.escape(w.lower())}(?!\w)", text):
+            return f"в названии или месте есть «{w}»"
+    if address and address.lower() in (e.get("location") or "").lower():
+        return "место совпадает с домашним адресом"
+    return None
 
 
 def _dt(s: str) -> datetime:
@@ -26,7 +47,8 @@ def _overlaps(a0: datetime, a1: datetime, b0: datetime, b1: datetime) -> bool:
 
 
 def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tuple[str, str, str], str],
-             before_min: int = 30, after_min: int = 30) -> None:
+             before_min: int = 30, after_min: int = 30,
+             home_words: list[str] | None = None, home_address: str = "") -> None:
     """Добавляет каждому событию ребёнка поле escort и уровень проблемы escort_issue."""
     children = {pid for pid, p in people.items() if p.get("needs_escort")}
     adults = [pid for pid, p in people.items() if not p.get("needs_escort") and not p.get("hidden")]
@@ -51,16 +73,42 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
         if not kids or e["all_day"]:
             continue
         s, en = _dt(e["start"]), _dt(e["end"])
-        info: dict = {"children": kids}
+
+        # Как добирается: ручной выбор (на день или на серию) или автоматически.
+        m_once = assignments.get((e["uid"], e["start"], "mode"))
+        m_series = assignments.get((e["uid"], "*", "mode"))
+        manual = m_once if m_once in MODES else (m_series if m_series in MODES else None)
+        grown = [pid for pid in e["people"] if pid in people and pid not in children]
+        home_reason = _home_match(e, home_words or [], home_address)
+        if manual:
+            mode, reason = manual, None
+        elif home_reason:
+            mode, reason = "home", home_reason
+        elif grown:
+            names = ", ".join(people[g].get("name", g) for g in grown)
+            mode, reason = "together", f"в событии участвует {names}"
+        else:
+            mode, reason = "escort", None
+
+        info: dict = {
+            "children": kids,
+            "mode": mode,
+            "mode_auto": manual is None,
+            "mode_reason": reason,
+            "mode_scope": "once" if m_once in MODES else ("series" if m_series in MODES else None),
+        }
         for role in ROLES:
             w0, w1 = (s - before, s) if role == "dropoff" else (en, en + after)
             once = assignments.get((e["uid"], e["start"], role))
             series = assignments.get((e["uid"], "*", role))
             value = once if once is not None else series
             person = value if value and value != SKIP and value in people else None
+            skip = value == SKIP or mode != "escort"
+            if mode != "escort":
+                person = None
             info[role] = {
                 "person": person,
-                "skip": value == SKIP,
+                "skip": skip,
                 "scope": "once" if once is not None else ("series" if series is not None else None),
                 "series_person": series if series and series != SKIP else None,
                 "window": [w0.isoformat(), w1.isoformat()],

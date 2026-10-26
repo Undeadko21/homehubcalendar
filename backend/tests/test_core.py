@@ -346,3 +346,44 @@ def test_free_time(db):
     # Только Толя — свободен почти весь день, кроме поездки
     day = find_free(items, ["tolya"], date(2026, 10, 27), date(2026, 10, 28), TZ, time(8), time(22), 60)[0]
     assert [(w["start"][11:16], w["end"][11:16]) for w in day["windows"]] == [("08:00", "16:30"), ("17:00", "22:00")]
+
+
+def test_escort_modes_auto_and_manual(db):
+    _family(db)
+    # «Цыганская семья»: Оля + Толя, туда же Марк по слову автопривязки
+    db.touch_calendar("fam", "s", "fam", "fam", {"people": ["olya", "tolya"]})
+    db.replace_objects("fam", {
+        "0": ev("zoo@test", "Зоопарк с Марком", "20261031T110000", "20261031T140000"),
+        "1": ev("bday@test", "ДР Марка дома", "20261101T150000", "20261101T180000"),
+    })
+    db.upsert_person({"id": "mark", "name": "Марк", "needs_escort": True, "keywords": "марк"})
+    svc = EventService(db, TZ)
+    by_uid = {i["uid"]: i for i in svc.events(*rng())}
+
+    zoo = by_uid["zoo@test"]["escort"]
+    assert zoo["mode"] == "together" and zoo["mode_auto"] and "участвует" in zoo["mode_reason"]
+    assert zoo["dropoff"]["skip"] and by_uid["zoo@test"]["escort_issue"] is None
+
+    bday = by_uid["bday@test"]["escort"]
+    assert bday["mode"] == "home" and "дома" in bday["mode_reason"]
+
+    pool = _by_start(svc.events(*rng()), "pool@test")["2026-10-27"]
+    assert pool["escort"]["mode"] == "escort" and pool["escort_issue"] == "unassigned"
+
+    # Вручную: бассейн во вторник — «все вместе», зоопарк — всё-таки отвозят
+    db.set_escort("pool@test", pool["start"], "mode", "together")
+    db.set_escort("zoo@test", "*", "mode", "escort")
+    svc.invalidate()
+    items = svc.events(*rng())
+    pools = _by_start(items, "pool@test")
+    assert pools["2026-10-27"]["escort"]["mode"] == "together" and not pools["2026-10-27"]["escort"]["mode_auto"]
+    assert pools["2026-10-29"]["escort"]["mode"] == "escort"  # разовая замена не задела четверг
+    zoo = next(i for i in items if i["uid"] == "zoo@test")
+    assert zoo["escort"]["mode"] == "escort" and zoo["escort_issue"] == "unassigned"
+
+
+def test_home_address_and_whole_words():
+    from app.escorts import _home_match
+    assert _home_match({"title": "Ужин дома"}, ["дома"], "") is not None
+    assert _home_match({"title": "Дом культуры", "location": ""}, ["дома"], "") is None
+    assert _home_match({"title": "Гости", "location": "ул. Ленина, 5, кв 3"}, ["дома"], "ленина, 5") is not None

@@ -69,10 +69,20 @@
         <span class="lbl">Забрать: минут после конца</span>
         <input v-model.number="escort.after_minutes" class="num" type="number" min="0" max="240" step="5" @change="saveEscort" />
       </label>
+      <label class="row">
+        <span class="lbl">Слова «дома»</span>
+        <input v-model="escort.home_words" class="inline" placeholder="дома" @change="saveEscort" />
+      </label>
+      <label class="row">
+        <span class="lbl">Домашний адрес</span>
+        <input v-model="escort.home_address" class="inline" placeholder="например: Ленина, 5" @change="saveEscort" />
+      </label>
     </div>
     <p class="group-note">
       Столько времени взрослый должен быть свободен, чтобы отвезти или забрать ребёнка: в эти минуты
       проверяются конфликты. Кто отвозит, назначается в карточке события ребёнка.
+      Событие считается «дома», если в названии или месте есть одно из слов (через запятую) или
+      адрес; «все вместе» — если в нём участвует кто-то из взрослых. Это всегда можно поменять в карточке.
     </p>
 
     <!-- Календари -->
@@ -181,7 +191,7 @@ const editPeople = ref([])
 const editCals = ref([])
 const accounts = ref([])
 const editing = ref(null)
-const escort = reactive({ before_minutes: 30, after_minutes: 30 })
+const escort = reactive({ before_minutes: 30, after_minutes: 30, home_words: 'дома', home_address: '' })
 
 watch(() => state.config, (c) => {
   editPeople.value = (c?.people || []).filter((p) => !p.id.startsWith('_'))
@@ -241,7 +251,12 @@ async function addPerson() {
   await reload()
 }
 async function saveEscort() {
-  await api.saveEscortSettings({ before_minutes: Number(escort.before_minutes) || 0, after_minutes: Number(escort.after_minutes) || 0 })
+  await api.saveEscortSettings({
+    before_minutes: Number(escort.before_minutes) || 0,
+    after_minutes: Number(escort.after_minutes) || 0,
+    home_words: escort.home_words || '',
+    home_address: escort.home_address || '',
+  })
   await reload()
 }
 async function patch(c, fields) {

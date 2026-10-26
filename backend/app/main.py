@@ -226,15 +226,19 @@ def set_event_people(body: EventPeople):
 class EscortIn(BaseModel):
     uid: str
     occurrence: str | None = None  # время начала вхождения; None — вся серия
-    role: str                      # dropoff | pickup
-    person: str | None = None      # id взрослого, '-' — не нужно, None — снять назначение
+    role: str                      # dropoff | pickup | mode
+    person: str | None = None      # id взрослого, '-' — не нужно, None — снять назначение;
+                                   # для role=mode: escort | together | home | None (автоматически)
 
 
 @app.post("/api/escort")
 def set_escort(body: EscortIn):
-    if body.role not in ("dropoff", "pickup"):
-        raise HTTPException(400, "role: dropoff или pickup")
-    if body.person not in (None, "-") and body.person not in {p["id"] for p in db.list_people()}:
+    if body.role not in ("dropoff", "pickup", "mode"):
+        raise HTTPException(400, "role: dropoff, pickup или mode")
+    if body.role == "mode":
+        if body.person not in (None, "escort", "together", "home"):
+            raise HTTPException(400, "mode: escort, together или home")
+    elif body.person not in (None, "-") and body.person not in {p["id"] for p in db.list_people()}:
         raise HTTPException(400, "Неизвестный человек")
     # Разовые замены важнее назначения на серию и при его смене сохраняются.
     db.set_escort(body.uid, body.occurrence or "*", body.role, body.person)
@@ -245,13 +249,15 @@ def set_escort(body: EscortIn):
 class EscortSettings(BaseModel):
     before_minutes: int = 30
     after_minutes: int = 30
+    home_words: str = "дома"   # через запятую; событие с таким словом — «дома»
+    home_address: str = ""     # часть адреса: событие в этом месте — «дома»
 
 
 @app.put("/api/settings/escort")
 def put_escort_settings(body: EscortSettings):
     if not (0 <= body.before_minutes <= 240 and 0 <= body.after_minutes <= 240):
         raise HTTPException(400, "От 0 до 240 минут")
-    db.kv_set("settings:escort", body.model_dump())
+    db.kv_set("settings:escort", {**events.escort_settings(), **body.model_dump(exclude_unset=True)})
     events.invalidate()
     return {"ok": True}
 

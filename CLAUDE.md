@@ -25,6 +25,9 @@
   (`escorts`: uid + occurrence ('*' — серия, иначе время начала) + role; '-' — не нужно).
   `escorts.py` считает окна (настройка `kv settings:escort`), конфликты и кто свободен;
   `EventService.events` строит ленту с запасом ±1 день, чтобы конфликты на границах считались.
+  «Как добирается» (`escorts` role='mode': escort | together | home): вручную или само —
+  «дома» по словам/адресу из `settings:escort` (home_words, home_address), «вместе» — если
+  среди участников есть взрослый. При together/home роли пропускаются, конфликтов нет.
 - Свободное время: `freetime.py` — объединение занятости выбранных людей (+ их поездки).
 - Настройки из UI (`configured=1`) важнее правил из config.yaml и не перетираются синхронизацией.
 
@@ -45,7 +48,7 @@
 
 API: `GET /api/config`, `GET /api/events?start&end`, `GET /api/holidays?start&end`,
 `GET /api/status`, `POST /api/sync`, `PUT|DELETE /api/people/{id}`, `PATCH /api/calendars/{key}`,
-`POST /api/event-people {uid, people|null}`, `POST /api/escort {uid, occurrence|null, role, person|'-'|null}`,
+`POST /api/event-people {uid, people|null}`, `POST /api/escort {uid, occurrence|null, role (dropoff|pickup|mode), person|'-'|mode|null}`,
 `PUT /api/settings/escort`, `GET /api/free?people&start&end&day_from&day_to&min_minutes&all_day`, `PUT /api/accounts/{source_id}` (логин/пароль CalDAV из интерфейса, хранятся в `kv` как `auth:<id>`, важнее пустых значений из config.yaml).
 Время в запросах без пояса трактуется в поясе из config.yaml.
 

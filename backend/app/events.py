@@ -11,7 +11,7 @@ from . import escorts
 from .db import Database
 from .expand import expand_ics
 
-ESCORT_DEFAULTS = {"before_minutes": 30, "after_minutes": 30}
+ESCORT_DEFAULTS = {"before_minutes": 30, "after_minutes": 30, "home_words": "дома", "home_address": ""}
 
 UNASSIGNED = "_unassigned"
 
@@ -57,7 +57,9 @@ class EventService:
         wide = self._build(start - timedelta(days=1), end + timedelta(days=1))
         people = {p["id"]: p for p in self.db.list_people()}
         cfg = self.escort_settings()
-        escorts.annotate(wide, people, self.db.escorts(), cfg["before_minutes"], cfg["after_minutes"])
+        escorts.annotate(wide, people, self.db.escorts(), cfg["before_minutes"], cfg["after_minutes"],
+                         [w.strip() for w in str(cfg.get("home_words") or "").split(",") if w.strip()],
+                         str(cfg.get("home_address") or "").strip())
         result = [e for e in wide if _in_range(e, start, end)]
         with self._lock:
             if len(self._cache) > 64:
