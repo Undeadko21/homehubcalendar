@@ -148,6 +148,14 @@
         </div>
 
         <div class="group">
+          <div class="row">
+            <span class="lbl">Порядок колонок <small class="muted block">соседние колонки удобнее для общих событий</small></span>
+            <button class="btn" :disabled="!canMove(editing, -1)" @click="move(editing, -1)">Выше</button>
+            <button class="btn" :disabled="!canMove(editing, 1)" @click="move(editing, 1)">Ниже</button>
+          </div>
+        </div>
+
+        <div class="group">
           <label class="row">
             <span class="lbl">Ребёнок <small class="muted block">его нужно отвозить и забирать</small></span>
             <input v-model="editing.needs_escort" type="checkbox" class="switch" @change="savePerson(editing)" />
@@ -224,17 +232,36 @@ async function saveAccount(acc) {
   }
 }
 function openPerson(p) { editing.value = { ...p } }
+// Порядок людей = порядок колонок. Переставляем соседей и сохраняем порядок всем.
+function canMove(p, dir) {
+  const i = editPeople.value.findIndex((x) => x.id === p.id)
+  return i >= 0 && i + dir >= 0 && i + dir < editPeople.value.length
+}
+async function move(p, dir) {
+  const list = [...editPeople.value]
+  const i = list.findIndex((x) => x.id === p.id)
+  ;[list[i], list[i + dir]] = [list[i + dir], list[i]]
+  for (const [k, x] of list.entries()) {
+    const src = x.id === p.id ? editing.value : x
+    if (Number(x.sort) !== k || x.id === p.id) await savePersonRaw({ ...src, sort: k })
+  }
+  editing.value = { ...editing.value, sort: list.findIndex((x) => x.id === p.id) }
+  await reload()
+}
 function closePerson() { editing.value = null }
 function pickColor(col) {
   editing.value.color = col
   savePerson(editing.value)
 }
 async function savePerson(p) {
+  await savePersonRaw(p)
+  await reload()
+}
+async function savePersonRaw(p) {
   await api.savePerson({
     id: p.id, name: p.name, color: p.color, emoji: p.emoji || '', sort: Number(p.sort) || 0,
     hidden: !!p.hidden, keywords: p.keywords || '', needs_escort: !!p.needs_escort,
   })
-  await reload()
 }
 async function removePerson(p) {
   if (!confirm(`Удалить «${p.name}»? Его календари и события останутся у других владельцев или без владельца.`)) return
