@@ -137,6 +137,8 @@ export async function syncNow() {
 }
 
 export async function reload() {
+  // Внутри Android-приложения — сразу обновить виджет на рабочем столе.
+  try { window.HomeHubApp?.refreshWidget() } catch {}
   cache.clear()
   await loadConfig()
   await refreshStatus()

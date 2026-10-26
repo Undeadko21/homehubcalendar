@@ -414,3 +414,24 @@ def test_accusative():
     from app.escorts import accusative
     assert [accusative(n) for n in ["Марк", "Маша", "Оля", "Толик", "Игорь", "Тимофей", "Mark"]] == \
         ["Марка", "Машу", "Олю", "Толика", "Игоря", "Тимофея", "Mark"]
+
+
+def test_widget_payload(db):
+    from app import widget
+    _family(db)
+    db.set_escort("pool@test", "*", "dropoff", "olya")
+    items = EventService(db, TZ).events(*rng())
+    people = {p["id"]: p for p in db.list_people()}
+    now = datetime(2026, 10, 27, 16, 50, tzinfo=TZ)
+    data = widget.build(items, people, TZ, now, 2)
+    today = data["days"][0]
+    assert today["label"] == "Сегодня"
+    titles = [e["title"] for e in today["events"]]
+    assert "Работа" not in titles  # закончилась в 16:45
+    pool = next(e for e in today["events"] if e["title"] == "Бассейн")
+    assert pool["time"] == "17:00–18:00" and pool["note"].startswith("→ olya") and "← кто?" in pool["note"]
+    duty = next(e for e in today["events"] if e["duty"])
+    assert duty["now"] and duty["issue"] == "conflict" and duty["note"] == "занят(а): Работа"
+    assert data["days"][1]["label"].startswith("Завтра")
+    only = widget.build(items, people, TZ, now, 1, {"tolya"})
+    assert all("tolya" in e["people"] for e in only["days"][0]["events"])

@@ -21,6 +21,7 @@ from .config import load_settings
 from .db import Database
 from .events import UNASSIGNED, EventService
 from .freetime import find_free
+from . import widget
 from .holidays import HolidayService
 from .sync import SyncEngine
 
@@ -37,6 +38,9 @@ holidays = HolidayService(db, settings.holidays)
 engine = SyncEngine(db, settings.sources, on_change=events.invalidate)
 engine.seed_people(settings.people)
 scheduler = BackgroundScheduler(timezone=tz)
+
+# Приложение для Android: собранный APK и его версия (android/release в репозитории).
+APP_DIR = Path(os.environ.get("HOMECAL_APP_DIR", Path(__file__).resolve().parents[2] / "android" / "release"))
 
 STATIC_DIR = Path(os.environ.get("HOMECAL_STATIC", Path(__file__).resolve().parents[2] / "frontend" / "dist"))
 
@@ -275,6 +279,38 @@ def get_free(people: str, start: str, end: str, day_from: str = "08:00", day_to:
     e = datetime.combine(d1, time(0), tz)
     return find_free(events.events(s, e), ids, d0, d1, tz,
                      time.fromisoformat(day_from), time.fromisoformat(day_to), max(15, min_minutes), all_day)
+
+
+@app.get("/api/widget")
+def get_widget(days: int = 2, people: str | None = None):
+    """Готовые к показу события для виджета: сегодня (оставшиеся) и следующие дни."""
+    days = max(1, min(days, 7))
+    now = datetime.now(tz)
+    start = datetime.combine(now.date(), time(0), tz)
+    plist = {p["id"]: p for p in db.list_people() if not p["hidden"]}
+    only = set(people.split(",")) if people else None
+    return widget.build(events.events(start, start + timedelta(days=days)), plist, tz, now, days, only)
+
+
+@app.get("/api/app")
+def get_app():
+    """Последняя версия приложения для Android, которую раздаёт этот сервер."""
+    meta = APP_DIR / "version.json"
+    apk = APP_DIR / "homehub-calendar.apk"
+    if not (meta.exists() and apk.exists()):
+        return {"available": False}
+    import json
+    info = json.loads(meta.read_text(encoding="utf-8"))
+    return {"available": True, "url": "/app.apk", "size": apk.stat().st_size, **info}
+
+
+@app.get("/app.apk", include_in_schema=False)
+def download_app():
+    apk = APP_DIR / "homehub-calendar.apk"
+    if not apk.exists():
+        raise HTTPException(404, "Приложение ещё не собрано")
+    return FileResponse(apk, media_type="application/vnd.android.package-archive",
+                        filename="homehub-calendar.apk")
 
 
 # ---------- веб-интерфейс ----------

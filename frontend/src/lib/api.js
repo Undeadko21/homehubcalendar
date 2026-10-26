@@ -35,5 +35,6 @@ export const api = {
   setEscort: (uid, occurrence, role, person) => request('POST', '/api/escort', { uid, occurrence, role, person }),
   saveEscortSettings: (s) => request('PUT', '/api/settings/escort', s),
   free: (params) => request('GET', `/api/free?${q(params)}`),
+  appInfo: () => request('GET', '/api/app'),
   patchCalendar: (key, patch) => request('PATCH', `/api/calendars/${key}`, patch),
 }

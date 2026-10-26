@@ -108,6 +108,29 @@
     </div>
 
     <!-- Экран -->
+    <!-- Приложение для Android -->
+    <h3 class="group-title">Приложение для Android</h3>
+    <div class="group">
+      <template v-if="inApp">
+        <div class="row">
+          <span class="lbl">Установлено</span>
+          <span class="val muted">версия {{ appVersionInstalled }}</span>
+        </div>
+        <div class="row"><span class="lbl">Сервер</span><span class="val muted">{{ hostName }}</span></div>
+        <div class="row"><button class="btn" @click="changeServer">Сменить сервер</button></div>
+      </template>
+      <div v-if="appInfo?.available" class="row">
+        <span class="lbl">Версия {{ appInfo.versionName }} <small class="muted block">{{ Math.round(appInfo.size / 1024) }} КБ</small></span>
+        <a class="btn filled" href="/app.apk" download>Скачать</a>
+      </div>
+      <div v-else-if="appInfo" class="row"><span class="muted small">Приложение ещё не собрано на этом сервере.</span></div>
+    </div>
+    <p class="group-note">
+      Откройте эту страницу на телефоне в домашней Wi-Fi сети и нажмите «Скачать». Android спросит разрешение
+      ставить приложения из браузера — разрешите. После установки добавьте виджет «Семейный день»: долгое нажатие
+      на рабочем столе → Виджеты → Календарь.
+    </p>
+
     <h3 class="group-title">Экран на стене</h3>
     <div class="group">
       <div class="row"><code class="link">{{ kioskUrl }}</code></div>
@@ -211,6 +234,14 @@ watch(() => state.config, (c) => {
 }, { immediate: true })
 
 const kioskUrl = computed(() => `${location.origin}/?kiosk&view=today`)
+
+// Приложение для Android (внутри приложения доступен мост window.HomeHubApp)
+const inApp = typeof window !== 'undefined' && !!window.HomeHubApp
+const appVersionInstalled = inApp ? (() => { try { return window.HomeHubApp.version() } catch { return '?' } })() : ''
+const hostName = location.host
+const appInfo = ref(null)
+api.appInfo().then((v) => (appInfo.value = v)).catch(() => (appInfo.value = { available: false }))
+function changeServer() { try { window.HomeHubApp.changeServer() } catch {} }
 const fmt = (s) => new Date(s).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 const colorOf = (c) => editPeople.value.find((p) => p.id === c.people[0])?.color || c.color || '#8e8e93'
 
@@ -312,6 +343,7 @@ function translit(s) {
 .num { width: 72px; border: 0; background: var(--fill); border-radius: 8px; padding: 6px 8px; text-align: right; }
 .row.stack { flex-direction: column; align-items: stretch; gap: 8px; padding-top: 10px; padding-bottom: 12px; }
 .small { font-size: 13px; }
+a.btn.filled { text-decoration: none; }
 .person-row { width: 100%; border: 0; background: none; text-align: left; color: inherit; }
 .person-row:hover { background: var(--fill); }
 .avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 600; flex: none; font-size: 16px; }

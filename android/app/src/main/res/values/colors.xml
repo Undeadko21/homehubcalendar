@@ -1,0 +1,10 @@
+<resources>
+    <color name="bg">#FFFFFF</color>
+    <color name="bg_grouped">#F2F2F7</color>
+    <color name="ink">#1D1D1F</color>
+    <color name="ink2">#6E6E73</color>
+    <color name="ink3">#AEAEB2</color>
+    <color name="red">#FF3B30</color>
+    <color name="warn">#FF9500</color>
+    <color name="widget_bg">#F7FFFFFF</color>
+</resources>

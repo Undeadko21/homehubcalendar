@@ -75,6 +75,24 @@ Vue 3 + Vite, FullCalendar только для «Недели» и «Месяц�
 нижние вкладки на телефоне; на узком экране «Неделя» = 3 дня. Цвет несут только люди,
 палитра — системные цвета Apple. Токены в `styles.css` (светлая/тёмная тема).
 
+## Приложение для Android (`android/`)
+
+Kotlin, без лишних зависимостей (core-ktx, WorkManager). Пакет `ru.homehub.calendar`, minSdk 26.
+- `SetupActivity` — поиск календаря в /24-подсети телефона (порты 8080 и 80, `/api/health`) или ввод адреса.
+- `MainActivity` — WebView с веб-интерфейсом; UA содержит `HomeHubApp/<версия>`, мост
+  `window.HomeHubApp` (changeServer, refreshWidget, version). Внешние ссылки — в браузер.
+  Проверяет `/api/app` и предлагает обновиться (скачивание `/app.apk`).
+- Виджет `WidgetProvider` + `WidgetService` (список) + `RefreshWorker` (WorkManager, каждые 15 мин и
+  по кнопке). Данные — `GET /api/widget` (`backend/app/widget.py`): сервер отдаёт готовые строки,
+  поэтому содержимое виджета меняется на сервере без обновления приложения. Вход по PIN — куки WebView.
+- Сборка: SDK в /opt/android-sdk (ставится cmdline-tools → `sdkmanager "platforms;android-35"
+  "build-tools;35.0.0"`). Выпуск: увеличить versionCode в `android/version.properties`,
+  `./android/build-release.sh` → `android/release/` (APK + version.json) → закоммитить. Сервер раздаёт
+  `android/release` по `/app.apk` и `/api/app`.
+- Подпись — постоянный ключ `android/keystore/homehub-release.jks` (пароль в app/build.gradle.kts),
+  иначе обновления не встанут поверх. Не менять!
+- Снимки макетов без телефона: `./gradlew recordPaparazziDebug` → `app/src/test/snapshots/images`.
+
 ## Проверка перед пушем
 
 ```bash
@@ -94,9 +112,12 @@ v0.2: логин/пароль в интерфейсе, несколько вла
 
 v0.3: «кто отвозит/забирает» детей с конфликтами, поиск общего свободного времени,
 редизайн в стиле Apple Calendar.
+v0.4: «как добирается» (вместе/дома), поездки в календарях взрослых, дневная сетка «Сегодня»
+с растягиванием общих событий, приложение для Android с виджетом (раздаётся с сервера).
 
 Дальше (по согласованию с пользователем):
-- Telegram-бот: утренняя сводка, напоминания (в т.ч. о конфликтах поездок).
+- Уведомления: Telegram в РФ не подходит; варианты — веб-push в PWA, ntfy на сервере,
+  локальные напоминания в Android-приложении. Для работы вне дома нужен доступ снаружи (VPN/домен).
 - Дни рождения с обратным отсчётом.
 - Запись событий в Яндекс (CalDAV PUT) — второй этап.
 - Рабочие календари одной полосой «на работе».

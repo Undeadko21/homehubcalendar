@@ -1,0 +1,10 @@
+# В образ из android/ нужен только готовый APK.
+android/*
+!android/release
+frontend/node_modules
+frontend/dist
+data
+config
+demo
+**/__pycache__
+.git

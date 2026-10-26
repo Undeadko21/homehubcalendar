@@ -1,0 +1,154 @@
+package ru.homehub.calendar
+
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.app.AlertDialog
+import android.content.Intent
+import android.graphics.Color
+import android.net.Uri
+import android.os.Bundle
+import android.view.Gravity
+import android.view.View
+import android.webkit.JavascriptInterface
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/** Мост для веб-интерфейса: window.HomeHubApp.* */
+class AppBridge(private val activity: MainActivity) {
+    @JavascriptInterface
+    fun changeServer() = activity.runOnUiThread { activity.openSetup() }
+
+    @JavascriptInterface
+    fun refreshWidget() = Widgets.refreshNow(activity)
+
+    @JavascriptInterface
+    fun version(): String = BuildConfig.VERSION_NAME
+}
+
+/** Основной экран: веб-интерфейс календаря с сервера в домашней сети. */
+class MainActivity : Activity() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private lateinit var web: WebView
+    private lateinit var errorView: LinearLayout
+    private lateinit var errorText: TextView
+    private var server: String? = null
+
+    @SuppressLint("SetJavaScriptEnabled")
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        server = Prefs(this).server
+        if (server == null) { openSetup(); finish(); return }
+
+        web = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.userAgentString = settings.userAgentString + " HomeHubApp/" + BuildConfig.VERSION_NAME
+            setBackgroundColor(Color.TRANSPARENT)
+            addJavascriptInterface(AppBridge(this@MainActivity), "HomeHubApp")
+            webViewClient = object : WebViewClient() {
+                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                    if (request.isForMainFrame) showError()
+                }
+
+                override fun onPageFinished(view: WebView, url: String) {
+                    // После входа по PIN у виджета появляется доступ — обновим его.
+                    Widgets.refreshNow(this@MainActivity)
+                }
+
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                    val u = request.url
+                    // Внешние ссылки (карты, сайты) — в браузер; свои страницы — здесь.
+                    return if (server != null && u.toString().startsWith(server!!)) false
+                    else { startActivity(Intent(Intent.ACTION_VIEW, u)); true }
+                }
+            }
+        }
+        errorText = TextView(this).apply {
+            setTextColor(getColor(R.color.ink2)); textSize = 15f; gravity = Gravity.CENTER
+            setPadding(48, 0, 48, 32)
+        }
+        errorView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; visibility = View.GONE
+            setBackgroundColor(getColor(R.color.bg))
+            addView(errorText)
+            addView(button("Повторить") { load() })
+            addView(button("Сменить сервер") { openSetup() })
+        }
+        setContentView(FrameLayout(this).apply { addView(web); addView(errorView) })
+        load()
+        Widgets.schedule(this)
+        checkUpdate()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (::web.isInitialized) web.reload()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val now = Prefs(this).server
+        if (now != null && now != server) { server = now; load() }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (::web.isInitialized && web.canGoBack()) web.goBack() else super.onBackPressed()
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
+    }
+
+    fun openSetup() = startActivity(Intent(this, SetupActivity::class.java))
+
+    private fun load() {
+        errorView.visibility = View.GONE
+        web.visibility = View.VISIBLE
+        web.loadUrl(server!! + "/")
+    }
+
+    private fun showError() {
+        web.visibility = View.INVISIBLE
+        errorView.visibility = View.VISIBLE
+        errorText.text = "Календарь ${server?.removePrefix("http://")} не отвечает.\n" +
+            "Приложение работает в домашней Wi-Fi сети — проверьте подключение."
+    }
+
+    private fun button(text: String, onClick: () -> Unit) = TextView(this).apply {
+        this.text = text
+        setTextColor(getColor(R.color.red)); textSize = 17f; gravity = Gravity.CENTER
+        setPadding(32, 28, 32, 28)
+        setOnClickListener { onClick() }
+    }
+
+    /** Если на сервере лежит более новая версия приложения — предложим обновиться. */
+    private fun checkUpdate() {
+        val base = server ?: return
+        scope.launch {
+            val v = withContext(Dispatchers.IO) { Api.appVersion(base) } ?: return@launch
+            val prefs = Prefs(this@MainActivity)
+            if (v.first <= BuildConfig.VERSION_CODE || prefs.dismissedUpdate == v.first) return@launch
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Доступна версия ${v.second}")
+                .setMessage("Скачать и установить обновление приложения?")
+                .setPositiveButton("Обновить") { _, _ ->
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$base/app.apk")))
+                }
+                .setNegativeButton("Позже") { _, _ -> prefs.dismissedUpdate = v.first }
+                .show()
+        }
+    }
+}

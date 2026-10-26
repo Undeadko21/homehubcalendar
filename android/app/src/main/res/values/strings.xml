@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Календарь</string>
+    <string name="widget_name">Семейный день</string>
+    <string name="widget_description">События семьи на сегодня и завтра: кто, во сколько, кто отвозит и забирает</string>
+</resources>
