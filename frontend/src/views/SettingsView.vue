@@ -117,6 +117,10 @@
           <span class="val muted">версия {{ appVersionInstalled }}</span>
         </div>
         <div class="row"><span class="lbl">Сервер</span><span class="val muted">{{ hostName }}</span></div>
+        <div class="row">
+          <span class="lbl">Виджет <small class="muted block">{{ widgetState }}</small></span>
+          <button v-if="canPin" class="btn filled" @click="pinWidget">Добавить на экран</button>
+        </div>
         <div class="row"><button class="btn" @click="changeServer">Сменить сервер</button></div>
       </template>
       <div v-if="appInfo?.available" class="row">
@@ -127,8 +131,9 @@
     </div>
     <p class="group-note">
       Откройте эту страницу на телефоне в домашней Wi-Fi сети и нажмите «Скачать». Android спросит разрешение
-      ставить приложения из браузера — разрешите. После установки добавьте виджет «Семейный день»: долгое нажатие
-      на рабочем столе → Виджеты → Календарь.
+      ставить приложения из браузера — разрешите. Виджет «Семейный день» добавляется кнопкой в приложении
+      (⚙ → «Добавить на экран») или вручную: долгое нажатие на пустом месте рабочего стола → «Виджеты» →
+      найдите «Календарь» с красно-белой иконкой (на Xiaomi — раздел «Виджеты Android» внизу списка).
     </p>
 
     <h3 class="group-title">Экран на стене</h3>
@@ -242,6 +247,14 @@ const hostName = location.host
 const appInfo = ref(null)
 api.appInfo().then((v) => (appInfo.value = v)).catch(() => (appInfo.value = { available: false }))
 function changeServer() { try { window.HomeHubApp.changeServer() } catch {} }
+const bridge = (name, fallback) => { try { return window.HomeHubApp?.[name] ? window.HomeHubApp[name]() : fallback } catch { return fallback } }
+const canPin = ref(inApp && bridge('canPinWidget', false))
+const hasWidget = ref(inApp && bridge('hasWidget', false))
+const widgetState = computed(() => hasWidget.value ? 'уже на рабочем столе' : canPin.value ? 'ещё не добавлен' : 'добавьте вручную — см. ниже')
+function pinWidget() {
+  bridge('pinWidget', false)
+  setTimeout(() => { hasWidget.value = bridge('hasWidget', false) }, 4000)
+}
 const fmt = (s) => new Date(s).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 const colorOf = (c) => editPeople.value.find((p) => p.id === c.people[0])?.color || c.color || '#8e8e93'
 

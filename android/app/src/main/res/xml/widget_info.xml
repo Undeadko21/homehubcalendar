@@ -13,4 +13,5 @@
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget"
     android:previewLayout="@layout/widget_preview"
+    android:previewImage="@drawable/widget_preview_img"
     android:description="@string/widget_description" />

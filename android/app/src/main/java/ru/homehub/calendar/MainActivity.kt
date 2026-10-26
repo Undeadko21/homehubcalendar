@@ -34,6 +34,16 @@ class AppBridge(private val activity: MainActivity) {
 
     @JavascriptInterface
     fun version(): String = BuildConfig.VERSION_NAME
+
+    /** Можно ли поставить виджет из приложения (зависит от лаунчера). */
+    @JavascriptInterface
+    fun canPinWidget(): Boolean = Widgets.canPin(activity)
+
+    @JavascriptInterface
+    fun hasWidget(): Boolean = Widgets.ids(activity).isNotEmpty()
+
+    @JavascriptInterface
+    fun pinWidget(): Boolean = Widgets.pin(activity)
 }
 
 /** Основной экран: веб-интерфейс календаря с сервера в домашней сети. */
@@ -89,6 +99,7 @@ class MainActivity : Activity() {
         load()
         Widgets.schedule(this)
         checkUpdate()
+        offerWidget()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -132,6 +143,19 @@ class MainActivity : Activity() {
         setTextColor(getColor(R.color.red)); textSize = 17f; gravity = Gravity.CENTER
         setPadding(32, 28, 32, 28)
         setOnClickListener { onClick() }
+    }
+
+    /** Один раз после установки предложим поставить виджет на рабочий стол. */
+    private fun offerWidget() {
+        val sp = getSharedPreferences("homehub", MODE_PRIVATE)
+        if (sp.getBoolean("widget_offered", false) || Widgets.ids(this).isNotEmpty() || !Widgets.canPin(this)) return
+        sp.edit().putBoolean("widget_offered", true).apply()
+        AlertDialog.Builder(this)
+            .setTitle("Виджет на рабочий стол")
+            .setMessage("Показывать события семьи на сегодня и завтра прямо на рабочем столе?")
+            .setPositiveButton("Добавить") { _, _ -> Widgets.pin(this) }
+            .setNegativeButton("Не сейчас", null)
+            .show()
     }
 
     /** Если на сервере лежит более новая версия приложения — предложим обновиться. */

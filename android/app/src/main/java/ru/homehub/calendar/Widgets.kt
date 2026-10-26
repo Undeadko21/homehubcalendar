@@ -42,6 +42,16 @@ object Widgets {
             .enqueueUniqueWork(NOW, ExistingWorkPolicy.REPLACE, OneTimeWorkRequestBuilder<RefreshWorker>().build())
     }
 
+    fun canPin(context: Context): Boolean =
+        AppWidgetManager.getInstance(context).isRequestPinAppWidgetSupported
+
+    /** Просит лаунчер поставить виджет на рабочий стол (Android 8+, если лаунчер умеет). */
+    fun pin(context: Context): Boolean {
+        val mgr = AppWidgetManager.getInstance(context)
+        if (!mgr.isRequestPinAppWidgetSupported) return false
+        return mgr.requestPinAppWidget(ComponentName(context, WidgetProvider::class.java), null, null)
+    }
+
     fun ids(context: Context): IntArray =
         AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, WidgetProvider::class.java))
 
