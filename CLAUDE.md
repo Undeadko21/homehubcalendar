@@ -60,7 +60,8 @@ Vue 3 + Vite, FullCalendar только для «Недели» и «Месяц�
 - `lib/useRange.js` — загрузка событий для диапазона; перезагрузка по `state.revision`.
 - `views/` — Today, Timeline (собственная «семейная лента»), Calendar (FullCalendar), Agenda, Free, Settings.
 - `components/` — EventPill (таблетка события), EventDialog (карточка-лист), EscortBadge (→ кто / ← кто),
-  Sheet (лист снизу на телефоне / карточка на компьютере), MiniMonth, PeopleList, PeoplePicker.
+  Sheet (лист снизу на телефоне / карточка на компьютере), MiniMonth, PeopleList, PeoplePicker,
+  DayGrid (дневная сетка «Сегодня»: общая шкала часов, колонка на человека, линия «сейчас»).
 
 Дизайн — по просьбе пользователя «как Календарь Apple»: системный шрифт (SF, на Android — Inter),
 красный `--red` для «сегодня/сейчас» и кнопок-ссылок, тонкие линии, сгруппированные списки

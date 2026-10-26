@@ -26,19 +26,9 @@
       </div>
     </section>
 
-    <section class="board" :style="{ '--cols': columns.length || 1 }">
-      <div v-for="col in columns" :key="col.person.id" class="col" :style="{ '--c': col.person.color }">
-        <h2>
-          <span class="avatar">{{ col.person.emoji || col.person.name[0] }}</span>
-          <span class="pn">{{ col.person.name }}</span>
-          <span v-if="col.nowEvent" class="status">сейчас: {{ col.nowEvent.title }}</span>
-        </h2>
-        <div class="list">
-          <EventPill v-for="e in col.events" :key="e.id" :e="e" :now="now" :owner-id="col.person.id" hide-escort />
-          <p v-if="!col.events.length" class="empty">Свободный день</p>
-        </div>
-      </div>
-      <p v-if="!columns.length" class="empty">Выберите хотя бы одного человека в списке «Люди».</p>
+    <section class="day-section">
+      <DayGrid v-if="columns.length" :columns="columns" :day="day" :now="now" />
+      <p v-else class="empty">Выберите хотя бы одного человека в списке «Люди».</p>
     </section>
 
     <section v-if="tomorrow.length" class="next">
@@ -58,6 +48,7 @@ import { addDays, startOfDay, overlaps, isoDate, eventRange, sameDay, relativeDa
 import EventPill from '../components/EventPill.vue'
 import EscortBadge from '../components/EscortBadge.vue'
 import WeatherNow from '../components/WeatherNow.vue'
+import DayGrid from '../components/DayGrid.vue'
 
 const now = ref(new Date())
 let t
