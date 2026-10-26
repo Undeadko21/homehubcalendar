@@ -10,7 +10,7 @@ from .sources import build_source
 
 log = logging.getLogger(__name__)
 
-PALETTE = ["#4f7cff", "#f2643d", "#22a06b", "#b45cf0", "#e8a400", "#0fa5b5", "#e0457b", "#7a8699"]
+PALETTE = ["#007aff", "#ff9500", "#34c759", "#af52de", "#ff2d55", "#00c7be", "#ff3b30", "#a2845e"]
 
 
 def calendar_defaults(source_cfg: dict, name: str, remote_color: str | None) -> dict:

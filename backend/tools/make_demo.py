@@ -45,6 +45,7 @@ FILES = {
         vevent("gym-p@demo", "Спортзал", dt(1, 19), dt(1, 20, 30), "RRULE:FREQ=WEEKLY;BYDAY=TU,TH;COUNT=20\n"),
         vevent("dentist@demo", "Стоматолог", dt(3, 12), dt(3, 13), "CLASS:PRIVATE\n"),
         vevent("trip@demo", "Командировка в Пермь", d(8), d(11)),
+        vevent("meeting@demo", "Совещание", dt(3, 17), dt(3, 18)),
         shared_meeting, dinner,
     ]),
     "mama": cal("Мама", [

@@ -253,3 +253,94 @@ def test_migration_from_v1_keeps_owner(tmp_path):
     db = Database(path)
     assert db.get_calendar("y/1")["people"] == ["mark"]
     assert db.list_people()[0]["keywords"] == ""
+
+
+def _family(db):
+    """Оля и Толя — взрослые, Марк — ребёнок. Бассейн по вт/чт 17:00–18:00."""
+    pool = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:test
+BEGIN:VEVENT
+UID:pool@test
+DTSTART:20261027T170000
+DTEND:20261027T180000
+RRULE:FREQ=WEEKLY;BYDAY=TU,TH;COUNT=4
+SUMMARY:Бассейн
+END:VEVENT
+END:VCALENDAR
+"""
+    _setup(db, {
+        "mark": ("mark", [pool]),
+        "olya": ("olya", [ev("w1@test", "Работа", "20261027T090000", "20261027T164500")]),
+        "tolya": ("tolya", [ev("w2@test", "Созвон", "20261029T175000", "20261029T183000")]),
+    })
+    db.upsert_person({"id": "mark", "name": "Марк", "needs_escort": True})
+
+
+def _by_start(items, uid):
+    return {i["start"][:10]: i for i in items if i["uid"] == uid}
+
+
+def test_escort_series_once_and_conflicts(db):
+    _family(db)
+    svc = EventService(db, TZ)
+    pools = _by_start(svc.events(*rng()), "pool@test")
+    tue = pools["2026-10-27"]
+    assert tue["escort"]["children"] == ["mark"]
+    assert tue["escort_issue"] == "unassigned"
+    # Оля работает до 16:45 — в окно «отвезти» 16:30–17:00 занята, Толя свободен
+    assert tue["escort"]["dropoff"]["free"] == ["tolya"]
+
+    # Серия: отвозит Оля, забирает Толя
+    db.set_escort("pool@test", "*", "dropoff", "olya")
+    db.set_escort("pool@test", "*", "pickup", "tolya")
+    svc.invalidate()
+    pools = _by_start(svc.events(*rng()), "pool@test")
+    tue, thu = pools["2026-10-27"], pools["2026-10-29"]
+    assert tue["escort"]["dropoff"]["person"] == "olya" and tue["escort"]["dropoff"]["scope"] == "series"
+    assert tue["escort_issue"] == "conflict"
+    assert tue["escort"]["dropoff"]["conflicts"][0]["title"] == "Работа"
+    # в четверг Толя на созвоне 17:50–18:30, а забирать в 18:00–18:30
+    assert thu["escort"]["pickup"]["conflicts"][0]["title"] == "Созвон"
+
+    # Разовая замена на вторник: отвозит Толя → конфликта нет
+    db.set_escort("pool@test", tue["start"], "dropoff", "tolya")
+    svc.invalidate()
+    tue = _by_start(svc.events(*rng()), "pool@test")["2026-10-27"]
+    assert tue["escort"]["dropoff"]["person"] == "tolya" and tue["escort"]["dropoff"]["scope"] == "once"
+    assert tue["escort_issue"] is None
+
+    # «Не нужно» снимает роль из проверки
+    db.set_escort("pool@test", "*", "pickup", "-")
+    svc.invalidate()
+    thu = _by_start(svc.events(*rng()), "pool@test")["2026-10-29"]
+    assert thu["escort"]["pickup"]["skip"] and thu["escort"]["pickup"]["person"] is None
+
+
+def test_escort_double_booking(db):
+    _family(db)
+    db.upsert_person({"id": "liza", "name": "Лиза", "needs_escort": True})
+    db.touch_calendar("liza", "s", "liza", "liza", {"people": ["liza"]})
+    db.replace_objects("liza", {"0": ev("art@test", "Рисование", "20261027T171500", "20261027T181500")})
+    db.set_escort("pool@test", "*", "dropoff", "tolya")
+    db.set_escort("art@test", "*", "dropoff", "tolya")
+    items = EventService(db, TZ).events(*rng())
+    art = [i for i in items if i["uid"] == "art@test"][0]
+    assert any(c["kind"] == "escort" for c in art["escort"]["dropoff"]["conflicts"])
+
+
+def test_free_time(db):
+    from datetime import date, time
+    from app.freetime import find_free
+    _family(db)
+    db.set_escort("pool@test", "*", "dropoff", "tolya")
+    svc = EventService(db, TZ)
+    items = svc.events(datetime(2026, 10, 27, tzinfo=TZ), datetime(2026, 10, 28, tzinfo=TZ))
+    day = find_free(items, ["olya", "tolya"], date(2026, 10, 27), date(2026, 10, 28), TZ,
+                    time(8), time(22), 60)[0]
+    # Оля занята 9:00–16:45, Толя отвозит 16:30–17:00 → свободны 8–9 и 17–22
+    assert [(w["start"][11:16], w["end"][11:16]) for w in day["windows"]] == [("08:00", "09:00"), ("17:00", "22:00")]
+    assert any(b["title"].startswith("Отвезти") for b in day["busy"])
+    # Только Толя — свободен почти весь день, кроме поездки
+    day = find_free(items, ["tolya"], date(2026, 10, 27), date(2026, 10, 28), TZ, time(8), time(22), 60)[0]
+    assert [(w["start"][11:16], w["end"][11:16]) for w in day["windows"]] == [("08:00", "16:30"), ("17:00", "22:00")]

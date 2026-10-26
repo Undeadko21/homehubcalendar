@@ -10,7 +10,7 @@ function loadPrefs() {
 }
 function savePrefs() {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify({ hiddenPeople: state.hiddenPeople, view: state.view, timelineDays: state.timelineDays }))
+    localStorage.setItem(LS_KEY, JSON.stringify({ hiddenPeople: state.hiddenPeople, view: state.view, calView: state.calView, timelineDays: state.timelineDays }))
   } catch {}
 }
 
@@ -29,10 +29,32 @@ export const state = reactive({
   revision: 0, // увеличивается после синхронизации — виды перезагружают данные
   selected: null, // открытое в карточке событие
   timelineDays: prefs.timelineDays || 7,
+  calView: prefs.calView || 'timeline', // последний календарный вид (вкладка «Календарь» на телефоне)
+  peopleSheet: false, // лист «Люди» на телефоне
 })
+
+export const CAL_VIEWS = ['timeline', 'week', 'month', 'agenda']
+
+// Узкий экран (телефон): «Неделя» показывает 3 дня, как iPhone в портретной ориентации.
+const mq = typeof matchMedia === 'function' ? matchMedia('(max-width: 599px)') : null
+export const screen = reactive({ narrow: !!mq?.matches })
+mq?.addEventListener?.('change', (e) => { screen.narrow = e.matches })
+export const weekDays = () => (screen.narrow ? 3 : 7)
 
 export function openEvent(e) {
   state.selected = e
+}
+
+// Перечитать открытое событие после изменений (участники, поездки).
+export async function refreshSelected() {
+  const e = state.selected
+  if (!e) return
+  const d = new Date(e.all_day ? e.start + 'T00:00' : e.start)
+  const from = new Date(d); from.setDate(from.getDate() - 1)
+  const to = new Date(d); to.setDate(to.getDate() + 2)
+  const list = await api.events(isoLocal(from), isoLocal(to))
+  const fresh = list.find((x) => x.id === e.id) || list.find((x) => x.uid === e.uid && x.start === e.start)
+  if (fresh && state.selected?.id === e.id) state.selected = fresh
 }
 
 export const people = computed(() => (state.config?.people || []).filter((p) => !p.hidden))
@@ -46,6 +68,7 @@ export function setTimelineDays(n) {
 
 export function setView(v) {
   state.view = v
+  if (CAL_VIEWS.includes(v)) state.calView = v
   savePrefs()
 }
 

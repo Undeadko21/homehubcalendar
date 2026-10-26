@@ -76,6 +76,18 @@ MIGRATIONS: list[str] = [
     );
     ALTER TABLE people ADD COLUMN keywords TEXT NOT NULL DEFAULT '';
     """,
+    # 3 — кто отвозит/забирает ребёнка
+    """
+    ALTER TABLE people ADD COLUMN needs_escort INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE escorts (
+        uid TEXT NOT NULL,
+        occurrence TEXT NOT NULL,   -- '*' — вся серия, иначе время начала вхождения (ISO)
+        role TEXT NOT NULL,         -- dropoff | pickup
+        person_id TEXT NOT NULL,    -- id взрослого или '-' — сопровождение не нужно
+        updated TEXT NOT NULL,
+        PRIMARY KEY (uid, occurrence, role)
+    );
+    """,
 ]
 
 
@@ -121,11 +133,11 @@ class Database:
     def upsert_person(self, p: dict) -> None:
         with self.tx() as c:
             c.execute(
-                """INSERT INTO people (id, name, color, emoji, sort, hidden, keywords)
-                   VALUES (:id, :name, :color, :emoji, :sort, :hidden, :keywords)
+                """INSERT INTO people (id, name, color, emoji, sort, hidden, keywords, needs_escort)
+                   VALUES (:id, :name, :color, :emoji, :sort, :hidden, :keywords, :needs_escort)
                    ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color,
                    emoji=excluded.emoji, sort=excluded.sort, hidden=excluded.hidden,
-                   keywords=excluded.keywords""",
+                   keywords=excluded.keywords, needs_escort=excluded.needs_escort""",
                 {
                     "id": p["id"],
                     "name": p.get("name", p["id"]),
@@ -134,6 +146,7 @@ class Database:
                     "sort": int(p.get("sort", 0)),
                     "hidden": int(bool(p.get("hidden", False))),
                     "keywords": str(p.get("keywords", "") or ""),
+                    "needs_escort": int(bool(p.get("needs_escort", False))),
                 },
             )
 
@@ -209,6 +222,24 @@ class Database:
             c.execute(f"UPDATE calendars SET {cols} WHERE key=:key", {**sets, "key": key})
             if "people" in fields:
                 self._set_people(c, key, list(fields["people"] or []))
+
+    # ---------- кто отвозит/забирает ----------
+    def escorts(self) -> dict[tuple[str, str, str], str]:
+        return {(r["uid"], r["occurrence"], r["role"]): r["person_id"]
+                for r in self.query("SELECT uid, occurrence, role, person_id FROM escorts")}
+
+    def set_escort(self, uid: str, occurrence: str, role: str, person_id: str | None) -> None:
+        """person_id=None — снять назначение (для вхождения вернётся назначение серии)."""
+        with self.tx() as c:
+            if person_id is None:
+                c.execute("DELETE FROM escorts WHERE uid=? AND occurrence=? AND role=?", (uid, occurrence, role))
+            else:
+                c.execute(
+                    "INSERT INTO escorts (uid, occurrence, role, person_id, updated) VALUES (?,?,?,?,?) "
+                    "ON CONFLICT(uid, occurrence, role) DO UPDATE SET person_id=excluded.person_id, "
+                    "updated=excluded.updated",
+                    (uid, occurrence, role, person_id, now_iso()),
+                )
 
     # ---------- участники отдельных событий ----------
     def event_people(self) -> dict[str, list[str]]:

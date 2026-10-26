@@ -20,7 +20,7 @@
             :style="{ width: dayW + 'px' }"
             :title="d.holiday?.name || ''"
           >
-            <strong>{{ d.label }}</strong>
+            <strong><span class="wd">{{ d.wd }}</span> <span class="dn">{{ d.num }}</span></strong>
             <span v-if="d.holiday" class="hname">{{ d.holiday.name }}</span>
             <div v-if="!compact" class="hours">
               <span v-for="h in hourTicks" :key="h" :style="{ left: hx(h) + 'px' }">{{ h }}</span>
@@ -41,7 +41,7 @@
             </div>
             <button
               v-for="b in lane.blocks" :key="b.key"
-              class="block" :class="{ allday: b.allDay, past: b.past, private: b.e.private, multi: b.e.people.length > 1 }"
+              class="block" :class="[{ allday: b.allDay, past: b.past, private: b.e.private, multi: b.e.people.length > 1 }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
               :style="{ left: b.x + 'px', width: b.w + 'px', top: b.y + 'px', height: (b.allDay ? ALLDAY_H : ROW_H) - 4 + 'px' }"
               :title="b.e.title"
               @click="openEvent(b.e)"
@@ -112,7 +112,7 @@ const dayList = computed(() =>
     const weekend = d.getDay() === 0 || d.getDay() === 6
     const off = holiday ? holiday.type === 'holiday' || holiday.type === 'dayoff' : weekend
     const wd = d.toLocaleDateString('ru-RU', { weekday: 'short' })
-    return { date: d, today: sameDay(d, now.value), off, holiday, label: `${wd}, ${d.getDate()}` }
+    return { date: d, today: sameDay(d, now.value), off, holiday, wd, num: d.getDate() }
   }),
 )
 
@@ -202,10 +202,7 @@ const nowX = computed(() => {
 <style scoped>
 .timeline { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .bar { display: flex; align-items: center; gap: 14px; padding: 12px 20px 4px; flex-wrap: wrap; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-m); overflow: hidden; }
-.seg button { border: 0; background: var(--surface); padding: 6px 12px; color: var(--ink-2); }
-.seg button + button { border-left: 1px solid var(--line); }
-.seg button.on { background: var(--ink); color: var(--bg); }
+
 .hint { font-size: 13px; }
 
 .scroller { overflow-x: auto; padding: 8px 20px 24px; }
@@ -213,21 +210,24 @@ const nowX = computed(() => {
 .head { display: flex; position: sticky; top: 0; z-index: 3; background: var(--bg); }
 .corner { width: var(--name); flex: none; }
 .dayhead {
-  flex: none; padding: 6px 8px 22px; position: relative; border-left: 1px solid var(--line);
-  display: flex; align-items: baseline; gap: 8px; white-space: nowrap; overflow: hidden;
+  flex: none; padding: 6px 8px 22px; position: relative; border-left: .5px solid var(--line);
+  display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden;
 }
 .dayhead.compact { padding-bottom: 8px; }
-.dayhead strong { font-size: 16px; text-transform: capitalize; }
-.dayhead.off strong { color: var(--holiday); }
-.dayhead.today strong { background: var(--now); color: #fff; border-radius: 999px; padding: 1px 10px; }
+.dayhead strong { font-size: 14px; font-weight: 600; text-transform: lowercase; }
+.dayhead.off strong { color: var(--ink-2); }
+.dayhead.today strong { color: var(--red); }
+.dn { display: inline-grid; place-items: center; min-width: 26px; height: 26px; border-radius: 50%; font-size: 16px; font-weight: 400; }
+.dayhead.today .dn { background: var(--red); color: #fff; font-weight: 600; }
+.dayhead { align-items: center; }
 .hname { font-size: 12px; color: var(--holiday); overflow: hidden; text-overflow: ellipsis; }
 .dayhead.short .hname { color: var(--ink-2); }
 .hours { position: absolute; left: 0; right: 0; bottom: 3px; height: 16px; }
 .hours span { position: absolute; transform: translateX(-50%); font-size: 11px; color: var(--ink-3); }
 .hours span:first-child { transform: none; padding-left: 3px; }
 
-.lane { display: flex; border-top: 1px solid var(--line); }
-.lane:last-of-type { border-bottom: 1px solid var(--line); }
+.lane { display: flex; border-top: .5px solid var(--line); }
+.lane:last-of-type { border-bottom: .5px solid var(--line); }
 .who {
   width: var(--name); flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 0;
   position: sticky; left: 0; z-index: 2; background: var(--bg); font-weight: 700;
@@ -238,19 +238,21 @@ const nowX = computed(() => {
 }
 .pname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track { position: relative; flex: 1; }
-.cell { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); }
-.cell.off { background: color-mix(in srgb, var(--holiday) 4%, transparent); }
-.cell.today { background: color-mix(in srgb, var(--now) 5%, transparent); }
+.cell { position: absolute; top: 0; bottom: 0; border-left: .5px solid var(--line); }
+.cell.off { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+.cell.today { background: color-mix(in srgb, var(--red) 4%, transparent); }
 .tick { position: absolute; top: 0; bottom: 0; border-left: 1px dashed color-mix(in srgb, var(--line) 70%, transparent); }
 
 .block {
   position: absolute; border: 0; border-radius: 6px; padding: 0 6px; text-align: left;
   display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap;
-  background: color-mix(in srgb, var(--c) 22%, var(--surface)); color: var(--ink);
+  background: color-mix(in srgb, var(--c) 18%, var(--surface)); color: color-mix(in srgb, var(--c) 62%, var(--ink));
   box-shadow: inset 3px 0 0 var(--c); font-size: 13px; line-height: 1;
 }
-.block:hover { background: color-mix(in srgb, var(--c) 34%, var(--surface)); z-index: 1; }
-.block.allday { background: var(--c); color: #fff; box-shadow: none; font-weight: 600; }
+.block:hover { background: color-mix(in srgb, var(--c) 28%, var(--surface)); z-index: 1; }
+.block.allday { background: color-mix(in srgb, var(--c) 85%, var(--surface)); color: #fff; box-shadow: none; font-weight: 600; }
+.block.esc-conflict { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--red); }
+.block.esc-unassigned { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--warn); }
 .block.past { opacity: .45; }
 .block.private { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 12%, var(--surface)) 0 5px, color-mix(in srgb, var(--c) 24%, var(--surface)) 5px 10px); color: var(--ink-2); }
 .block.multi::after { content: ''; position: absolute; right: 4px; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); }

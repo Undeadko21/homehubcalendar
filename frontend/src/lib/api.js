@@ -32,5 +32,8 @@ export const api = {
   deletePerson: (id) => request('DELETE', `/api/people/${encodeURIComponent(id)}`),
   saveAccount: (id, username, password) => request('PUT', `/api/accounts/${encodeURIComponent(id)}`, { username, password }),
   setEventPeople: (uid, people) => request('POST', '/api/event-people', { uid, people }),
+  setEscort: (uid, occurrence, role, person) => request('POST', '/api/escort', { uid, occurrence, role, person }),
+  saveEscortSettings: (s) => request('PUT', '/api/settings/escort', s),
+  free: (params) => request('GET', `/api/free?${q(params)}`),
   patchCalendar: (key, patch) => request('PATCH', `/api/calendars/${key}`, patch),
 }

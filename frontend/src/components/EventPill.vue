@@ -1,7 +1,7 @@
 <template>
   <button
     class="pill"
-    :class="{ allday: e.all_day && !e.private, past, private: e.private, now: current }"
+    :class="{ allday: e.all_day && !e.private, past, private: e.private, now: current, issue: e.escort_issue }"
     :style="{ '--c': color }"
     @click="openEvent(e)"
   >
@@ -12,6 +12,7 @@
       {{ e.title }}
     </span>
     <span v-if="!hideMeta && meta" class="s">{{ meta }}</span>
+    <EscortBadge v-if="e.escort && !hideEscort" :e="e" class="esc" />
   </button>
 </template>
 
@@ -19,12 +20,14 @@
 import { computed } from 'vue'
 import { openEvent, eventColor, personById } from '../lib/store'
 import { eventRange, formatEventTime } from '../lib/dates'
+import EscortBadge from './EscortBadge.vue'
 
 const props = defineProps({
   e: { type: Object, required: true },
   now: { type: Date, default: null },     // передайте текущее время, чтобы гасить прошедшие
   hideMeta: Boolean,
-  ownerId: { type: String, default: null }, // в ленте конкретного человека — показываем остальных участников точками
+  hideEscort: Boolean,
+  ownerId: { type: String, default: null }, // в колонке конкретного человека — остальные участники точками
 })
 
 const color = computed(() => {
@@ -48,6 +51,8 @@ const meta = computed(() => {
 </script>
 
 <style scoped>
-.pill.now { box-shadow: 0 0 0 2px var(--c); }
+.pill.now { box-shadow: inset 0 0 0 1.5px var(--c); }
+.pill.issue { padding-bottom: 6px; }
 .dots { margin-right: 4px; }
+.esc { margin-top: 4px; }
 </style>

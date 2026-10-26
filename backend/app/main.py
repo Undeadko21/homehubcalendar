@@ -6,7 +6,7 @@ import hmac
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -20,6 +20,7 @@ from . import __version__
 from .config import load_settings
 from .db import Database
 from .events import UNASSIGNED, EventService
+from .freetime import find_free
 from .holidays import HolidayService
 from .sync import SyncEngine
 
@@ -110,6 +111,7 @@ def get_config():
         "weather": settings.weather,
         "pin_enabled": bool(settings.pin),
         "accounts": engine.accounts(),
+        "escort": events.escort_settings(),
     }
 
 
@@ -163,6 +165,7 @@ class PersonIn(BaseModel):
     sort: int = 0
     hidden: bool = False
     keywords: str = ""  # слова автопривязки через запятую
+    needs_escort: bool = False  # ребёнок: его отвозят и забирают
 
 
 @app.get("/api/people")
@@ -218,6 +221,54 @@ def set_event_people(body: EventPeople):
     db.set_event_people(body.uid, body.people)
     events.invalidate()
     return {"ok": True}
+
+
+class EscortIn(BaseModel):
+    uid: str
+    occurrence: str | None = None  # время начала вхождения; None — вся серия
+    role: str                      # dropoff | pickup
+    person: str | None = None      # id взрослого, '-' — не нужно, None — снять назначение
+
+
+@app.post("/api/escort")
+def set_escort(body: EscortIn):
+    if body.role not in ("dropoff", "pickup"):
+        raise HTTPException(400, "role: dropoff или pickup")
+    if body.person not in (None, "-") and body.person not in {p["id"] for p in db.list_people()}:
+        raise HTTPException(400, "Неизвестный человек")
+    # Разовые замены важнее назначения на серию и при его смене сохраняются.
+    db.set_escort(body.uid, body.occurrence or "*", body.role, body.person)
+    events.invalidate()
+    return {"ok": True}
+
+
+class EscortSettings(BaseModel):
+    before_minutes: int = 30
+    after_minutes: int = 30
+
+
+@app.put("/api/settings/escort")
+def put_escort_settings(body: EscortSettings):
+    if not (0 <= body.before_minutes <= 240 and 0 <= body.after_minutes <= 240):
+        raise HTTPException(400, "От 0 до 240 минут")
+    db.kv_set("settings:escort", body.model_dump())
+    events.invalidate()
+    return {"ok": True}
+
+
+@app.get("/api/free")
+def get_free(people: str, start: str, end: str, day_from: str = "08:00", day_to: str = "22:00",
+             min_minutes: int = 60, all_day: bool = False):
+    ids = [p for p in people.split(",") if p]
+    if not ids:
+        raise HTTPException(400, "Выберите хотя бы одного человека")
+    d0, d1 = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
+    if d1 <= d0 or (d1 - d0).days > 62:
+        raise HTTPException(400, "Период от 1 до 62 дней")
+    s = datetime.combine(d0, time(0), tz)
+    e = datetime.combine(d1, time(0), tz)
+    return find_free(events.events(s, e), ids, d0, d1, tz,
+                     time.fromisoformat(day_from), time.fromisoformat(day_to), max(15, min_minutes), all_day)
 
 
 # ---------- веб-интерфейс ----------

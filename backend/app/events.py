@@ -4,11 +4,14 @@ from __future__ import annotations
 import hashlib
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from . import escorts
 from .db import Database
 from .expand import expand_ics
+
+ESCORT_DEFAULTS = {"before_minutes": 30, "after_minutes": 30}
 
 UNASSIGNED = "_unassigned"
 
@@ -19,6 +22,15 @@ def _norm_title(t: str) -> str:
 
 def _event_id(*parts: str) -> str:
     return hashlib.sha1("|".join(parts).encode()).hexdigest()[:16]
+
+
+def _in_range(e: dict, start: datetime, end: datetime) -> bool:
+    if e["all_day"]:
+        s = datetime.fromisoformat(e["start"]).replace(tzinfo=start.tzinfo)
+        en = datetime.fromisoformat(e["end"]).replace(tzinfo=start.tzinfo)
+    else:
+        s, en = datetime.fromisoformat(e["start"]), datetime.fromisoformat(e["end"])
+    return s < end and (en > start or (en == s and s >= start))
 
 
 class EventService:
@@ -41,12 +53,21 @@ class EventService:
         with self._lock:
             if key in self._cache:
                 return self._cache[key]
-        result = self._build(start, end)
+        # Строим с запасом в сутки: конфликты поездок зависят от соседних событий.
+        wide = self._build(start - timedelta(days=1), end + timedelta(days=1))
+        people = {p["id"]: p for p in self.db.list_people()}
+        cfg = self.escort_settings()
+        escorts.annotate(wide, people, self.db.escorts(), cfg["before_minutes"], cfg["after_minutes"])
+        result = [e for e in wide if _in_range(e, start, end)]
         with self._lock:
             if len(self._cache) > 64:
                 self._cache.clear()
             self._cache[key] = result
         return result
+
+    def escort_settings(self) -> dict:
+        value, _ = self.db.kv_get("settings:escort")
+        return {**ESCORT_DEFAULTS, **(value or {})}
 
     def _build(self, start: datetime, end: datetime) -> list[dict]:
         people = {p["id"]: p for p in self.db.list_people()}

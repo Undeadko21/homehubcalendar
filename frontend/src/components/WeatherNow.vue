@@ -52,6 +52,6 @@ onUnmounted(() => clearInterval(t))
 
 <style scoped>
 .weather { display: flex; align-items: center; gap: 12px; }
-.temp { font-size: 44px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+.temp { font-size: 48px; font-weight: 300; letter-spacing: -0.03em; line-height: 1; }
 .desc { font-size: 15px; line-height: 1.35; }
 </style>
