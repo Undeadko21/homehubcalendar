@@ -106,6 +106,13 @@ class AppBridge(private val activity: MainActivity) {
     @JavascriptInterface
     fun syncNow() = Widgets.refreshNow(activity)
 
+    /** Итог последнего обновления: для строки состояния офлайн-экрана. */
+    @JavascriptInterface
+    fun syncStatus(): String {
+        val p = Prefs(activity)
+        return org.json.JSONObject().put("ok", p.lastOk).put("error", p.lastError ?: "").put("source", p.dataSource).toString()
+    }
+
     /** Проверить, не появился ли дом в сети, и если да — открыть обычный интерфейс. */
     @JavascriptInterface
     fun retryHome() = activity.runOnUiThread { activity.tryHome(true) }

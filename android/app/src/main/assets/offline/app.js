@@ -74,13 +74,27 @@
     return date === today ? 'Сегодня · ' + base : date === tomorrow ? 'Завтра · ' + base : base
   }
 
+  var syncing = 0
+  function syncText() {
+    var st = {}
+    try { st = JSON.parse(bridge.syncStatus ? bridge.syncStatus() : '{}') } catch (e) {}
+    if (syncing && Date.now() - syncing < 3500) return 'Обновляю…'
+    if (st.error) return 'Не обновилось: ' + st.error
+    if (snap && !snap.events) return 'Облачный снимок старого формата — сервер дома ещё не записал новый. Попробуйте позже.'
+    return ''
+  }
   function banner() {
     var b = document.getElementById('banner')
     b.textContent = ''
     var gen = snap && snap.generated ? snap.generated.slice(8, 10) + '.' + snap.generated.slice(5, 7) + ' ' + hm(snap.generated) : '—'
     var n = live().length
     b.appendChild(h('span', {}, [h('b', { text: 'Вне дома' }), ' · данные на ' + gen + (n ? ' · ждут отправки: ' + n : '')]))
-    b.appendChild(h('button', { text: 'Обновить', onclick: function () { bridge.syncNow && bridge.syncNow() } }))
+    b.appendChild(h('button', { text: 'Обновить', onclick: function () {
+      if (!bridge.syncNow) return
+      bridge.syncNow(); syncing = Date.now(); banner(); setTimeout(banner, 4000); setTimeout(banner, 10000)
+    } }))
+    var st = syncText()
+    if (st) b.appendChild(h('div', { class: 'sync', text: st }))
     b.appendChild(h('button', { text: 'Домой', onclick: function () { bridge.retryHome && bridge.retryHome() } }))
   }
 
