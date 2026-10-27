@@ -1,6 +1,29 @@
 <template>
   <div class="settings">
-    <!-- Учётная запись -->
+    <!-- Главное меню настроек -->
+    <template v-if="!page">
+      <div class="group menu">
+        <button v-for="m in menu" :key="m.id" class="row menu-row" @click="open(m.id)">
+          <span class="micon" :style="{ background: m.color }" v-html="m.icon"></span>
+          <span class="pmain">
+            <span class="pname">{{ m.title }}</span>
+            <span class="psub">{{ m.sub }}</span>
+          </span>
+          <span v-if="m.warn" class="dot" aria-label="Требует внимания"></span>
+          <span class="chev" aria-hidden="true">›</span>
+        </button>
+      </div>
+      <p class="group-note version">Версия {{ state.config?.version }}</p>
+    </template>
+
+    <template v-else>
+      <div class="subhead">
+        <button class="back" @click="open(null)">‹ Настройки</button>
+        <h2>{{ current?.title }}</h2>
+      </div>
+
+    <!-- Подключение -->
+    <template v-if="page === 'connect'">
     <template v-for="acc in accounts" :key="acc.id">
       <h3 class="group-title">Яндекс.Календарь</h3>
       <form class="group" @submit.prevent="saveAccount(acc)">
@@ -40,7 +63,12 @@
       </div>
     </div>
 
-    <!-- Люди -->
+    <h3 class="group-title">Облако: связь вне дома</h3>
+    <CloudSettings />
+    </template>
+
+    <!-- Люди и календари -->
+    <template v-if="page === 'people'">
     <h3 class="group-title">Люди</h3>
     <div class="group">
       <button v-for="p in editPeople" :key="p.id" class="row person-row" @click="openPerson(p)">
@@ -58,7 +86,31 @@
     </div>
     <p class="group-note">Нажмите на человека, чтобы поменять цвет, отметить ребёнка или задать слова для автопривязки.</p>
 
+    <!-- Календари -->
+    <h3 class="group-title">Календари</h3>
+    <p v-if="!editCals.length" class="group-note">Календари появятся после первой синхронизации.</p>
+    <div v-for="c in editCals" :key="c.key" class="group cal" :class="{ hidden: c.hidden }">
+      <div class="row">
+        <span class="swatch" :style="{ background: colorOf(c) }"></span>
+        <span class="lbl cname">{{ c.name }}</span>
+      </div>
+      <div class="row stack">
+        <span class="small muted">{{ c.people.length ? 'Чьи события' : 'Нет владельца: события попадут в «Без владельца»' }}</span>
+        <PeoplePicker v-model="c.people" :label="'Чей календарь ' + c.name" @update:model-value="(v) => patch(c, { people: v })" />
+      </div>
+      <label class="row">
+        <span class="lbl">Только «занят», без деталей</span>
+        <input v-model="c.private" type="checkbox" class="switch" @change="patch(c, { private: c.private })" />
+      </label>
+      <label class="row">
+        <span class="lbl">Скрыть календарь</span>
+        <input v-model="c.hidden" type="checkbox" class="switch" @change="patch(c, { hidden: c.hidden })" />
+      </label>
+    </div>
+    </template>
+
     <!-- Поездки -->
+    <template v-if="page === 'trips'">
     <h3 class="group-title">Отвезти и забрать</h3>
     <div class="group">
       <label class="row">
@@ -108,40 +160,20 @@
     <h3 class="group-title">Шаблоны поездок по дням недели</h3>
     <TemplatesEditor />
 
-    <h3 class="group-title">Дни рождения</h3>
+    </template>
+
+    <!-- Дни рождения -->
+    <template v-if="page === 'birthdays'">
     <BirthdaysEditor />
+    </template>
 
-    <h3 class="group-title">Облако: связь вне дома</h3>
-    <CloudSettings />
-
+    <!-- Приложение и экраны -->
+    <template v-if="page === 'app'">
     <template v-if="inApp">
       <h3 class="group-title">Напоминания</h3>
       <RemindersSettings />
     </template>
 
-    <!-- Календари -->
-    <h3 class="group-title">Календари</h3>
-    <p v-if="!editCals.length" class="group-note">Календари появятся после первой синхронизации.</p>
-    <div v-for="c in editCals" :key="c.key" class="group cal" :class="{ hidden: c.hidden }">
-      <div class="row">
-        <span class="swatch" :style="{ background: colorOf(c) }"></span>
-        <span class="lbl cname">{{ c.name }}</span>
-      </div>
-      <div class="row stack">
-        <span class="small muted">{{ c.people.length ? 'Чьи события' : 'Нет владельца: события попадут в «Без владельца»' }}</span>
-        <PeoplePicker v-model="c.people" :label="'Чей календарь ' + c.name" @update:model-value="(v) => patch(c, { people: v })" />
-      </div>
-      <label class="row">
-        <span class="lbl">Только «занят», без деталей</span>
-        <input v-model="c.private" type="checkbox" class="switch" @change="patch(c, { private: c.private })" />
-      </label>
-      <label class="row">
-        <span class="lbl">Скрыть календарь</span>
-        <input v-model="c.hidden" type="checkbox" class="switch" @change="patch(c, { hidden: c.hidden })" />
-      </label>
-    </div>
-
-    <!-- Экран -->
     <!-- Приложение для Android -->
     <h3 class="group-title">Приложение для Android</h3>
     <div class="group">
@@ -180,7 +212,8 @@
       Добавьте <code>&amp;rotate=60</code>, чтобы каждую минуту переключаться между «Сегодня» и «Лентой».
     </p>
 
-    <p class="group-note version">Версия {{ state.config?.version }}</p>
+    </template>
+    </template>
 
     <!-- Карточка человека -->
     <Sheet :open="!!editing" :title="editing?.name || ''" @close="closePerson">
@@ -260,6 +293,35 @@ import CloudSettings from '../components/CloudSettings.vue'
 const PALETTE = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#a2845e']
 
 const busy = ref(false)
+const page = ref(null)
+try { page.value = sessionStorage.getItem('settingsPage') || null } catch { /* без хранилища */ }
+function open(id) {
+  page.value = id
+  try { id ? sessionStorage.setItem('settingsPage', id) : sessionStorage.removeItem('settingsPage') } catch { /* ок */ }
+  window.scrollTo?.(0, 0)
+}
+const ico = (d) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`
+const menu = computed(() => {
+  const people = (state.config?.people || []).filter((p) => !p.id.startsWith('_'))
+  const cals = state.config?.calendars || []
+  const srcs = sources.value
+  const bad = srcs.some((s) => s.last_error)
+  const kids = people.filter((p) => p.needs_escort).length
+  return [
+    { id: 'people', title: 'Люди и календари', color: '#007aff', sub: `${people.length} чел. · календарей: ${cals.length}`,
+      icon: ico('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 14.8c2 .6 3.2 2.3 3.5 5.2"/>') },
+    { id: 'trips', title: 'Поездки детей', color: '#ff9500', sub: kids ? `детей: ${kids} · дорога, шаблоны` : 'дорога, шаблоны, «дома»',
+      icon: ico('<path d="M5 16V9l2-4h10l2 4v7M3 16h18v3H3zM7.5 12.5h.01M16.5 12.5h.01"/>') },
+    { id: 'birthdays', title: 'Дни рождения', color: '#ff2d55', sub: 'даты и напоминания',
+      icon: ico('<path d="M4 20h16v-7H4zM12 13V8M12 8c-1.2 0-1.5-1.3-.8-2.2L12 4l.8 1.8c.7.9.4 2.2-.8 2.2zM4 16c2 1.500 3.500 1.500 5.500 0s3.500-1.500 5.500 0 3 1 5 0"/>') },
+    { id: 'connect', title: 'Подключение', color: '#34c759', warn: bad,
+      sub: bad ? 'есть ошибка синхронизации' : (srcs.find((s) => s.last_ok) ? 'обновлено ' + fmt(srcs.find((s) => s.last_ok).last_ok) : 'Яндекс, синхронизация, облако'),
+      icon: ico('<path d="M20 12a8 8 0 01-14 5.300M4 12a8 8 0 0114-5.300"/><path d="M18 3v4h-4M6 21v-4h4"/>') },
+    { id: 'app', title: 'Приложение и экраны', color: '#5856d6', sub: inApp ? 'версия ' + appVersionInstalled : 'Android, виджет, экран на стене',
+      icon: ico('<rect x="7" y="2.500" width="10" height="19" rx="2"/><path d="M11 18.500h2"/>') },
+  ]
+})
+const current = computed(() => menu.value.find((m) => m.id === page.value))
 const newName = ref('')
 const sources = computed(() => state.status?.sources || [])
 const editPeople = ref([])
@@ -414,7 +476,15 @@ a.btn.filled { text-decoration: none; }
 .swatch { width: 12px; height: 12px; border-radius: 50%; flex: none; }
 .cname { font-weight: 600; }
 .link { overflow-wrap: anywhere; font-size: 13px; }
-.version { margin-top: 24px; }
+.version { margin-top: 24px; text-align: center; }
+.menu { margin-top: 12px; }
+.menu-row { width: 100%; border: 0; background: none; text-align: left; color: inherit; min-height: 56px; }
+.menu-row:hover { background: var(--fill); }
+.micon { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex: none; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); flex: none; }
+.subhead { position: relative; padding: 6px 0 2px; }
+.back { border: 0; background: none; color: var(--red); font-size: 17px; padding: 6px 0; cursor: pointer; }
+.subhead h2 { margin: 2px 0 0; font-size: 28px; font-weight: 700; }
 .done { font-weight: 600; }
 
 .switch {
