@@ -26,6 +26,31 @@ class Prefs(context: Context) {
         get() = sp.getString("last_error", null)
         set(v) = sp.edit().putString("last_error", v).apply()
 
+    /** Напоминания о поездках и делах (локальные уведомления). */
+    var notifyEnabled: Boolean
+        get() = sp.getBoolean("notify_enabled", false)
+        set(v) = sp.edit().putBoolean("notify_enabled", v).apply()
+
+    /** Чьи поездки напоминать (id через запятую); пусто — всех. */
+    var notifyPeople: String
+        get() = sp.getString("notify_people", "") ?: ""
+        set(v) = sp.edit().putString("notify_people", v).apply()
+
+    /** За сколько минут напоминать о выезде. */
+    var notifyLead: Int
+        get() = sp.getInt("notify_lead", 30)
+        set(v) = sp.edit().putInt("notify_lead", v).apply()
+
+    /** Уже показанные напоминания (чтобы не повторять), последние 300. */
+    var shownReminders: Set<String>
+        get() = sp.getStringSet("shown_reminders", emptySet()) ?: emptySet()
+        set(v) = sp.edit().putStringSet("shown_reminders", v.toList().takeLast(300).toSet()).apply()
+
+    /** Напоминания, поставленные в будильник (чтобы снять устаревшие). */
+    var scheduledReminders: Set<String>
+        get() = sp.getStringSet("scheduled_reminders", emptySet()) ?: emptySet()
+        set(v) = sp.edit().putStringSet("scheduled_reminders", v).apply()
+
     /** Версия, о которой уже напомнили (чтобы не спрашивать при каждом запуске). */
     var dismissedUpdate: Int
         get() = sp.getInt("dismissed_update", 0)

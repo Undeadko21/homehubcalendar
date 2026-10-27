@@ -85,6 +85,37 @@
       адрес; «все вместе» — если в нём участвует кто-то из взрослых. Это всегда можно поменять в карточке.
     </p>
 
+    <h3 class="group-title">Время в дороге</h3>
+    <div class="group">
+      <label class="row">
+        <span class="lbl">Запас к дороге, минут</span>
+        <input v-model.number="escort.travel_buffer" class="num" type="number" min="0" max="60" step="5" @change="saveEscort" />
+      </label>
+      <div v-for="(pl, i) in escort.places" :key="i" class="row place">
+        <input v-model="pl.words" class="inline grow" placeholder="слова: бассейн, секция" aria-label="Слова в названии или месте" @change="saveEscort" />
+        <input v-model.number="pl.minutes" class="num" type="number" min="0" max="240" step="5" aria-label="Минут в пути" @change="saveEscort" />
+        <span class="muted small">мин</span>
+        <button class="x" aria-label="Удалить" @click="removePlace(i)">×</button>
+      </div>
+      <div class="row"><button class="btn" @click="addPlace">＋ Место</button></div>
+    </div>
+    <p class="group-note">
+      Если у события (или в его месте) встречается слово из правила, окно «отвезти» = дорога + запас до начала,
+      а «забрать» — столько же после конца. Для отдельного события время в пути можно задать в его карточке.
+      Без правила работают минуты из блока выше.
+    </p>
+
+    <h3 class="group-title">Шаблоны поездок по дням недели</h3>
+    <TemplatesEditor />
+
+    <h3 class="group-title">Дни рождения</h3>
+    <BirthdaysEditor />
+
+    <template v-if="inApp">
+      <h3 class="group-title">Напоминания</h3>
+      <RemindersSettings />
+    </template>
+
     <!-- Календари -->
     <h3 class="group-title">Календари</h3>
     <p v-if="!editCals.length" class="group-note">Календари появятся после первой синхронизации.</p>
@@ -216,6 +247,9 @@ import { api } from '../lib/api'
 import { state, reload, syncNow } from '../lib/store'
 import PeoplePicker from '../components/PeoplePicker.vue'
 import Sheet from '../components/Sheet.vue'
+import TemplatesEditor from '../components/TemplatesEditor.vue'
+import BirthdaysEditor from '../components/BirthdaysEditor.vue'
+import RemindersSettings from '../components/RemindersSettings.vue'
 
 // Системные цвета Apple
 const PALETTE = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#a2845e']
@@ -227,7 +261,7 @@ const editPeople = ref([])
 const editCals = ref([])
 const accounts = ref([])
 const editing = ref(null)
-const escort = reactive({ before_minutes: 30, after_minutes: 30, home_words: 'дома', home_address: '' })
+const escort = reactive({ before_minutes: 30, after_minutes: 30, home_words: 'дома', home_address: '', travel_buffer: 5, places: [] })
 
 watch(() => state.config, (c) => {
   editPeople.value = (c?.people || []).filter((p) => !p.id.startsWith('_'))
@@ -321,12 +355,16 @@ async function addPerson() {
   newName.value = ''
   await reload()
 }
+function addPlace() { escort.places = [...(escort.places || []), { words: '', minutes: 20 }] }
+function removePlace(i) { escort.places.splice(i, 1); saveEscort() }
 async function saveEscort() {
   await api.saveEscortSettings({
     before_minutes: Number(escort.before_minutes) || 0,
     after_minutes: Number(escort.after_minutes) || 0,
     home_words: escort.home_words || '',
     home_address: escort.home_address || '',
+    travel_buffer: Number(escort.travel_buffer) || 0,
+    places: (escort.places || []).filter((p) => (p.words || '').trim()).map((p) => ({ words: p.words.trim(), minutes: Number(p.minutes) || 0 })),
   })
   await reload()
 }
@@ -382,6 +420,7 @@ a.btn.filled { text-decoration: none; }
 .switch:checked { background: var(--ok); }
 .switch:checked::after { transform: translateX(20px); }
 
+.place .x { border: 0; background: none; color: var(--ink-3); font-size: 22px; line-height: 1; padding: 4px 8px; }
 .pedit .group { margin-top: 14px; }
 .pedit .group-title { margin-top: 22px; }
 .swatches { display: flex; flex-wrap: wrap; gap: 10px; }

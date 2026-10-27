@@ -98,13 +98,29 @@
               <template v-else>Все взрослые в это время заняты.</template>
             </p>
             <p v-else-if="e.escort[role.id].person" class="hint ok">
-              Конфликтов нет{{ e.escort[role.id].scope === 'once' ? ', замена только на этот день' : '' }}.
+              Конфликтов нет{{ e.escort[role.id].scope === 'once' ? ', замена только на этот день' : e.escort[role.id].scope === 'template' ? ', назначено по шаблону дня недели' : '' }}.
             </p>
+          </div>
+          <div v-if="e.escort.mode === 'escort'" class="row stack">
+            <div class="row-head">
+              <span class="label">В пути <span class="faint win">{{ travelText }}</span></span>
+            </div>
+            <div class="choices" role="radiogroup" aria-label="Время в пути">
+              <button class="choice skip" role="radio" :aria-checked="e.escort.travel.source !== 'once' && e.escort.travel.source !== 'series'"
+                      :class="{ on: e.escort.travel.source !== 'once' && e.escort.travel.source !== 'series' }"
+                      :disabled="saving" @click="setTravel(null)">Как в настройках</button>
+              <button v-for="m in TRAVEL" :key="m" class="choice skip" role="radio"
+                      :aria-checked="travelOwn === m" :class="{ on: travelOwn === m }" :disabled="saving"
+                      @click="setTravel(m)">{{ m }} мин</button>
+            </div>
           </div>
         </div>
         <p v-if="e.escort.mode === 'escort'" class="group-note">
-          Учитывается {{ escortCfg.before_minutes }} мин до начала и {{ escortCfg.after_minutes }} мин после конца.
-          Поменять можно в настройках.
+          <template v-if="e.escort.travel.minutes != null">
+            Дорога {{ e.escort.travel.minutes }} мин + запас {{ e.escort.travel.buffer }} мин в каждую сторону.
+          </template>
+          <template v-else>Учитывается {{ escortCfg.before_minutes }} мин до начала и {{ escortCfg.after_minutes }} мин после конца.</template>
+          Времена по умолчанию и по местам — в настройках.
         </p>
       </template>
 
@@ -139,6 +155,7 @@ const MODES = [
   { id: 'together', label: 'Все вместе' },
   { id: 'home', label: 'Дома' },
 ]
+const TRAVEL = [5, 10, 15, 20, 30, 45, 60]
 const ROLES = [
   { id: 'dropoff', label: 'Отвезти' },
   { id: 'pickup', label: 'Забрать' },
@@ -171,6 +188,21 @@ const freeOthers = (role) => e.value.escort[role].free.filter((id) => id !== e.v
 function windowText(role) {
   const w = e.value.escort[role].window
   return `${formatTime(new Date(w[0]))}–${formatTime(new Date(w[1]))}`
+}
+
+const travelOwn = computed(() => {
+  const t = e.value?.escort?.travel
+  return t && (t.source === 'once' || t.source === 'series') ? t.minutes : null
+})
+const travelText = computed(() => {
+  const t = e.value?.escort?.travel
+  if (!t || t.minutes == null) return 'не задано'
+  const src = { once: 'на этот день', series: 'для события', place: 'по месту из настроек' }[t.source]
+  return `${t.minutes} мин, ${src}`
+})
+function setTravel(minutes) {
+  const sc = e.value.recurring ? scope.value : 'series'
+  return run(() => api.setEscort(e.value.uid, sc === 'once' ? e.value.start : null, 'travel', minutes == null ? null : String(minutes)))
 }
 
 const editingPeople = ref(false)

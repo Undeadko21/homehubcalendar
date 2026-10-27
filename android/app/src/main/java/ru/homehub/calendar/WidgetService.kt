@@ -35,7 +35,12 @@ private class Factory(private val context: Context) : RemoteViewsService.RemoteV
         val out = mutableListOf<Row>()
         val now = OffsetDateTime.now()
         try {
-            val days = JSONObject(json).getJSONArray("days")
+            val root = JSONObject(json)
+            // Ближайшие дни рождения — строкой над списком.
+            root.optJSONArray("birthdays")?.let { b ->
+                for (i in 0 until b.length()) out += Row.Day(b.getJSONObject(i).optString("text"))
+            }
+            val days = root.getJSONArray("days")
             for (i in 0 until days.length()) {
                 val d = days.getJSONObject(i)
                 val evs = d.getJSONArray("events")

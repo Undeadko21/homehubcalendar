@@ -88,6 +88,39 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (uid, occurrence, role)
     );
     """,
+    # 4 — шаблоны поездок по дням недели, дни рождения, списки дел и покупок
+    """
+    CREATE TABLE escort_templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        child_id TEXT NOT NULL,
+        weekday INTEGER NOT NULL,            -- 0 — понедельник
+        match TEXT NOT NULL DEFAULT '',      -- слова в названии через запятую; пусто — любое событие
+        dropoff TEXT NOT NULL DEFAULT '',    -- id взрослого, '-' — не нужно, '' — не задано
+        pickup TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE birthdays (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        month INTEGER NOT NULL,
+        day INTEGER NOT NULL,
+        year INTEGER
+    );
+    CREATE TABLE lists (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        sort INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE list_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        list_id INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        done INTEGER NOT NULL DEFAULT 0,
+        person_id TEXT,
+        created TEXT NOT NULL,
+        done_at TEXT
+    );
+    INSERT INTO lists (name, sort) VALUES ('Покупки', 0), ('Дела', 1);
+    """,
 ]
 
 
@@ -240,6 +273,88 @@ class Database:
                     "updated=excluded.updated",
                     (uid, occurrence, role, person_id, now_iso()),
                 )
+
+    # ---------- шаблоны поездок ----------
+    def templates(self) -> list[dict]:
+        return self.query("SELECT * FROM escort_templates ORDER BY weekday, child_id, id")
+
+    def save_template(self, t: dict) -> int:
+        vals = (t["child_id"], int(t["weekday"]), (t.get("match") or "").strip(),
+                t.get("dropoff") or "", t.get("pickup") or "")
+        with self.tx() as c:
+            if t.get("id"):
+                c.execute("UPDATE escort_templates SET child_id=?, weekday=?, match=?, dropoff=?, pickup=? WHERE id=?",
+                          (*vals, t["id"]))
+                return int(t["id"])
+            cur = c.execute("INSERT INTO escort_templates (child_id, weekday, match, dropoff, pickup) VALUES (?,?,?,?,?)", vals)
+            return int(cur.lastrowid)
+
+    def delete_template(self, tid: int) -> None:
+        with self.tx() as c:
+            c.execute("DELETE FROM escort_templates WHERE id=?", (tid,))
+
+    # ---------- дни рождения ----------
+    def birthdays(self) -> list[dict]:
+        return self.query("SELECT * FROM birthdays ORDER BY month, day, name")
+
+    def save_birthday(self, b: dict) -> int:
+        vals = (b["name"].strip(), int(b["month"]), int(b["day"]), b.get("year"))
+        with self.tx() as c:
+            if b.get("id"):
+                c.execute("UPDATE birthdays SET name=?, month=?, day=?, year=? WHERE id=?", (*vals, b["id"]))
+                return int(b["id"])
+            return int(c.execute("INSERT INTO birthdays (name, month, day, year) VALUES (?,?,?,?)", vals).lastrowid)
+
+    def delete_birthday(self, bid: int) -> None:
+        with self.tx() as c:
+            c.execute("DELETE FROM birthdays WHERE id=?", (bid,))
+
+    # ---------- списки ----------
+    def lists(self) -> list[dict]:
+        lists = self.query("SELECT * FROM lists ORDER BY sort, id")
+        items = self.query("SELECT * FROM list_items ORDER BY done, id")
+        for l in lists:
+            l["items"] = [dict(i, done=bool(i["done"])) for i in items if i["list_id"] == l["id"]]
+        return lists
+
+    def add_list(self, name: str) -> int:
+        with self.tx() as c:
+            n = c.execute("SELECT COALESCE(MAX(sort), -1) + 1 FROM lists").fetchone()[0]
+            return int(c.execute("INSERT INTO lists (name, sort) VALUES (?,?)", (name.strip(), n)).lastrowid)
+
+    def rename_list(self, lid: int, name: str) -> None:
+        with self.tx() as c:
+            c.execute("UPDATE lists SET name=? WHERE id=?", (name.strip(), lid))
+
+    def delete_list(self, lid: int) -> None:
+        with self.tx() as c:
+            c.execute("DELETE FROM list_items WHERE list_id=?", (lid,))
+            c.execute("DELETE FROM lists WHERE id=?", (lid,))
+
+    def add_item(self, lid: int, text: str, person_id: str | None = None) -> int:
+        with self.tx() as c:
+            return int(c.execute("INSERT INTO list_items (list_id, text, person_id, created) VALUES (?,?,?,?)",
+                                 (lid, text.strip(), person_id, now_iso())).lastrowid)
+
+    def update_item(self, iid: int, fields: dict) -> None:
+        sets, vals = [], []
+        if "text" in fields:
+            sets.append("text=?"); vals.append(fields["text"].strip())
+        if "person_id" in fields:
+            sets.append("person_id=?"); vals.append(fields["person_id"] or None)
+        if "done" in fields:
+            sets += ["done=?", "done_at=?"]; vals += [int(bool(fields["done"])), now_iso() if fields["done"] else None]
+        if sets:
+            with self.tx() as c:
+                c.execute(f"UPDATE list_items SET {', '.join(sets)} WHERE id=?", (*vals, iid))
+
+    def delete_item(self, iid: int) -> None:
+        with self.tx() as c:
+            c.execute("DELETE FROM list_items WHERE id=?", (iid,))
+
+    def clear_done(self, lid: int) -> None:
+        with self.tx() as c:
+            c.execute("DELETE FROM list_items WHERE list_id=? AND done=1", (lid,))
 
     # ---------- участники отдельных событий ----------
     def event_people(self) -> dict[str, list[str]]:

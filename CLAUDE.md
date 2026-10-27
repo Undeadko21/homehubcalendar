@@ -32,6 +32,14 @@
   `id = <id события>:<role>`, тот же uid, `duty.parent` — исходное событие; клик открывает его),
   «все вместе» без взрослых участников показывается у всех взрослых. В freetime поездки
   считаются через duty_intervals, события с `duty` пропускаются, чтобы не было дублей.
+  **Время в дороге** (`escorts` role='travel', значение — минуты): окно «отвезти» = дорога + запас до начала,
+  «забрать» — после конца; приоритет: на день → на серию → правило по месту (`settings:escort.places`,
+  слова в названии/месте → минуты) → фиксированные before/after. **Шаблоны** (`escort_templates`: ребёнок,
+  день недели, слова, кто отвозит/забирает) — значение по умолчанию (scope='template'), ручные назначения важнее.
+- Дни рождения: `birthdays.py` (таблица `birthdays` + целодневные события со словами «день рождения/ДР/birthday»
+  автоматически, дубли по основе имени отсекаются). Списки дел/покупок: `lists`, `list_items`, общие на семью.
+- Напоминания: `reminders.py` считает (поездки за `lead` минут, вечерний дайджест проблем на завтра, дни рождения),
+  отдаёт `GET /api/reminders`; показывает их только Android-приложение (локальные уведомления).
 - Свободное время: `freetime.py` — объединение занятости выбранных людей (+ их поездки).
 - Настройки из UI (`configured=1`) важнее правил из config.yaml и не перетираются синхронизацией.
 
@@ -48,12 +56,18 @@
 | `sync.py` | движок синхронизации, автосоздание людей из конфига |
 | `escorts.py` | «кто отвозит/забирает», конфликты, свободные взрослые |
 | `freetime.py` | общие свободные окна по дням |
+| `birthdays.py` | ближайшие дни рождения, обратный отсчёт |
+| `reminders.py` | что и когда напомнить телефону |
 | `main.py` | API, PIN-защита, раздача SPA |
 
 API: `GET /api/config`, `GET /api/events?start&end`, `GET /api/holidays?start&end`,
 `GET /api/status`, `POST /api/sync`, `PUT|DELETE /api/people/{id}`, `PATCH /api/calendars/{key}`,
 `POST /api/event-people {uid, people|null}`, `POST /api/escort {uid, occurrence|null, role (dropoff|pickup|mode), person|'-'|mode|null}`,
 `PUT /api/settings/escort`, `GET /api/free?people&start&end&day_from&day_to&min_minutes&all_day`, `PUT /api/accounts/{source_id}` (логин/пароль CalDAV из интерфейса, хранятся в `kv` как `auth:<id>`, важнее пустых значений из config.yaml).
+Новое (v0.5): `GET|PUT /api/templates`, `DELETE /api/templates/{id}`; `GET /api/birthdays?days`, `PUT /api/birthdays`,
+`DELETE /api/birthdays/{id}`; `GET /api/search?q`; `GET|POST /api/lists`, `PUT|DELETE /api/lists/{id}`,
+`POST /api/lists/{id}/items|clear-done`, `PATCH|DELETE /api/items/{id}`; `GET /api/reminders?hours&lead&people`;
+`POST /api/escort` принимает role=travel (минуты строкой); `PUT /api/settings/escort` — ещё `travel_buffer` и `places`.
 Время в запросах без пояса трактуется в поясе из config.yaml.
 
 ## Фронтенд (`frontend/src`)
@@ -63,7 +77,8 @@ Vue 3 + Vite, FullCalendar только для «Недели» и «Месяц�
 - `lib/store.js` — общее состояние, фильтр людей (localStorage), кэш запросов.
 - `lib/report.js` — ловит ошибки клиента, показывает красный баннер в App.vue и шлёт на `POST /api/client-log` (смотреть `GET /api/client-log`). Для старых WebView: `@vitejs/plugin-legacy` (полифилы) и класс `no-color-mix` на `<html>` с запасными стилями.
 - `lib/useRange.js` — загрузка событий для диапазона; перезагрузка по `state.revision`.
-- `views/` — Today, Timeline (собственная «семейная лента»), Calendar (FullCalendar), Agenda, Free, Settings.
+- `views/` — Today, Timeline (собственная «семейная лента»), Calendar (FullCalendar), Agenda, Free, Lists, Search, Settings.
+  Редакторы в настройках: `TemplatesEditor`, `BirthdaysEditor`, `RemindersSettings` (только внутри приложения), `BirthdayStrip` — на «Сегодня».
 - `components/` — EventPill (таблетка события), EventDialog (карточка-лист), EscortBadge (→ кто / ← кто),
   Sheet (лист снизу на телефоне / карточка на компьютере), MiniMonth, PeopleList, PeoplePicker,
   DayGrid (дневная сетка «Сегодня»: общая шкала часов, колонка на человека, линия «сейчас»;
@@ -86,6 +101,12 @@ Kotlin, без лишних зависимостей (core-ktx, WorkManager). П
 - Виджет `WidgetProvider` + `WidgetService` (список) + `RefreshWorker` (WorkManager, каждые 15 мин и
   по кнопке). Данные — `GET /api/widget` (`backend/app/widget.py`): сервер отдаёт готовые строки,
   поэтому содержимое виджета меняется на сервере без обновления приложения. Вход по PIN — куки WebView.
+- Напоминания (`Reminders.kt`): `ReminderWorker` раз в 15 мин берёт `/api/reminders`, ставит `AlarmManager`
+  (inexact, без спец. разрешений), `ReminderReceiver` показывает уведомление; показанные id — в `Prefs.shownReminders`.
+  Настройки (вкл/кто/за сколько минут) — на телефоне, мост `getNotify/setNotify/requestNotifications/testNotification`.
+  По умолчанию выключены: человек выбирает, чьи поездки ему напоминать. Строка дней рождения в виджете — `birthdays` из `/api/widget`.
+- Обновление: приложение само качает APK в кэш и открывает установщик (FileProvider, REQUEST_INSTALL_PACKAGES).
+- Экран рисуется под системными панелями (Android 15) — `padForSystemBars()` в `Insets.kt`.
 - Сборка: SDK в /opt/android-sdk (ставится cmdline-tools → `sdkmanager "platforms;android-35"
   "build-tools;35.0.0"`). Выпуск: увеличить versionCode в `android/version.properties`,
   `./android/build-release.sh` → `android/release/` (APK + version.json) → закоммитить. Сервер раздаёт
@@ -116,10 +137,10 @@ v0.3: «кто отвозит/забирает» детей с конфликт�
 v0.4: «как добирается» (вместе/дома), поездки в календарях взрослых, дневная сетка «Сегодня»
 с растягиванием общих событий, приложение для Android с виджетом (раздаётся с сервера).
 
+v0.5: время в дороге и шаблоны поездок, напоминания в Android-приложении, дни рождения (в т.ч. в виджете),
+поиск, списки дел и покупок.
+
 Дальше (по согласованию с пользователем):
-- Уведомления: Telegram в РФ не подходит; варианты — веб-push в PWA, ntfy на сервере,
-  локальные напоминания в Android-приложении. Для работы вне дома нужен доступ снаружи (VPN/домен).
-- Дни рождения с обратным отсчётом.
+- Для работы вне дома нужен доступ снаружи (VPN/домен); уведомления для не-Android — веб-push или ntfy.
 - Запись событий в Яндекс (CalDAV PUT) — второй этап.
-- Рабочие календари одной полосой «на работе».
-- Списки дел/покупок.
+Пользователь отказался от: «кто я» на телефоне, рабочих календарей одной полосой.

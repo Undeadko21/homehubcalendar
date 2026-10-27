@@ -11,7 +11,8 @@ from . import escorts
 from .db import Database
 from .expand import expand_ics
 
-ESCORT_DEFAULTS = {"before_minutes": 30, "after_minutes": 30, "home_words": "дома", "home_address": ""}
+ESCORT_DEFAULTS = {"before_minutes": 30, "after_minutes": 30, "home_words": "дома", "home_address": "",
+                   "travel_buffer": 5, "places": []}
 
 UNASSIGNED = "_unassigned"
 
@@ -59,7 +60,9 @@ class EventService:
         cfg = self.escort_settings()
         escorts.annotate(wide, people, self.db.escorts(), cfg["before_minutes"], cfg["after_minutes"],
                          [w.strip() for w in str(cfg.get("home_words") or "").split(",") if w.strip()],
-                         str(cfg.get("home_address") or "").strip())
+                         str(cfg.get("home_address") or "").strip(),
+                         templates=self.db.templates(), places=cfg.get("places") or [],
+                         travel_buffer=int(cfg.get("travel_buffer") or 0))
         # Поездки и «все вместе» — в календари взрослых.
         wide += escorts.add_to_adults(wide, people)
         wide.sort(key=lambda e: (e["start"][:10], not e["all_day"], e["start"], e["title"]))

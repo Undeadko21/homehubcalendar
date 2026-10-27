@@ -160,3 +160,21 @@ input.field, select.field, textarea.field {
 .no-color-mix .pill.allday, .no-color-mix .block.allday { background: var(--c) !important; color: #fff !important; }
 .no-color-mix .cal .fc-event { background: var(--surface-2) !important; color: var(--ink) !important; }
 .no-color-mix .cal .fc-event .fc-event-main { color: var(--ink) !important; }
+
+/* --- общие элементы форм в группах (настройки, списки) --- */
+.inline { border: 0; background: none; text-align: right; flex: 1; min-width: 0; padding: 4px 0; outline: none; }
+.inline::placeholder { color: var(--ink-3); }
+.grow { text-align: left; }
+.num { width: 72px; border: 0; background: var(--fill); border-radius: 8px; padding: 6px 8px; text-align: right; }
+.row.stack { flex-direction: column; align-items: stretch; gap: 8px; padding-top: 10px; padding-bottom: 12px; }
+select.sel { border: 0; background: var(--fill); border-radius: 8px; padding: 6px 8px; max-width: 100%; }
+.switch {
+  appearance: none; -webkit-appearance: none; width: 51px; height: 31px; border-radius: 16px; background: var(--fill);
+  position: relative; transition: background .2s; flex: none; margin: 0; cursor: pointer;
+}
+.switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.2); transition: transform .2s;
+}
+.switch:checked { background: var(--ok); }
+.switch:checked::after { transform: translateX(20px); }

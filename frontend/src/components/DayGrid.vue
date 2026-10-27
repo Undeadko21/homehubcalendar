@@ -308,8 +308,9 @@ const nowY = computed(() => {
   .head { grid-template-columns: var(--axis) repeat(var(--cols), minmax(104px, 1fr)); }
   .adgrid { grid-template-columns: repeat(var(--cols), minmax(104px, 1fr)); }
   .cols { grid-template-columns: repeat(var(--cols), minmax(104px, 1fr)); }
-  .ph { flex-direction: column; align-items: flex-start; gap: 4px; padding: 0 4px; }
-  .avatar { width: 26px; height: 26px; font-size: 13px; }
+  .ph { flex-direction: column; align-items: stretch; gap: 4px; padding: 0 4px; }
+  .pn { flex: none; width: 100%; }
+  .avatar { align-self: flex-start; width: 26px; height: 26px; font-size: 13px; }
   .pn strong { font-size: 14px; }
   .blk { padding: 2px 4px 2px 6px; }
   .blk .t { font-size: 12px; }

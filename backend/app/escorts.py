@@ -9,6 +9,14 @@
 Конфликт: у назначенного взрослого в окне есть другое занятое событие
 (со временем, не «свободен») или другая поездка.
 
+Время в дороге: если у события (или места по правилам из настроек) задано «минут в пути»,
+окно «отвезти» = [начало − дорога − запас, начало], «забрать» = [конец, конец + дорога + запас];
+иначе используются фиксированные before/after. Дорога события хранится как role='travel'
+(значение — число минут), правила по местам — settings:escort.places.
+
+Шаблоны: «по вторникам кружок — везёт Толя, забирает Оля» (escort_templates) — значение
+по умолчанию, когда для события ничего не назначено вручную; разовые замены и серия важнее.
+
 Как добирается (role='mode', значения escort | together | home):
   escort   — кто-то отвозит и забирает (роли выше);
   together — едут все вместе, выбирать водителя не нужно;
@@ -38,6 +46,37 @@ def _home_match(e: dict, words: list[str], address: str) -> str | None:
     return None
 
 
+def _words(text: str) -> list[str]:
+    return [w.strip().lower() for w in (text or "").split(",") if w.strip()]
+
+
+def _template_value(templates: list[dict], kids: list[str], e: dict, weekday: int, role: str) -> str | None:
+    """Назначение из шаблона; конкретные шаблоны (со словами) важнее общих."""
+    title = e.get("title", "").lower()
+    best: tuple[int, str] | None = None
+    for t in templates:
+        if t["child_id"] not in kids or t["weekday"] != weekday or not t.get(role):
+            continue
+        words = _words(t.get("match", ""))
+        if words and not any(w in title for w in words):
+            continue
+        rank = 1 if words else 0
+        if best is None or rank > best[0]:
+            best = (rank, t[role])
+    return best[1] if best else None
+
+
+def _place_minutes(e: dict, places: list[dict]) -> int | None:
+    text = f"{e.get('title', '')} {e.get('location', '')}".lower()
+    for p in places:
+        if any(w in text for w in _words(p.get("words", ""))):
+            try:
+                return max(0, int(p.get("minutes")))
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
 def _dt(s: str) -> datetime:
     return datetime.fromisoformat(s)
 
@@ -48,7 +87,9 @@ def _overlaps(a0: datetime, a1: datetime, b0: datetime, b1: datetime) -> bool:
 
 def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tuple[str, str, str], str],
              before_min: int = 30, after_min: int = 30,
-             home_words: list[str] | None = None, home_address: str = "") -> None:
+             home_words: list[str] | None = None, home_address: str = "",
+             templates: list[dict] | None = None, places: list[dict] | None = None,
+             travel_buffer: int = 5) -> None:
     """Добавляет каждому событию ребёнка поле escort и уровень проблемы escort_issue."""
     children = {pid for pid, p in people.items() if p.get("needs_escort")}
     adults = [pid for pid, p in people.items() if not p.get("needs_escort") and not p.get("hidden")]
@@ -97,11 +138,34 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
             "mode_reason": reason,
             "mode_scope": "once" if m_once in MODES else ("series" if m_series in MODES else None),
         }
+        # Время в пути: на этот день → на серию → правило по месту.
+        t_once = assignments.get((e["uid"], e["start"], "travel"))
+        t_series = assignments.get((e["uid"], "*", "travel"))
+        travel, t_source = None, None
+        for raw, src in ((t_once, "once"), (t_series, "series")):
+            if raw is not None and str(raw).isdigit():
+                travel, t_source = int(raw), src
+                break
+        if travel is None:
+            pm = _place_minutes(e, places or [])
+            if pm is not None:
+                travel, t_source = pm, "place"
+        info["travel"] = {"minutes": travel, "source": t_source,
+                          "buffer": travel_buffer if travel is not None else None}
+        lead = timedelta(minutes=travel + travel_buffer) if travel is not None else None
+
         for role in ROLES:
-            w0, w1 = (s - before, s) if role == "dropoff" else (en, en + after)
+            if lead is not None:
+                w0, w1 = (s - lead, s) if role == "dropoff" else (en, en + lead)
+            else:
+                w0, w1 = (s - before, s) if role == "dropoff" else (en, en + after)
             once = assignments.get((e["uid"], e["start"], role))
             series = assignments.get((e["uid"], "*", role))
             value = once if once is not None else series
+            from_template = None
+            if value is None:
+                from_template = _template_value(templates or [], kids, e, s.weekday(), role)
+                value = from_template
             person = value if value and value != SKIP and value in people else None
             skip = value == SKIP or mode != "escort"
             if mode != "escort":
@@ -109,7 +173,8 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
             info[role] = {
                 "person": person,
                 "skip": skip,
-                "scope": "once" if once is not None else ("series" if series is not None else None),
+                "scope": "once" if once is not None else ("series" if series is not None
+                                                          else ("template" if from_template else None)),
                 "series_person": series if series and series != SKIP else None,
                 "window": [w0.isoformat(), w1.isoformat()],
                 "conflicts": [],

@@ -14,6 +14,12 @@
           <button :class="{ on: state.view === 'free' }" @click="setView('free')">
             <IconFree /> Свободное время
           </button>
+          <button :class="{ on: state.view === 'lists' }" @click="setView('lists')">
+            <IconList /> Списки
+          </button>
+          <button :class="{ on: state.view === 'search' }" @click="setView('search')">
+            <IconSearch /> Поиск
+          </button>
           <button :class="{ on: state.view === 'settings' }" @click="setView('settings')">
             <IconGear /> Настройки
           </button>
@@ -37,6 +43,7 @@
               <button v-for="v in VIEWS" :key="v.id" role="tab" :aria-selected="state.view === v.id"
                       :class="{ on: state.view === v.id }" @click="setView(v.id)">{{ v.label }}</button>
             </div>
+            <button class="btn icon search-btn" aria-label="Поиск" @click="setView('search')"><IconSearch /></button>
             <span class="m-sync" :title="syncTitle"><span :class="['sync-dot', syncState]"></span></span>
           </div>
           <h1 class="title">
@@ -66,6 +73,8 @@
           <CalendarView v-else-if="state.view === 'week' || state.view === 'month'" :mode="state.view" />
           <AgendaView v-else-if="state.view === 'agenda'" />
           <FreeView v-else-if="state.view === 'free'" />
+          <ListsView v-else-if="state.view === 'lists'" />
+          <SearchView v-else-if="state.view === 'search'" />
           <SettingsView v-else-if="state.view === 'settings'" />
         </main>
       </div>
@@ -75,6 +84,7 @@
         <button :class="{ on: state.view === 'today' }" @click="setView('today')"><IconToday :day="new Date().getDate()" /><span>Сегодня</span></button>
         <button :class="{ on: isCalTab }" @click="setView(state.calView)"><IconCal /><span>Календарь</span></button>
         <button :class="{ on: state.view === 'free' }" @click="setView('free')"><IconFree /><span>Свободно</span></button>
+        <button :class="{ on: state.view === 'lists' }" @click="setView('lists')"><IconList /><span>Списки</span></button>
         <button :class="{ on: state.peopleSheet }" @click="state.peopleSheet = true"><IconPeople /><span>Люди</span></button>
         <button :class="{ on: state.view === 'settings' }" @click="setView('settings')"><IconGear /><span>Настройки</span></button>
       </nav>
@@ -103,6 +113,8 @@ import CalendarView from './views/CalendarView.vue'
 import AgendaView from './views/AgendaView.vue'
 import FreeView from './views/FreeView.vue'
 import SettingsView from './views/SettingsView.vue'
+import ListsView from './views/ListsView.vue'
+import SearchView from './views/SearchView.vue'
 
 const VIEWS = [
   { id: 'today', label: 'Сегодня' },
@@ -113,13 +125,15 @@ const VIEWS = [
 ]
 const CAL_TABS = VIEWS.slice(1)
 const isCalTab = computed(() => CAL_VIEWS.includes(state.view))
-const navigable = computed(() => !['settings', 'free'].includes(state.view))
+const navigable = computed(() => !['settings', 'free', 'lists', 'search'].includes(state.view))
 
 // --- значки нижней панели (тонкие линии, как SF Symbols) ---
 const svg = (paths, extra = {}) => () => h('svg', { viewBox: '0 0 24 24', class: 'ico', 'aria-hidden': 'true', ...extra }, paths)
 const IconCal = svg([h('rect', { x: 3.5, y: 5, width: 17, height: 15.5, rx: 3 }), h('path', { d: 'M3.5 9.5h17M8 3v4M16 3v4' })])
 const IconFree = svg([h('circle', { cx: 12, cy: 12, r: 8.5 }), h('path', { d: 'M12 7.5V12l3 2' })])
 const IconPeople = svg([h('circle', { cx: 9, cy: 8.5, r: 3.2 }), h('path', { d: 'M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5' }), h('circle', { cx: 16.5, cy: 9.5, r: 2.6 }), h('path', { d: 'M15.5 14.2c2.6-.3 4.6 1.3 5 4.3' })])
+const IconList = svg([h('path', { d: 'M9 6.5h11M9 12h11M9 17.5h11' }), h('path', { d: 'M3.8 6.6l1 1 1.9-2M3.8 12.1l1 1 1.9-2M3.8 17.6l1 1 1.9-2' })])
+const IconSearch = svg([h('circle', { cx: 10.5, cy: 10.5, r: 6 }), h('path', { d: 'M15 15l5 5' })])
 const IconGear = svg([h('circle', { cx: 12, cy: 12, r: 3 }), h('path', { d: 'M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7' })])
 const IconToday = (props) => h('svg', { viewBox: '0 0 24 24', class: 'ico', 'aria-hidden': 'true' }, [
   h('rect', { x: 3.5, y: 4, width: 17, height: 16.5, rx: 3 }),
@@ -155,6 +169,8 @@ const title = computed(() => {
   switch (state.view) {
     case 'settings': return { main: 'Настройки' }
     case 'free': return { main: 'Свободное время' }
+    case 'lists': return { main: 'Списки' }
+    case 'search': return { main: 'Поиск' }
     case 'today': {
       const rel = relativeDayName(c)
       const date = c.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
@@ -267,6 +283,7 @@ onUnmounted(() => { timers.forEach(clearInterval); ro?.disconnect() })
 .today-btn { font-weight: 600; }
 .main-seg { order: 1; }
 .m-sync { display: none; }
+.search-btn :deep(.ico) { width: 20px; height: 20px; color: var(--tint); }
 .title { grid-area: title; margin: 0; font-family: var(--font-display); font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; white-space: nowrap; }
 .t-main { font-weight: 700; }
 .t-sub { font-weight: 400; margin-left: 8px; color: var(--ink-2); }
@@ -296,6 +313,8 @@ onUnmounted(() => { timers.forEach(clearInterval); ro?.disconnect() })
   .navs { order: 0; margin-left: -8px; }
   .main-seg { display: none; }
   .m-sync { display: inline-flex; padding: 8px; }
+  .nav-row { gap: 4px; }
+  .navs { margin-right: auto; }
   .title { font-size: 30px; padding: 0 4px; white-space: normal; }
   .t-sub { font-size: 17px; display: block; margin: 2px 0 0; }
   .navs.hide { visibility: hidden; }

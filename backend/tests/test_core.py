@@ -435,3 +435,95 @@ def test_widget_payload(db):
     assert data["days"][1]["label"].startswith("Завтра")
     only = widget.build(items, people, TZ, now, 1, {"tolya"})
     assert all("tolya" in e["people"] for e in only["days"][0]["events"])
+
+
+def test_travel_time_changes_windows_and_conflicts(db):
+    _family(db)
+    svc = EventService(db, TZ)
+    tue = _by_start(svc.events(*rng()), "pool@test")["2026-10-27"]
+    assert tue["escort"]["travel"]["minutes"] is None
+    assert tue["escort"]["dropoff"]["window"][0].startswith("2026-10-27T16:30")  # по умолчанию 30 минут
+
+    # Правило по месту: «бассейн» — 25 минут в пути + запас 5 → окно 30 минут (то же), 40 → 16:15
+    db.kv_set("settings:escort", {"places": [{"words": "бассейн", "minutes": 40}], "travel_buffer": 5})
+    svc.invalidate()
+    tue = _by_start(svc.events(*rng()), "pool@test")["2026-10-27"]
+    assert tue["escort"]["travel"] == {"minutes": 40, "source": "place", "buffer": 5}
+    assert tue["escort"]["dropoff"]["window"][0].startswith("2026-10-27T16:15")
+    assert tue["escort"]["pickup"]["window"][1].startswith("2026-10-27T18:45")
+
+    # Дорога конкретного события важнее правила по месту; на серию и на день
+    db.set_escort("pool@test", "*", "travel", "10")
+    svc.invalidate()
+    tue = _by_start(svc.events(*rng()), "pool@test")["2026-10-27"]
+    assert tue["escort"]["travel"]["source"] == "series" and tue["escort"]["dropoff"]["window"][0].startswith("2026-10-27T16:45")
+    db.set_escort("pool@test", tue["start"], "travel", "0")
+    svc.invalidate()
+    tue = _by_start(svc.events(*rng()), "pool@test")["2026-10-27"]
+    assert tue["escort"]["travel"]["source"] == "once" and tue["escort"]["dropoff"]["window"][0].startswith("2026-10-27T16:55")
+
+
+def test_weekday_templates_are_defaults(db):
+    _family(db)
+    db.save_template({"child_id": "mark", "weekday": 1, "match": "", "dropoff": "tolya", "pickup": "olya"})
+    db.save_template({"child_id": "mark", "weekday": 1, "match": "бассейн", "dropoff": "olya"})  # конкретнее
+    svc = EventService(db, TZ)
+    pools = _by_start(svc.events(*rng()), "pool@test")
+    tue, thu = pools["2026-10-27"], pools["2026-10-29"]
+    d = tue["escort"]["dropoff"]
+    assert d["person"] == "olya" and d["scope"] == "template"      # шаблон со словом победил общий
+    assert tue["escort"]["pickup"]["person"] == "olya"             # из общего шаблона
+    assert thu["escort"]["dropoff"]["person"] is None              # четверг — шаблона нет
+    # Разовая замена важнее шаблона, серия — тоже
+    db.set_escort("pool@test", tue["start"], "dropoff", "tolya")
+    db.set_escort("pool@test", "*", "pickup", "-")
+    svc.invalidate()
+    tue = _by_start(svc.events(*rng()), "pool@test")["2026-10-27"]
+    assert tue["escort"]["dropoff"]["person"] == "tolya" and tue["escort"]["dropoff"]["scope"] == "once"
+    assert tue["escort"]["pickup"]["skip"]
+
+
+def test_birthdays_and_reminders(db):
+    from datetime import date
+    from app.birthdays import days_phrase, next_date, upcoming
+    from app import reminders
+    assert next_date(2, 29, date(2027, 1, 1)) == date(2027, 2, 28)
+    assert next_date(10, 20, date(2026, 10, 27)) == date(2027, 10, 20)
+    assert [days_phrase(n) for n in (0, 1, 2, 5, 11, 21)] == [
+        "сегодня", "завтра", "через 2 дня", "через 5 дней", "через 11 дней", "через 21 день"]
+    today = date(2026, 10, 27)
+    manual = [{"id": 1, "name": "Оля", "month": 10, "day": 28, "year": 1990}]
+    allday = [{"all_day": True, "title": "День рождения Бабушки", "start": "2026-11-02", "end": "2026-11-03"},
+              {"all_day": True, "title": "День рождения Оли", "start": "2026-10-28", "end": "2026-10-29"},  # дубль ручной
+              {"all_day": True, "title": "Отпуск", "start": "2026-10-30", "end": "2026-10-31"}]
+    up = upcoming(manual, allday, today)
+    assert [(b["name"], b["days"], b["turns"], b["auto"]) for b in up] == [("Оля", 1, 36, False), ("День рождения Бабушки", 6, None, True)]
+
+    # напоминания: поездка завтра утром + дайджест проблем + день рождения
+    _family(db)
+    db.set_escort("pool@test", "*", "dropoff", "tolya")
+    svc = EventService(db, TZ)
+    evs = svc.events(datetime(2026, 10, 27, tzinfo=TZ), datetime(2026, 10, 31, tzinfo=TZ))
+    now = datetime(2026, 10, 26, 12, 0, tzinfo=TZ)
+    items = reminders.build(evs, [{"id": 1, "name": "Оля", "month": 10, "day": 27, "year": None}], now, TZ, {"tolya"}, 30)
+    kinds = {r["kind"] for r in items}
+    assert {"duty", "digest", "bday"} <= kinds
+    duty = [r for r in items if r["kind"] == "duty"][0]
+    assert duty["at"].startswith("2026-10-27T16:00") and "Отвезти Марка" in duty["title"]
+    assert "Нет водителя" in [r for r in items if r["kind"] == "digest"][0]["text"]  # забирать некому
+    # чужие поездки не попадают
+    assert not [r for r in reminders.build(evs, [], now, TZ, {"olya"}, 30) if r["kind"] == "duty"]
+
+
+def test_lists(db):
+    lid = db.lists()[0]["id"]
+    a = db.add_item(lid, " Молоко ")
+    b = db.add_item(lid, "Хлеб", "olya")
+    db.update_item(a, {"done": True})
+    items = db.lists()[0]["items"]
+    assert [i["text"] for i in items] == ["Хлеб", "Молоко"]  # выполненные внизу
+    assert items[1]["done"] and items[1]["done_at"]
+    db.clear_done(lid)
+    assert [i["text"] for i in db.lists()[0]["items"]] == ["Хлеб"]
+    db.delete_item(b)
+    assert db.lists()[0]["items"] == []

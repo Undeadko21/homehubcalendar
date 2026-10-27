@@ -21,7 +21,7 @@ from .config import load_settings
 from .db import Database
 from .events import UNASSIGNED, EventService
 from .freetime import find_free
-from . import widget
+from . import birthdays as bd, reminders, widget
 from .holidays import HolidayService
 from .sync import SyncEngine
 
@@ -237,9 +237,12 @@ class EscortIn(BaseModel):
 
 @app.post("/api/escort")
 def set_escort(body: EscortIn):
-    if body.role not in ("dropoff", "pickup", "mode"):
-        raise HTTPException(400, "role: dropoff, pickup или mode")
-    if body.role == "mode":
+    if body.role not in ("dropoff", "pickup", "mode", "travel"):
+        raise HTTPException(400, "role: dropoff, pickup, mode или travel")
+    if body.role == "travel":
+        if body.person is not None and not (body.person.isdigit() and int(body.person) <= 240):
+            raise HTTPException(400, "travel: число минут от 0 до 240")
+    elif body.role == "mode":
         if body.person not in (None, "escort", "together", "home"):
             raise HTTPException(400, "mode: escort, together или home")
     elif body.person not in (None, "-") and body.person not in {p["id"] for p in db.list_people()}:
@@ -250,16 +253,24 @@ def set_escort(body: EscortIn):
     return {"ok": True}
 
 
+class Place(BaseModel):
+    words: str      # слова в названии или месте через запятую
+    minutes: int    # сколько ехать
+
+
 class EscortSettings(BaseModel):
     before_minutes: int = 30
     after_minutes: int = 30
+    travel_buffer: int = 5     # запас к времени в пути
+    places: list[Place] = []   # «секция, бассейн» → 25 минут
     home_words: str = "дома"   # через запятую; событие с таким словом — «дома»
     home_address: str = ""     # часть адреса: событие в этом месте — «дома»
 
 
 @app.put("/api/settings/escort")
 def put_escort_settings(body: EscortSettings):
-    if not (0 <= body.before_minutes <= 240 and 0 <= body.after_minutes <= 240):
+    if not (0 <= body.before_minutes <= 240 and 0 <= body.after_minutes <= 240
+            and 0 <= body.travel_buffer <= 60 and all(0 <= p.minutes <= 240 for p in body.places)):
         raise HTTPException(400, "От 0 до 240 минут")
     db.kv_set("settings:escort", {**events.escort_settings(), **body.model_dump(exclude_unset=True)})
     events.invalidate()
@@ -289,7 +300,175 @@ def get_widget(days: int = 2, people: str | None = None):
     start = datetime.combine(now.date(), time(0), tz)
     plist = {p["id"]: p for p in db.list_people() if not p["hidden"]}
     only = set(people.split(",")) if people else None
-    return widget.build(events.events(start, start + timedelta(days=days)), plist, tz, now, days, only)
+    evs = events.events(start, start + timedelta(days=days))
+    soon = bd.upcoming(db.birthdays(), events.events(start, start + timedelta(days=15)), start.date(), 14)[:2]
+    return widget.build(evs, plist, tz, now, days, only, soon)
+
+
+# ---------- шаблоны поездок по дням недели ----------
+class TemplateIn(BaseModel):
+    id: int | None = None
+    child_id: str
+    weekday: int            # 0 — понедельник
+    match: str = ""         # слова в названии; пусто — любое событие ребёнка в этот день
+    dropoff: str = ""       # id взрослого, '-' — не нужно, '' — не задано
+    pickup: str = ""
+
+
+@app.get("/api/templates")
+def list_templates():
+    return db.templates()
+
+
+@app.put("/api/templates")
+def put_template(body: TemplateIn):
+    ids = {p["id"] for p in db.list_people()}
+    if body.child_id not in ids or not 0 <= body.weekday <= 6:
+        raise HTTPException(400, "Некорректный ребёнок или день недели")
+    for v in (body.dropoff, body.pickup):
+        if v not in ("", "-") and v not in ids:
+            raise HTTPException(400, "Неизвестный человек")
+    tid = db.save_template(body.model_dump())
+    events.invalidate()
+    return {"ok": True, "id": tid}
+
+
+@app.delete("/api/templates/{tid}")
+def delete_template(tid: int):
+    db.delete_template(tid)
+    events.invalidate()
+    return {"ok": True}
+
+
+# ---------- дни рождения ----------
+class BirthdayIn(BaseModel):
+    id: int | None = None
+    name: str
+    month: int
+    day: int
+    year: int | None = None
+
+
+def _today_start() -> datetime:
+    return datetime.combine(datetime.now(tz).date(), time(0), tz)
+
+
+@app.get("/api/birthdays")
+def get_birthdays(days: int = 60):
+    start = _today_start()
+    evs = events.events(start, start + timedelta(days=min(max(days, 1), 120) + 1))
+    return {"upcoming": bd.upcoming(db.birthdays(), evs, start.date(), min(max(days, 1), 120)),
+            "all": db.birthdays()}
+
+
+@app.put("/api/birthdays")
+def put_birthday(body: BirthdayIn):
+    try:
+        date(body.year or 2000, body.month, body.day)
+    except ValueError:
+        raise HTTPException(400, "Некорректная дата")
+    if not body.name.strip():
+        raise HTTPException(400, "Укажите имя")
+    return {"ok": True, "id": db.save_birthday(body.model_dump())}
+
+
+@app.delete("/api/birthdays/{bid}")
+def delete_birthday(bid: int):
+    db.delete_birthday(bid)
+    return {"ok": True}
+
+
+# ---------- поиск ----------
+@app.get("/api/search")
+def search(q: str):
+    q = q.strip().lower()
+    if len(q) < 2:
+        return []
+    today = _today_start()
+    found = [e for e in events.events(today - timedelta(days=60), today + timedelta(days=330))
+             if not e.get("duty") and (q in e["title"].lower() or q in (e.get("location") or "").lower()
+                                       or q in (e.get("description") or "").lower())]
+    found.sort(key=lambda e: e["start"])
+    return found[:300]
+
+
+# ---------- списки дел и покупок ----------
+class ListIn(BaseModel):
+    name: str
+
+
+class ItemIn(BaseModel):
+    text: str
+    person_id: str | None = None
+
+
+class ItemPatch(BaseModel):
+    text: str | None = None
+    done: bool | None = None
+    person_id: str | None = None
+
+
+@app.get("/api/lists")
+def get_lists():
+    return db.lists()
+
+
+@app.post("/api/lists")
+def create_list(body: ListIn):
+    if not body.name.strip():
+        raise HTTPException(400, "Укажите название")
+    return {"ok": True, "id": db.add_list(body.name)}
+
+
+@app.put("/api/lists/{lid}")
+def rename_list(lid: int, body: ListIn):
+    db.rename_list(lid, body.name)
+    return {"ok": True}
+
+
+@app.delete("/api/lists/{lid}")
+def delete_list(lid: int):
+    db.delete_list(lid)
+    return {"ok": True}
+
+
+@app.post("/api/lists/{lid}/items")
+def add_item(lid: int, body: ItemIn):
+    if not body.text.strip():
+        raise HTTPException(400, "Пустая запись")
+    return {"ok": True, "id": db.add_item(lid, body.text, body.person_id)}
+
+
+@app.post("/api/lists/{lid}/clear-done")
+def clear_done(lid: int):
+    db.clear_done(lid)
+    return {"ok": True}
+
+
+@app.patch("/api/items/{iid}")
+def patch_item(iid: int, body: ItemPatch):
+    db.update_item(iid, body.model_dump(exclude_unset=True))
+    return {"ok": True}
+
+
+@app.delete("/api/items/{iid}")
+def delete_item(iid: int):
+    db.delete_item(iid)
+    return {"ok": True}
+
+
+# ---------- напоминания для приложения ----------
+@app.get("/api/reminders")
+def get_reminders(hours: int = 36, lead: int = 30, people: str | None = None):
+    """Что и когда напомнить. people — чьи поездки (id через запятую); пусто — всех."""
+    now = datetime.now(tz)
+    start = _today_start()
+    evs = events.events(start, start + timedelta(days=4))
+    wanted = {p for p in (people or "").split(",") if p} or None
+    items = reminders.build(evs, db.birthdays(), now, tz, wanted, max(0, min(lead, 240)))
+    lo, hi = now - timedelta(hours=3), now + timedelta(hours=max(1, min(hours, 72)))
+    return {"now": now.isoformat(timespec="seconds"),
+            "items": [r for r in items if lo <= datetime.fromisoformat(r["at"]) <= hi]}
 
 
 # ---------- ошибки из браузеров и приложения (для диагностики) ----------

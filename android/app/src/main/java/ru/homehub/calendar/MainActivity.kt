@@ -8,6 +8,8 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import org.json.JSONArray
+import org.json.JSONObject
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
@@ -34,7 +36,45 @@ class AppBridge(private val activity: MainActivity) {
     fun changeServer() = activity.runOnUiThread { activity.openSetup() }
 
     @JavascriptInterface
-    fun refreshWidget() = Widgets.refreshNow(activity)
+    fun refreshWidget() { Widgets.refreshNow(activity); Reminders.checkNow(activity) }
+
+    /** Настройки напоминаний на этом телефоне (JSON). */
+    @JavascriptInterface
+    fun getNotify(): String {
+        val p = Prefs(activity)
+        return JSONObject()
+            .put("enabled", p.notifyEnabled)
+            .put("people", JSONArray(p.notifyPeople.split(",").filter { it.isNotBlank() }))
+            .put("lead", p.notifyLead)
+            .put("granted", Reminders.notificationsAllowed(activity))
+            .toString()
+    }
+
+    @JavascriptInterface
+    fun setNotify(enabled: Boolean, people: String, lead: Int) {
+        val p = Prefs(activity)
+        p.notifyEnabled = enabled
+        p.notifyPeople = people
+        p.notifyLead = lead
+        p.shownReminders = emptySet()  // после смены настроек считаем заново
+        Reminders.cancelAll(activity)
+        Reminders.schedule(activity)
+        Reminders.checkNow(activity)
+    }
+
+    /** Android 13+ спрашивает разрешение на уведомления; на старых версиях оно уже есть. */
+    @JavascriptInterface
+    fun requestNotifications() = activity.runOnUiThread {
+        if (Build.VERSION.SDK_INT >= 33 && !Reminders.notificationsAllowed(activity)) {
+            activity.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 11)
+        }
+    }
+
+    @JavascriptInterface
+    fun testNotification() {
+        Reminders.show(activity, "test:" + System.currentTimeMillis(), "Проверка напоминаний",
+            "Так выглядит напоминание: «Отвезти Марка — в 10:10»")
+    }
 
     @JavascriptInterface
     fun version(): String = BuildConfig.VERSION_NAME
@@ -105,6 +145,8 @@ class MainActivity : Activity() {
         })
         load()
         Widgets.schedule(this)
+        Reminders.schedule(this)
+        Reminders.checkNow(this)
         checkUpdate()
         offerWidget()
     }

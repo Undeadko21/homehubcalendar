@@ -8,6 +8,8 @@
       <WeatherNow />
     </section>
 
+    <BirthdayStrip />
+
     <!-- Поездки детей: сегодня и завтра -->
     <section v-if="trips.length" class="trips">
       <h2 class="sec">Отвезти и забрать</h2>
@@ -49,6 +51,7 @@ import EventPill from '../components/EventPill.vue'
 import EscortBadge from '../components/EscortBadge.vue'
 import WeatherNow from '../components/WeatherNow.vue'
 import DayGrid from '../components/DayGrid.vue'
+import BirthdayStrip from '../components/BirthdayStrip.vue'
 
 const now = ref(new Date())
 let t

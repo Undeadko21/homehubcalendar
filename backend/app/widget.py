@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from .birthdays import days_phrase
+
 WEEKDAYS = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
           "сентября", "октября", "ноября", "декабря"]
@@ -27,7 +29,7 @@ def _hm(s: str) -> str:
 
 
 def build(events: list[dict], people: dict[str, dict], tz: ZoneInfo, now: datetime,
-          days: int = 2, only: set[str] | None = None) -> dict:
+          days: int = 2, only: set[str] | None = None, birthdays: list[dict] | None = None) -> dict:
     today = now.astimezone(tz).date()
     out_days = []
     for i in range(days):
@@ -93,4 +95,7 @@ def build(events: list[dict], people: dict[str, dict], tz: ZoneInfo, now: dateti
         "people": {pid: {"name": p["name"], "color": p["color"], "emoji": p.get("emoji", "")}
                    for pid, p in people.items()},
         "days": out_days,
+        # Ближайшие дни рождения для строки под шапкой виджета.
+        "birthdays": [{"text": f"🎂 {b['name']} — {days_phrase(b['days'])}" + (f" ({b['turns']})" if b.get("turns") else ""),
+                       "days": b["days"]} for b in (birthdays or [])],
     }
