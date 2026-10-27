@@ -51,6 +51,20 @@ class Prefs(context: Context) {
         get() = sp.getStringSet("scheduled_reminders", emptySet()) ?: emptySet()
         set(v) = sp.edit().putStringSet("scheduled_reminders", v).apply()
 
+    /** Облачный снимок на Яндекс.Диске: публичная ссылка и ключ шифрования (base64url). */
+    var cloudUrl: String?
+        get() = sp.getString("cloud_url", null)
+        set(v) = sp.edit().putString("cloud_url", v).apply()
+
+    var cloudKey: String?
+        get() = sp.getString("cloud_key", null)
+        set(v) = sp.edit().putString("cloud_key", v).apply()
+
+    /** Откуда взяты последние данные: "home" или "cloud". */
+    var dataSource: String
+        get() = sp.getString("data_source", "home") ?: "home"
+        set(v) = sp.edit().putString("data_source", v).apply()
+
     /** Версия, о которой уже напомнили (чтобы не спрашивать при каждом запуске). */
     var dismissedUpdate: Int
         get() = sp.getInt("dismissed_update", 0)

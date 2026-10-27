@@ -9,49 +9,24 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.app.Notification
-import androidx.work.Constraints
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
+import org.json.JSONArray
 import java.time.OffsetDateTime
-import java.util.concurrent.TimeUnit
 
 /**
- * Напоминания: сервер считает, что и когда напомнить (/api/reminders), приложение раз в 15 минут
- * забирает список и ставит локальные уведомления через AlarmManager. Интернет снаружи не нужен.
+ * Напоминания: сервер считает, что и когда напомнить (снимок), приложение раз в 15 минут (Sync)
+ * забирает список и ставит локальные уведомления через AlarmManager. Дома — с сервера, вне дома — из облака.
  */
 object Reminders {
     private const val CHANNEL = "reminders"
-    private const val PERIODIC = "reminders-periodic"
-    private const val NOW = "reminders-now"
     const val ACTION = "ru.homehub.calendar.REMIND"
 
-    /** Включить или выключить периодическую проверку согласно настройке. */
+    /** Выключили напоминания — снимаем уже поставленные. Проверка идёт в общем обновлении (Sync). */
     fun schedule(context: Context) {
-        val wm = WorkManager.getInstance(context)
-        if (!Prefs(context).notifyEnabled) {
-            wm.cancelUniqueWork(PERIODIC)
-            cancelAll(context)
-            return
-        }
-        val req = PeriodicWorkRequestBuilder<ReminderWorker>(15, TimeUnit.MINUTES)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .build()
-        wm.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, req)
+        if (!Prefs(context).notifyEnabled) cancelAll(context)
     }
 
     fun checkNow(context: Context) {
-        if (!Prefs(context).notifyEnabled) return
-        WorkManager.getInstance(context)
-            .enqueueUniqueWork(NOW, ExistingWorkPolicy.REPLACE, OneTimeWorkRequestBuilder<ReminderWorker>().build())
+        if (Prefs(context).notifyEnabled) Widgets.refreshNow(context)
     }
 
     fun notificationsAllowed(context: Context): Boolean =
@@ -103,19 +78,29 @@ object Reminders {
         prefs.scheduledReminders = emptySet()
     }
 
-    /** Разбирает ответ сервера: прошедшие недавно показывает сразу, будущие ставит в будильник. */
-    fun apply(context: Context, json: String) {
+    /**
+     * Разбирает напоминания из снимка. У поездок (duty) время «за N минут» и чьи они — настройки этого телефона,
+     * остальные виды приходят с готовым временем. Недавно прошедшие показывает сразу, будущие ставит в будильник.
+     */
+    fun apply(context: Context, items: JSONArray) {
         val prefs = Prefs(context)
         val alarms = context.getSystemService(AlarmManager::class.java) ?: return
-        val items = JSONObject(json).getJSONArray("items")
         val now = System.currentTimeMillis()
+        val wanted = prefs.notifyPeople.split(",").filter { it.isNotBlank() }.toSet()
         val shown = prefs.shownReminders.toMutableSet()
         val scheduled = mutableSetOf<String>()
         for (k in 0 until items.length()) {
             val r = items.getJSONObject(k)
             val id = r.getString("id")
             if (id in shown) continue
-            val at = runCatching { OffsetDateTime.parse(r.getString("at")).toInstant().toEpochMilli() }.getOrNull() ?: continue
+            val at: Long? = if (r.optString("kind") == "duty") {
+                if (wanted.isNotEmpty()) {
+                    val who = r.optJSONArray("people")
+                    if (who == null || (0 until who.length()).none { who.getString(it) in wanted }) continue
+                }
+                parse(r.optString("start"))?.minus(prefs.notifyLead * 60_000L)
+            } else parse(r.optString("at"))
+            if (at == null || now - at > 3 * 3_600_000L) continue  // давно прошло или не разобрали
             val title = r.optString("title")
             val text = r.optString("text")
             if (at <= now) {
@@ -126,11 +111,14 @@ object Reminders {
                 scheduled += id
             }
         }
-        // Напоминания, которые сервер больше не присылает (отменили поездку), снимаем.
+        // Напоминания, которые снимок больше не содержит (отменили поездку), снимаем.
         (prefs.scheduledReminders - scheduled).forEach { cancel(context, it) }
         prefs.scheduledReminders = scheduled
         prefs.shownReminders = shown
     }
+
+    private fun parse(s: String): Long? =
+        runCatching { OffsetDateTime.parse(s).toInstant().toEpochMilli() }.getOrNull()
 }
 
 class ReminderReceiver : BroadcastReceiver() {
@@ -141,22 +129,5 @@ class ReminderReceiver : BroadcastReceiver() {
         Reminders.show(context, id, intent.getStringExtra("title").orEmpty(), intent.getStringExtra("text").orEmpty())
         prefs.shownReminders = prefs.shownReminders + id
         prefs.scheduledReminders = prefs.scheduledReminders - id
-    }
-}
-
-class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result {
-        val prefs = Prefs(applicationContext)
-        if (!prefs.notifyEnabled) return Result.success()
-        val base = prefs.server ?: return Result.success()
-        withContext(Dispatchers.IO) {
-            try {
-                val people = Uri.encode(prefs.notifyPeople)
-                Reminders.apply(applicationContext, Api.get(base, "/api/reminders?hours=36&lead=${prefs.notifyLead}&people=$people"))
-            } catch (_: Exception) {
-                // Нет связи с домом — попробуем в следующий раз; уже поставленные напоминания остаются.
-            }
-        }
-        return Result.success()
     }
 }

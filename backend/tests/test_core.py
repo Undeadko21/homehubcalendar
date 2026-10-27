@@ -527,3 +527,62 @@ def test_lists(db):
     assert [i["text"] for i in db.lists()[0]["items"]] == ["Хлеб"]
     db.delete_item(b)
     assert db.lists()[0]["items"] == []
+
+
+def test_cloud_snapshot_roundtrip_and_throttle(db):
+    import json
+    import httpx
+    from app import snapshot
+    from app.cloud import CloudError, CloudSync, YandexDisk, decrypt
+
+    _family(db)
+    svc = EventService(db, TZ)
+    snap = snapshot.build(svc, db, TZ, datetime(2026, 10, 27, 12, 0, tzinfo=TZ))
+    assert snap["v"] == 1 and snap["widget"]["days"] and any(r["kind"] == "duty" for r in snap["reminders"]) is False  # поездки не назначены
+    db.set_escort("pool@test", "*", "dropoff", "tolya")
+    svc.invalidate()
+    snap = snapshot.build(svc, db, TZ, datetime(2026, 10, 27, 12, 0, tzinfo=TZ))
+    duty = [r for r in snap["reminders"] if r["kind"] == "duty"][0]
+    assert "at" not in duty and duty["people"] == ["tolya"] and duty["start"].startswith("2026-10-27T16:30")
+
+    uploads, published = [], {"on": False}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        path = req.url.path
+        assert req.headers.get("authorization") in ("OAuth tok", None)
+        if path.endswith("/resources/upload"):
+            return httpx.Response(200, json={"href": "https://up.example/f"})
+        if req.url.host == "up.example":
+            uploads.append(req.content)
+            return httpx.Response(201)
+        if path.endswith("/resources/publish"):
+            published["on"] = True
+            return httpx.Response(200, json={"href": "x"})
+        if path.endswith("/resources"):
+            return httpx.Response(200, json={"public_url": "https://yadi.sk/d/abc"} if published["on"] else {})
+        return httpx.Response(404)
+
+    mk = lambda token: YandexDisk(token, httpx.Client(transport=httpx.MockTransport(handler)))
+    cloud = CloudSync(db, lambda: snapshot.build(svc, db, TZ, datetime(2026, 10, 27, 12, 0, tzinfo=TZ)), mk)
+    assert cloud.tick()["configured"] is False and not uploads
+    cloud.set_token("tok")
+    st = cloud.tick()
+    assert st["last_error"] is None and st["code"].startswith("hhc1.") and len(uploads) == 1
+    # расшифровывается ключом из кода подключения и совпадает со снимком
+    import base64
+    payload = json.loads(base64.urlsafe_b64decode(st["code"][5:] + "=="))
+    key = base64.urlsafe_b64decode(payload["k"] + "==")
+    assert payload["u"] == "https://yadi.sk/d/abc"
+    assert json.loads(decrypt(key, uploads[0]))["v"] == 1
+    # без изменений повторно не загружаем, при изменении — загружаем
+    cloud.tick()
+    assert len(uploads) == 1
+    db.set_escort("pool@test", "*", "pickup", "olya")
+    svc.invalidate()
+    cloud.tick()
+    assert len(uploads) == 2
+    # истёкший токен — понятная ошибка, прежняя ссылка остаётся
+    bad = CloudSync(db, cloud.build_snapshot, lambda t: YandexDisk(t, httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(401)))))
+    db.set_escort("pool@test", "*", "dropoff", "olya")
+    svc.invalidate()
+    assert "истёк" in bad.tick()["last_error"] and bad.status()["code"]

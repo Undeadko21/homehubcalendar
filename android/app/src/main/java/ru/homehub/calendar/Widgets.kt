@@ -76,6 +76,7 @@ object Widgets {
             prefs.lastOk == 0L -> prefs.lastError?.let { "нет связи" } ?: "загрузка…"
             prefs.lastError != null && now.time - prefs.lastOk > 45 * 60_000 ->
                 "нет связи с " + SimpleDateFormat("HH:mm", ru).format(Date(prefs.lastOk))
+            prefs.dataSource == "cloud" -> "облако " + SimpleDateFormat("HH:mm", ru).format(Date(prefs.lastOk))
             else -> SimpleDateFormat("HH:mm", ru).format(Date(prefs.lastOk))
         }
         rv.setTextViewText(R.id.w_status, status)
@@ -119,23 +120,10 @@ object Widgets {
     }
 }
 
-/** Забирает данные виджета с сервера и перерисовывает виджеты. */
+/** Обновляет данные (дом или облако), виджет и напоминания. */
 class RefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        val prefs = Prefs(applicationContext)
-        val base = prefs.server ?: return Result.success()
-        withContext(Dispatchers.IO) {
-            try {
-                prefs.widgetJson = Api.get(base, "/api/widget?days=2")
-                prefs.lastOk = System.currentTimeMillis()
-                prefs.lastError = null
-            } catch (e: ApiException) {
-                prefs.lastError = e.message
-            } catch (e: Exception) {
-                prefs.lastError = "Нет связи с календарём"
-            }
-        }
-        Widgets.renderAll(applicationContext)
+        withContext(Dispatchers.IO) { Sync.run(applicationContext) }
         return Result.success()
     }
 }

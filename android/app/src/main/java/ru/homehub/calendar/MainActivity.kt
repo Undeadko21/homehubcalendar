@@ -70,6 +70,23 @@ class AppBridge(private val activity: MainActivity) {
         }
     }
 
+    /** Подключает облачный снимок по коду из настроек сервера. */
+    @JavascriptInterface
+    fun setCloud(code: String): Boolean {
+        val parsed = Cloud.parseCode(code) ?: return false
+        val p = Prefs(activity)
+        p.cloudUrl = parsed.first
+        p.cloudKey = parsed.second
+        Widgets.refreshNow(activity)
+        return true
+    }
+
+    @JavascriptInterface
+    fun cloudState(): String {
+        val p = Prefs(activity)
+        return JSONObject().put("connected", p.cloudUrl != null).put("source", p.dataSource).put("last_ok", p.lastOk).toString()
+    }
+
     @JavascriptInterface
     fun testNotification() {
         Reminders.show(activity, "test:" + System.currentTimeMillis(), "Проверка напоминаний",

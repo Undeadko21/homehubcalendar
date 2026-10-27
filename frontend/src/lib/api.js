@@ -51,5 +51,8 @@ export const api = {
   patchItem: (id, patch) => request('PATCH', `/api/items/${id}`, patch),
   deleteItem: (id) => request('DELETE', `/api/items/${id}`),
   clearDone: (id) => request('POST', `/api/lists/${id}/clear-done`),
+  cloud: () => request('GET', '/api/cloud'),
+  saveCloud: (token) => request('PUT', '/api/cloud', { token }),
+  pushCloud: () => request('POST', '/api/cloud/push'),
   patchCalendar: (key, patch) => request('PATCH', `/api/calendars/${key}`, patch),
 }

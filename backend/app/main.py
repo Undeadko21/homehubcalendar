@@ -21,7 +21,8 @@ from .config import load_settings
 from .db import Database
 from .events import UNASSIGNED, EventService
 from .freetime import find_free
-from . import birthdays as bd, reminders, widget
+from . import birthdays as bd, reminders, snapshot, widget
+from .cloud import CloudSync
 from .holidays import HolidayService
 from .sync import SyncEngine
 
@@ -38,6 +39,7 @@ holidays = HolidayService(db, settings.holidays)
 engine = SyncEngine(db, settings.sources, on_change=events.invalidate)
 engine.seed_people(settings.people)
 scheduler = BackgroundScheduler(timezone=tz)
+cloud = CloudSync(db, lambda: snapshot.build(events, db, tz))
 
 # Приложение для Android: собранный APK и его версия (android/release в репозитории).
 APP_DIR = Path(os.environ.get("HOMECAL_APP_DIR", Path(__file__).resolve().parents[2] / "android" / "release"))
@@ -50,6 +52,8 @@ async def lifespan(app: FastAPI):
     if os.environ.get("HOMECAL_NO_SCHEDULER") != "1":
         scheduler.add_job(engine.run, "interval", minutes=settings.sync.interval_minutes,
                           next_run_time=datetime.now(tz), id="sync", max_instances=1, coalesce=True)
+        # Снимок для телефона вне дома: проверяем раз в 2 минуты, на Диск пишем при изменениях и раз в час.
+        scheduler.add_job(cloud.tick, "interval", minutes=2, id="cloud", max_instances=1, coalesce=True)
         scheduler.start()
     yield
     if scheduler.running:
@@ -469,6 +473,33 @@ def get_reminders(hours: int = 36, lead: int = 30, people: str | None = None):
     lo, hi = now - timedelta(hours=3), now + timedelta(hours=max(1, min(hours, 72)))
     return {"now": now.isoformat(timespec="seconds"),
             "items": [r for r in items if lo <= datetime.fromisoformat(r["at"]) <= hi]}
+
+
+# ---------- снимок для телефона и Яндекс.Диск ----------
+@app.get("/api/snapshot")
+def get_snapshot():
+    """То же, что лежит в облаке (но без шифрования): виджет и напоминания на 7 дней."""
+    return snapshot.build(events, db, tz)
+
+
+class CloudIn(BaseModel):
+    token: str | None = None  # пусто — отключить
+
+
+@app.get("/api/cloud")
+def get_cloud():
+    return cloud.status()
+
+
+@app.put("/api/cloud")
+def put_cloud(body: CloudIn):
+    cloud.set_token(body.token)
+    return cloud.tick(force=True)
+
+
+@app.post("/api/cloud/push")
+def push_cloud():
+    return cloud.tick(force=True)
 
 
 # ---------- ошибки из браузеров и приложения (для диагностики) ----------

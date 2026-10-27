@@ -111,6 +111,9 @@
     <h3 class="group-title">Дни рождения</h3>
     <BirthdaysEditor />
 
+    <h3 class="group-title">Облако: связь вне дома</h3>
+    <CloudSettings />
+
     <template v-if="inApp">
       <h3 class="group-title">Напоминания</h3>
       <RemindersSettings />
@@ -250,6 +253,7 @@ import Sheet from '../components/Sheet.vue'
 import TemplatesEditor from '../components/TemplatesEditor.vue'
 import BirthdaysEditor from '../components/BirthdaysEditor.vue'
 import RemindersSettings from '../components/RemindersSettings.vue'
+import CloudSettings from '../components/CloudSettings.vue'
 
 // Системные цвета Apple
 const PALETTE = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#a2845e']
