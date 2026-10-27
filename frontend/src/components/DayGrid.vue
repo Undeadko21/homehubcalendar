@@ -251,9 +251,9 @@ const nowY = computed(() => {
 .head { padding-bottom: 8px; border-bottom: .5px solid var(--line); }
 .ph { --c: #888; display: flex; align-items: center; gap: 8px; padding: 0 8px; min-width: 0; }
 .avatar { width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--c); color: #fff; font-weight: 600; font-size: 15px; }
-.pn { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.pn { display: flex; flex-direction: column; min-width: 0; flex: 1; overflow: hidden; line-height: 1.25; }
 .pn strong { font-size: 16px; }
-.pn small { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+.pn small { display: block; max-width: 100%; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
 .pn .status { color: var(--c); font-weight: 600; }
 .pn .free { color: var(--ink-3); }
 
