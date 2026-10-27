@@ -28,7 +28,7 @@
       </div>
     </section>
 
-    <section class="day-section">
+    <section ref="daySec" class="day-section">
       <DayGrid v-if="columns.length" :columns="columns" :day="day" :now="now" />
       <p v-else class="empty">Выберите хотя бы одного человека в списке «Люди».</p>
     </section>
@@ -43,7 +43,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { state, visiblePeople, openEvent } from '../lib/store'
 import { useRange } from '../lib/useRange'
 import { addDays, startOfDay, overlaps, isoDate, eventRange, sameDay, relativeDayName, formatTime } from '../lib/dates'
@@ -54,6 +54,7 @@ import DayGrid from '../components/DayGrid.vue'
 import BirthdayStrip from '../components/BirthdayStrip.vue'
 
 const now = ref(new Date())
+const daySec = ref(null)
 let t
 onMounted(() => { t = setInterval(() => (now.value = new Date()), 15000) })
 onUnmounted(() => clearInterval(t))
@@ -61,6 +62,16 @@ onUnmounted(() => clearInterval(t))
 const day = computed(() => startOfDay(state.cursor))
 const isToday = computed(() => sameDay(day.value, now.value))
 const { events, holidayMap } = useRange(() => ({ start: day.value, end: addDays(day.value, 2) }))
+
+// На телефоне при открытии «Сегодня» сразу показываем сетку дня, а не часы и погоду над ней.
+let scrolled = false
+function toGrid() {
+  if (scrolled || !daySec.value || !isToday.value || state.kiosk || window.innerWidth >= 900) return
+  scrolled = true
+  daySec.value.scrollIntoView({ block: 'start' })
+}
+onMounted(() => setTimeout(() => nextTick(toGrid), 1200))
+watch(() => events.value.length, (n) => { if (n) setTimeout(() => nextTick(toGrid), 150) }, { once: true })
 
 const hm = computed(() =>
   isToday.value ? now.value.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : String(day.value.getDate()),
@@ -149,7 +160,9 @@ const trips = computed(() =>
 @media (max-width: 899px) {
   .today { padding: 14px 12px 24px; gap: 22px; }
   .board { grid-template-columns: 1fr; }
-  .hm { font-size: 72px; }
+  .hm { font-size: 52px; }
+  .today { gap: 16px; }
+  .day-section { scroll-margin-top: 118px; }
 }
 .kiosk .today { padding: 28px 32px; max-width: none; }
 </style>
