@@ -24,6 +24,12 @@
           <span class="lbl">Код подключения <small class="muted block">для приложения на другом телефоне; дома проще нажать «Подключить» в самом приложении</small></span>
           <div class="code"><code>{{ st.code }}</code><button class="btn" @click="copy">{{ copied ? 'Скопировано' : 'Копировать' }}</button></div>
         </div>
+        <details v-if="st.alice" class="row stack alice">
+          <summary>Для навыка Алисы</summary>
+          <small class="muted block">Значения для переменных функции HOMEHUB_URL и HOMEHUB_KEY (инструкция в папке alice/).</small>
+          <div class="code"><code>{{ st.alice.url }}</code><button class="btn" @click="copyText(st.alice.url)">Копировать</button></div>
+          <div class="code"><code>{{ st.alice.key }}</code><button class="btn" @click="copyText(st.alice.key)">Копировать</button></div>
+        </details>
         <div class="row">
           <button class="btn" :disabled="busy" @click="push">Обновить снимок сейчас</button>
           <button class="btn danger" :disabled="busy" @click="off">Отключить</button>
@@ -52,6 +58,7 @@ const isErr = ref(false)
 const copied = ref(false)
 const inApp = typeof window !== 'undefined' && !!window.HomeHubApp?.setCloud
 const connected = ref(false)
+const copyText = (t) => { try { navigator.clipboard.writeText(t) } catch { /* без буфера */ } }
 const fmt = (s) => new Date(s).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 const appState = computed(() => (connected.value ? 'подключено: вне дома читает снимок из облака' : 'не подключено'))

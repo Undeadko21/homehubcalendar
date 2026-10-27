@@ -140,7 +140,9 @@ class CloudSync:
     def status(self) -> dict:
         st = self._state()
         return {"configured": bool(self._token()), "last_ok": st.get("last_ok"), "last_error": st.get("last_error"),
-                "ops_error": st.get("ops_error"), "code": self.code()}
+                "ops_error": st.get("ops_error"), "code": self.code(),
+                # для навыка Алисы: читает снимок, писать в папку ему не нужно (токена здесь нет)
+                "alice": {"url": st.get("public_url"), "key": _b64(self.key())} if st.get("public_url") else None}
 
     # --- команды с телефонов ---
     def poll_ops(self, apply: Callable[[list[dict]], list[str]]) -> bool:
