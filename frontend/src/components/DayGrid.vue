@@ -26,7 +26,8 @@
           </div>
         </div>
 
-        <!-- Сетка времени -->
+        <!-- Сетка времени: сегодня — окно, где линия «сейчас» стоит на месте, а события едут вверх -->
+        <div ref="vp" class="vp" :class="{ live: isToday }" @scroll.passive="onScroll">
         <div class="grid" :style="{ height: (hEnd - hStart) * hourH + 'px' }">
           <div class="axis">
             <span v-for="h in hours" :key="h" class="hl" :class="{ hide: nowY !== null && Math.abs(nowY - (h - hStart) * hourH) < 10 }"
@@ -68,15 +69,18 @@
             <span class="nowlbl">{{ formatTime(now) }}</span>
           </div>
         </div>
+        <div v-if="isToday" class="tail" aria-hidden="true"></div>
+        </div>
       </div>
     </div>
+    <button v-if="isToday && !following" class="tonow" @click="goNow">Сейчас</button>
   </div>
 </template>
 
 <script setup>
 // Дневная сетка как в Календаре Apple: общая шкала часов, колонка на человека,
 // пересекающиеся события — рядом, красная линия текущего времени.
-import { computed } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { openEvent } from '../lib/store'
 import { addDays, eventRange, formatTime, sameDay } from '../lib/dates'
 import EventPill from './EventPill.vue'
@@ -168,7 +172,7 @@ const allDayItems = computed(() => {
 const hStart = computed(() => {
   let h = 8
   for (const t of timedAll.value) h = Math.min(h, Math.floor(hoursOf(t.start)))
-  if (isToday.value) h = Math.min(h, Math.floor(hoursOf(props.now)))
+  if (isToday.value) h = Math.min(h, Math.floor(hoursOf(props.now) - 1)) // запас сверху под якорь линии
   return Math.max(0, h)
 })
 const hEnd = computed(() => {
@@ -236,15 +240,45 @@ const spans = computed(() =>
   }),
 )
 
+// Сегодня: линия «сейчас» всегда на одном месте окна (ANCHOR px от верха), события смещаются вверх.
+// Если человек сам прокрутил — не мешаем, через 45 секунд возвращаемся к «сейчас».
+const ANCHOR = 56
+const vp = ref(null)
+const following = ref(true)
+let target = 0
+let resumeT = null
+function follow() {
+  if (!vp.value || !following.value || !isToday.value || nowY.value === null) return
+  target = Math.max(0, Math.round(nowY.value - ANCHOR))
+  vp.value.scrollTop = target
+}
+function onScroll() {
+  if (!vp.value || !isToday.value || Math.abs(vp.value.scrollTop - target) <= 2) return
+  following.value = false
+  clearTimeout(resumeT)
+  resumeT = setTimeout(goNow, 45000)
+}
+function goNow() { clearTimeout(resumeT); following.value = true; follow() }
+onMounted(() => nextTick(follow))
+onUnmounted(() => clearTimeout(resumeT))
+
 const nowY = computed(() => {
   if (!isToday.value) return null
   const v = y(props.now)
   return v >= 0 && v <= (hEnd.value - hStart.value) * props.hourH ? v : null
 })
+watch([nowY, hStart, isToday], () => nextTick(follow), { flush: 'post' })
 </script>
 
 <style scoped>
-.dg { --axis: 52px; }
+.dg { --axis: 52px; position: relative; }
+.vp.live { --vph: clamp(340px, 54vh, 600px); height: var(--vph); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.vp.live::-webkit-scrollbar { display: none; }
+.tail { height: calc(var(--vph, 400px) - 56px); }
+.tonow {
+  position: absolute; right: 12px; bottom: 12px; z-index: 5; border: 0; border-radius: 999px;
+  background: var(--red); color: #fff; font-weight: 600; font-size: 14px; padding: 8px 16px; box-shadow: 0 2px 10px rgba(0,0,0,.3);
+}
 .scroller { overflow-x: auto; }
 .inner { min-width: calc(var(--axis) + var(--cols) * 150px); }
 .head { display: grid; grid-template-columns: var(--axis) repeat(var(--cols), minmax(150px, 1fr)); }
