@@ -6,7 +6,11 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
+import androidx.core.content.FileProvider
+import java.io.File
 import android.view.Gravity
 import android.view.View
 import android.webkit.JavascriptInterface
@@ -172,10 +176,37 @@ class MainActivity : Activity() {
                 .setTitle("Доступна версия ${v.second}")
                 .setMessage("Скачать и установить обновление приложения?")
                 .setPositiveButton("Обновить") { _, _ ->
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$base/app.apk")))
+                    installUpdate(base)
                 }
                 .setNegativeButton("Позже") { _, _ -> prefs.dismissedUpdate = v.first }
                 .show()
+        }
+    }
+
+    /** Скачивает APK во внутренний кэш и открывает системный установщик. */
+    private fun installUpdate(base: String) {
+        if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+            Toast.makeText(this, "Разрешите установку из этого приложения и нажмите «Обновить» ещё раз", Toast.LENGTH_LONG).show()
+            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            return
+        }
+        Toast.makeText(this, "Скачиваю обновление…", Toast.LENGTH_SHORT).show()
+        scope.launch {
+            val file = withContext(Dispatchers.IO) {
+                try {
+                    val dir = File(cacheDir, "update").apply { mkdirs() }
+                    val out = File(dir, "homehub-calendar.apk")
+                    java.net.URL("$base/app.apk").openStream().use { i -> out.outputStream().use { i.copyTo(it) } }
+                    out
+                } catch (e: Exception) { null }
+            }
+            if (file == null || file.length() < 10_000) {
+                Toast.makeText(this@MainActivity, "Не удалось скачать обновление", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", file)
+            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 }
