@@ -95,7 +95,10 @@ class MainActivity : Activity() {
             addView(button("Повторить") { load() })
             addView(button("Сменить сервер") { openSetup() })
         }
-        setContentView(FrameLayout(this).apply { addView(web); addView(errorView) })
+        setContentView(FrameLayout(this).apply {
+            setBackgroundColor(getColor(R.color.bg))
+            addView(web); addView(errorView); padForSystemBars()
+        })
         load()
         Widgets.schedule(this)
         checkUpdate()

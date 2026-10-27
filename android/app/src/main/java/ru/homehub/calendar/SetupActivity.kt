@@ -28,6 +28,7 @@ class SetupActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_setup)
+        findViewById<View>(android.R.id.content).padForSystemBars()
         status = findViewById(R.id.s_status)
         progress = findViewById(R.id.s_progress)
         found = findViewById(R.id.s_found)
