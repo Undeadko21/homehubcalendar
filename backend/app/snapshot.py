@@ -8,12 +8,21 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from . import birthdays as bd, reminders, widget
+from . import birthdays as bd, ops, reminders, widget
 from .db import Database
 from .events import EventService
 
-VERSION = 1
+VERSION = 2
 HORIZON_DAYS = 7
+
+
+def _compact(e: dict) -> dict:
+    """Событие для офлайн-экрана телефона: без описаний, ссылок и родительского события поездки."""
+    out = {k: e[k] for k in ("id", "uid", "title", "start", "end", "all_day", "location", "people", "recurring",
+                             "escort", "escort_issue") if k in e}
+    if e.get("duty"):
+        out["duty"] = {"role": e["duty"]["role"], "parent": e["duty"]["parent"]["id"]}
+    return out
 
 
 def build(events: EventService, db: Database, tz: ZoneInfo, now: datetime | None = None) -> dict:
@@ -29,4 +38,9 @@ def build(events: EventService, db: Database, tz: ZoneInfo, now: datetime | None
         "widget": widget.build(wid_events, people, tz, now, 3, None, soon),
         # lead=None: «за сколько минут» и «чьи поездки» выбирает каждый телефон сам
         "reminders": reminders.build(evs, db.birthdays(), now, tz, None, None, HORIZON_DAYS),
+        # --- для офлайн-экрана и команд с телефона (этап 2) ---
+        "people": [{k: p[k] for k in ("id", "name", "color", "emoji", "needs_escort")} for p in people.values()],
+        "events": [_compact(e) for e in evs],
+        "lists": db.lists(),
+        "applied": ops.applied_ids(db)[-300:],
     }

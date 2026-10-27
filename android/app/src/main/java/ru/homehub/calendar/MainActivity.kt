@@ -75,8 +75,9 @@ class AppBridge(private val activity: MainActivity) {
     fun setCloud(code: String): Boolean {
         val parsed = Cloud.parseCode(code) ?: return false
         val p = Prefs(activity)
-        p.cloudUrl = parsed.first
-        p.cloudKey = parsed.second
+        p.cloudUrl = parsed.url
+        p.cloudKey = parsed.key
+        p.cloudToken = parsed.token
         Widgets.refreshNow(activity)
         return true
     }
@@ -86,6 +87,28 @@ class AppBridge(private val activity: MainActivity) {
         val p = Prefs(activity)
         return JSONObject().put("connected", p.cloudUrl != null).put("source", p.dataSource).put("last_ok", p.lastOk).toString()
     }
+
+    // ----- офлайн-экран (вне дома): данные из облачного снимка и очередь команд -----
+    @JavascriptInterface
+    fun getSnapshot(): String = Outbox.snapshot(activity) ?: ""
+
+    @JavascriptInterface
+    fun getPending(): String = Outbox.pending(activity).toString()
+
+    /** Принимает команду (JSON), кладёт в очередь, сразу отправляет в облако. Возвращает id. */
+    @JavascriptInterface
+    fun queueOp(json: String): String {
+        val id = Outbox.add(activity, JSONObject(json))
+        Widgets.refreshNow(activity)
+        return id
+    }
+
+    @JavascriptInterface
+    fun syncNow() = Widgets.refreshNow(activity)
+
+    /** Проверить, не появился ли дом в сети, и если да — открыть обычный интерфейс. */
+    @JavascriptInterface
+    fun retryHome() = activity.runOnUiThread { activity.tryHome(true) }
 
     @JavascriptInterface
     fun testNotification() {
@@ -188,6 +211,7 @@ class MainActivity : Activity() {
         super.onResume()
         val now = Prefs(this).server
         if (now != null && now != server) { server = now; load() }
+        else if (offline) tryHome()
     }
 
     @Deprecated("Deprecated in Java")
@@ -205,10 +229,42 @@ class MainActivity : Activity() {
     private fun load() {
         errorView.visibility = View.GONE
         web.visibility = View.VISIBLE
-        web.loadUrl(server!! + "/")
+        val base = server!!
+        scope.launch {
+            // Быстрая проверка: если дом не отвечает, не ждём долгий таймаут WebView, а сразу показываем облако.
+            val ok = withContext(Dispatchers.IO) { Api.probe(base, 2500) != null }
+            if (!ok && showOffline()) return@launch
+            offline = false
+            web.loadUrl("$base/")
+        }
+    }
+
+    /** Режим «вне дома»: показываем облачный снимок, если он есть и подключён. */
+    private var offline = false
+
+    private fun showOffline(): Boolean {
+        val prefs = Prefs(this)
+        if (prefs.cloudUrl == null || Outbox.snapshot(this) == null) return false
+        offline = true
+        errorView.visibility = View.GONE
+        web.visibility = View.VISIBLE
+        web.loadUrl("file:///android_asset/offline/index.html")
+        Widgets.refreshNow(this)
+        return true
+    }
+
+    /** Если дом снова доступен — вернуться к обычному интерфейсу. */
+    fun tryHome(force: Boolean = false) {
+        val base = server ?: return
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) { Api.probe(base, 2500) != null }
+            if (ok) { offline = false; load() }
+            else if (force) Toast.makeText(this@MainActivity, "Дом по-прежнему не отвечает", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun showError() {
+        if (showOffline()) return
         web.visibility = View.INVISIBLE
         errorView.visibility = View.VISIBLE
         errorText.text = "Календарь ${server?.removePrefix("http://")} не отвечает.\n" +

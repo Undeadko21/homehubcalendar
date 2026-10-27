@@ -76,6 +76,19 @@ class YandexDisk:
                                    headers=self.h), "чтение сведений о файле")
         return r.json()
 
+    def list_ops(self) -> list[dict]:
+        """Файлы команд с телефонов (ops-*.bin) в папке приложения: имя и md5."""
+        r = self._check(self.c.get(f"{API}/resources", params={
+            "path": "app:/", "limit": 200, "fields": "_embedded.items.name,_embedded.items.md5"}, headers=self.h),
+            "список файлов")
+        items = (r.json().get("_embedded") or {}).get("items") or []
+        return [i for i in items if i.get("name", "").startswith("ops-") and i["name"].endswith(".bin")]
+
+    def download(self, name: str) -> bytes:
+        r = self._check(self.c.get(f"{API}/resources/download", params={"path": f"app:/{name}"}, headers=self.h),
+                        "запрос скачивания")
+        return self._check(self.c.get(r.json()["href"]), "скачивание файла").content
+
     def public_url(self) -> str:
         """Публичная ссылка на файл; публикует, если ещё не опубликован."""
         meta = self._meta()
@@ -120,12 +133,45 @@ class CloudSync:
         url = self._state().get("public_url")
         if not url:
             return None
-        return "hhc1." + _b64(json.dumps({"u": url, "k": _b64(self.key())}).encode())
+        # t — токен записи: нужен приложению, чтобы вне дома класть команды в папку на Диске
+        payload = {"u": url, "k": _b64(self.key()), "t": self._token()}
+        return "hhc1." + _b64(json.dumps(payload).encode())
 
     def status(self) -> dict:
         st = self._state()
         return {"configured": bool(self._token()), "last_ok": st.get("last_ok"), "last_error": st.get("last_error"),
-                "code": self.code()}
+                "ops_error": st.get("ops_error"), "code": self.code()}
+
+    # --- команды с телефонов ---
+    def poll_ops(self, apply: Callable[[list[dict]], list[str]]) -> bool:
+        """Забирает новые файлы команд, применяет их. True, если что-то применилось (нужно обновить снимок)."""
+        token = self._token()
+        if not token or not self._state().get("public_url"):
+            return False
+        st = self._state()
+        seen: dict = st.get("ops_md5") or {}
+        changed = False
+        try:
+            disk = self.client_factory(token)
+            for f in disk.list_ops():
+                if seen.get(f["name"]) == f.get("md5"):
+                    continue
+                blob = disk.download(f["name"])
+                if len(blob) > 400_000:
+                    raise CloudError("Файл команд слишком большой")
+                ops = json.loads(decrypt(self.key(), blob))
+                if isinstance(ops, list) and apply(ops):
+                    changed = True
+                seen[f["name"]] = f.get("md5")
+            st["ops_md5"] = seen
+            st["ops_error"] = None
+        except CloudError as e:
+            st["ops_error"] = str(e)
+        except Exception as e:  # сеть, битый файл, чужой ключ
+            st["ops_error"] = "Не удалось прочитать команды из облака"
+            log.warning("Команды из облака: %s", e)
+        self.db.kv_set("cloud:state", st)
+        return changed
 
     # --- отправка ---
     def tick(self, force: bool = False) -> dict:

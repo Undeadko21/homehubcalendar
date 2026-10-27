@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Календарь: вне дома</title>
+<style>
+:root { --bg:#fff; --surface:#f2f2f7; --ink:#111; --ink2:#6b6b70; --ink3:#a0a0a6; --line:rgba(0,0,0,.12); --red:#ff3b30; --warn:#ff9500; --ok:#34c759; --fill:rgba(120,120,128,.16);
+  font: 16px/1.35 -apple-system, "Inter", system-ui, sans-serif; color-scheme: light dark; }
+@media (prefers-color-scheme: dark) { :root { --bg:#000; --surface:#1c1c1e; --ink:#fff; --ink2:#a0a0a6; --ink3:#636366; --line:rgba(255,255,255,.14); } }
+* { box-sizing: border-box; }
+html, body { margin:0; background:var(--bg); color:var(--ink); }
+body { padding-bottom: 76px; }
+button { font: inherit; color: inherit; }
+.banner { background: var(--surface); padding: 10px 16px; font-size: 13px; color: var(--ink2); display:flex; gap:10px; align-items:center; }
+.banner b { color: var(--warn); }
+.banner button { margin-left:auto; border:0; background:none; color:var(--red); font-weight:600; font-size:14px; }
+h1 { font-size: 30px; margin: 14px 16px 4px; letter-spacing:-.02em; }
+h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing:.04em; color: var(--ink2); margin: 20px 16px 6px; }
+h2.today { color: var(--red); }
+.group { background: var(--surface); border-radius: 12px; margin: 0 12px; overflow: hidden; }
+.row { display:flex; gap:12px; padding: 10px 14px; align-items:center; width:100%; border:0; background:none; text-align:left; min-height:48px; }
+.row + .row { border-top: .5px solid var(--line); }
+.bar { width:4px; align-self:stretch; border-radius:2px; flex:none; }
+.t { font-weight:600; } .s { font-size:13px; color:var(--ink2); }
+.when { white-space: pre-line; width:56px; flex:none; font-size:13px; font-variant-numeric: tabular-nums; }
+.main { flex:1; min-width:0; }
+.tag { font-size:12px; border-radius:6px; padding:1px 6px; background:var(--fill); color:var(--ink2); margin-left:4px; }
+.tag.warn { color:var(--warn); } .tag.pend { color:var(--ok); }
+.tag.bad { color: var(--red); }
+.empty { color:var(--ink3); text-align:center; padding:28px 16px; }
+nav { position:fixed; bottom:0; left:0; right:0; display:flex; background:var(--surface); border-top:.5px solid var(--line); padding-bottom: 0; height:56px; }
+nav button { flex:1; border:0; background:none; font-size:12px; color:var(--ink3); font-weight:500; }
+nav button.on { color: var(--red); }
+/* лист */
+.sheet-bg { position:fixed; inset:0; background:rgba(0,0,0,.4); display:none; align-items:flex-end; z-index:10; }
+.sheet-bg.open { display:flex; }
+.sheet { background:var(--bg); width:100%; max-height:88vh; overflow:auto; border-radius:16px 16px 0 0; padding:16px 14px 28px; }
+.sheet h3 { margin:0 2px 2px; font-size:22px; } .sheet .sub { color:var(--ink2); margin:0 2px 14px; font-size:14px; }
+.label { font-weight:600; margin: 16px 2px 8px; display:flex; justify-content:space-between; }
+.label small { color:var(--ink3); font-weight:400; }
+.chips { display:flex; flex-wrap:wrap; gap:8px; }
+.chip { border:1.5px solid var(--line); background:none; border-radius:999px; padding:8px 14px; }
+.chip.on { background:var(--c, var(--red)); border-color:var(--c, var(--red)); color:#fff; font-weight:600; }
+.seg { display:flex; background:var(--fill); border-radius:9px; padding:2px; }
+.seg button { flex:1; border:0; background:none; border-radius:7px; padding:6px; font-size:14px; }
+.seg button.on { background:var(--bg); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.2); }
+.warn-t { color: var(--warn); font-size:13px; margin:6px 2px 0; } .bad-t { color: var(--red); font-size:13px; margin:6px 2px 0; }
+.close { float:right; border:0; background:none; color:var(--red); font-weight:600; font-size:16px; }
+form.add { display:flex; gap:8px; margin: 12px; }
+form.add input { flex:1; min-width:0; border:0; border-radius:10px; background:var(--fill); padding:11px 14px; font:inherit; color:var(--ink); }
+form.add button { flex:none; border:0; border-radius:10px; background:var(--red); color:#fff; padding:0 16px; font-weight:600; }
+.check { width:24px; height:24px; border-radius:50%; border:1.5px solid var(--ink3); flex:none; display:grid; place-items:center; background:none; color:#fff; }
+.done .check { background:var(--red); border-color:var(--red); } .done .txt { color:var(--ink3); text-decoration:line-through; }
+.lists-tabs { display:flex; margin:10px 12px; }
+.note { color:var(--ink3); font-size:12px; margin:14px 16px; }
+</style>
+</head>
+<body>
+<div class="banner" id="banner"></div>
+<div id="view"></div>
+<nav>
+  <button id="tab-days" class="on">События</button>
+  <button id="tab-lists">Списки</button>
+</nav>
+<div class="sheet-bg" id="sheet-bg"><div class="sheet" id="sheet"></div></div>
+<script src="app.js"></script>
+</body>
+</html>

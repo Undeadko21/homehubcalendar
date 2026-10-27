@@ -6,6 +6,7 @@
         <span v-if="!st" class="val muted">…</span>
         <span v-else-if="!st.configured" class="val muted">не подключено</span>
         <span v-else-if="st.last_error" class="val err">{{ st.last_error }}</span>
+        <span v-else-if="st.ops_error" class="val err">{{ st.ops_error }}</span>
         <span v-else class="val muted">снимок обновлён {{ st.last_ok ? fmt(st.last_ok) : 'скоро' }}</span>
       </div>
       <form class="row" @submit.prevent="save">
@@ -32,8 +33,9 @@
     <p v-if="msg" class="group-note" :class="{ err: isErr }">{{ msg }}</p>
     <p class="group-note">
       Сервер кладёт зашифрованный снимок (виджет и напоминания на 7 дней) в папку приложения на Яндекс.Диске, а телефон
-      читает его, когда не видит сервер дома. Читать снимок можно только с кодом подключения. Токен хранится на сервере и
-      нужен только для записи в эту папку.
+      читает его, когда не видит сервер дома. Читать снимок можно только с кодом подключения. Вне дома приложение может
+      менять назначения поездок и списки: оно кладёт команды в ту же папку, а сервер их подхватывает (до минуты).
+      Код подключения даёт доступ к этой папке, никому его не показывайте.
     </p>
   </div>
 </template>

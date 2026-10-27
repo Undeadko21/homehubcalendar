@@ -538,7 +538,7 @@ def test_cloud_snapshot_roundtrip_and_throttle(db):
     _family(db)
     svc = EventService(db, TZ)
     snap = snapshot.build(svc, db, TZ, datetime(2026, 10, 27, 12, 0, tzinfo=TZ))
-    assert snap["v"] == 1 and snap["widget"]["days"] and any(r["kind"] == "duty" for r in snap["reminders"]) is False  # поездки не назначены
+    assert snap["v"] == 2 and snap["widget"]["days"] and any(r["kind"] == "duty" for r in snap["reminders"]) is False  # поездки не назначены
     db.set_escort("pool@test", "*", "dropoff", "tolya")
     svc.invalidate()
     snap = snapshot.build(svc, db, TZ, datetime(2026, 10, 27, 12, 0, tzinfo=TZ))
@@ -573,7 +573,7 @@ def test_cloud_snapshot_roundtrip_and_throttle(db):
     payload = json.loads(base64.urlsafe_b64decode(st["code"][5:] + "=="))
     key = base64.urlsafe_b64decode(payload["k"] + "==")
     assert payload["u"] == "https://yadi.sk/d/abc"
-    assert json.loads(decrypt(key, uploads[0]))["v"] == 1
+    assert json.loads(decrypt(key, uploads[0]))["v"] == 2
     # без изменений повторно не загружаем, при изменении — загружаем
     cloud.tick()
     assert len(uploads) == 1
@@ -586,3 +586,62 @@ def test_cloud_snapshot_roundtrip_and_throttle(db):
     db.set_escort("pool@test", "*", "dropoff", "olya")
     svc.invalidate()
     assert "истёк" in bad.tick()["last_error"] and bad.status()["code"]
+
+
+def test_ops_from_phone_are_applied_once(db):
+    import json
+    import httpx
+    from app import ops, snapshot
+    from app.cloud import CloudSync, YandexDisk, encrypt
+
+    _family(db)
+    lid = db.lists()[0]["id"]
+    item = db.add_item(lid, "Хлеб")
+    batch = [
+        {"id": "p1-2", "t": 2, "type": "escort", "uid": "pool@test", "occurrence": None, "role": "pickup", "person": "olya"},
+        {"id": "p1-1", "t": 1, "type": "escort", "uid": "pool@test", "occurrence": None, "role": "dropoff", "person": "tolya"},
+        {"id": "p1-3", "t": 3, "type": "item_add", "list_id": lid, "text": "Молоко"},
+        {"id": "p1-4", "t": 4, "type": "item_done", "item_id": item, "done": True},
+        {"id": "p1-5", "t": 5, "type": "escort", "uid": "pool@test", "role": "dropoff", "person": "nobody"},  # некорректная
+        {"id": "p1-6", "t": 6, "type": "escort", "uid": "pool@test", "occurrence": None, "role": "travel", "person": "15"},
+    ]
+    assert sorted(ops.apply(db, batch)) == sorted(o["id"] for o in batch)
+    assert ops.apply(db, batch) == []  # повторно ничего
+    e = db.escorts()
+    assert e[("pool@test", "*", "dropoff")] == "tolya" and e[("pool@test", "*", "pickup")] == "olya"
+    assert e[("pool@test", "*", "travel")] == "15"
+    assert ("pool@test", "*", "dropoff") in e and e[("pool@test", "*", "dropoff")] != "nobody"
+    texts = {i["text"]: i["done"] for i in db.lists()[0]["items"]}
+    assert texts == {"Молоко": False, "Хлеб": True}
+
+    svc = EventService(db, TZ)
+    snap = snapshot.build(svc, db, TZ, datetime(2026, 10, 27, 12, 0, tzinfo=TZ))
+    assert "p1-3" in snap["applied"] and snap["people"] and snap["lists"][0]["items"]
+    pool = [x for x in snap["events"] if x["uid"] == "pool@test" and not x.get("duty")][0]
+    assert pool["escort"]["dropoff"]["person"] == "tolya"
+    duty = [x for x in snap["events"] if x.get("duty")][0]
+    assert set(duty["duty"]) == {"role", "parent"} and isinstance(duty["duty"]["parent"], str)
+
+    # через облако: файл ops-*.bin с телефона скачивается, применяется один раз, снимок помечает как применённое
+    cloud_state = {"files": {}}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        path = req.url.path
+        if path.endswith("/resources/download"):
+            return httpx.Response(200, json={"href": "https://dl.example/ops"})
+        if req.url.host == "dl.example":
+            return httpx.Response(200, content=cloud_state["files"]["ops-phone1.bin"])
+        if path.endswith("/resources") and req.url.params.get("path") == "app:/":
+            items = [{"name": n, "md5": str(hash(b))} for n, b in cloud_state["files"].items()]
+            return httpx.Response(200, json={"_embedded": {"items": items}})
+        return httpx.Response(404)
+
+    cloud = CloudSync(db, lambda: {}, lambda t: YandexDisk(t, httpx.Client(transport=httpx.MockTransport(handler))))
+    cloud.set_token("tok")
+    db.kv_set("cloud:state", {"public_url": "https://yadi.sk/d/x"})
+    cloud_state["files"]["ops-phone1.bin"] = encrypt(cloud.key(), json.dumps(
+        [{"id": "ph-1", "t": 1, "type": "item_add", "list_id": lid, "text": "Сыр"}]).encode())
+    calls = []
+    assert cloud.poll_ops(lambda items: calls.append(items) or ops.apply(db, items)) is True
+    assert cloud.poll_ops(lambda items: calls.append(items) or ops.apply(db, items)) is False  # файл не менялся
+    assert len(calls) == 1 and "Сыр" in [i["text"] for i in db.lists()[0]["items"]]

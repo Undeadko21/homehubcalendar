@@ -42,6 +42,15 @@ object Widgets {
             .enqueueUniqueWork(NOW, ExistingWorkPolicy.REPLACE, OneTimeWorkRequestBuilder<RefreshWorker>().build())
     }
 
+    /** Повторная проверка через некоторое время (например, подтверждение отправленных команд). */
+    fun refreshLater(context: Context, seconds: Long) {
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "widget-later", ExistingWorkPolicy.REPLACE,
+            OneTimeWorkRequestBuilder<RefreshWorker>().setInitialDelay(seconds, TimeUnit.SECONDS)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build(),
+        )
+    }
+
     fun canPin(context: Context): Boolean =
         AppWidgetManager.getInstance(context).isRequestPinAppWidgetSupported
 

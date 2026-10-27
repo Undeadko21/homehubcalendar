@@ -21,7 +21,7 @@ from .config import load_settings
 from .db import Database
 from .events import UNASSIGNED, EventService
 from .freetime import find_free
-from . import birthdays as bd, reminders, snapshot, widget
+from . import birthdays as bd, ops, reminders, snapshot, widget
 from .cloud import CloudSync
 from .holidays import HolidayService
 from .sync import SyncEngine
@@ -47,6 +47,13 @@ APP_DIR = Path(os.environ.get("HOMECAL_APP_DIR", Path(__file__).resolve().parent
 STATIC_DIR = Path(os.environ.get("HOMECAL_STATIC", Path(__file__).resolve().parents[2] / "frontend" / "dist"))
 
 
+def poll_cloud() -> None:
+    """Команды, которые телефоны оставили в облаке, применяем и сразу обновляем снимок."""
+    if cloud.poll_ops(lambda items: ops.apply(db, items)):
+        events.invalidate()
+        cloud.tick(force=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if os.environ.get("HOMECAL_NO_SCHEDULER") != "1":
@@ -54,6 +61,7 @@ async def lifespan(app: FastAPI):
                           next_run_time=datetime.now(tz), id="sync", max_instances=1, coalesce=True)
         # Снимок для телефона вне дома: проверяем раз в 2 минуты, на Диск пишем при изменениях и раз в час.
         scheduler.add_job(cloud.tick, "interval", minutes=2, id="cloud", max_instances=1, coalesce=True)
+        scheduler.add_job(poll_cloud, "interval", minutes=1, id="cloud-ops", max_instances=1, coalesce=True)
         scheduler.start()
     yield
     if scheduler.running:

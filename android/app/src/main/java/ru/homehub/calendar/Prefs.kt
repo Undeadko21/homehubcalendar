@@ -60,6 +60,21 @@ class Prefs(context: Context) {
         get() = sp.getString("cloud_key", null)
         set(v) = sp.edit().putString("cloud_key", v).apply()
 
+    /** Токен записи в папку приложения на Диске (из кода подключения): для команд вне дома. */
+    var cloudToken: String?
+        get() = sp.getString("cloud_token", null)
+        set(v) = sp.edit().putString("cloud_token", v).apply()
+
+    /** Случайное имя этого телефона для файла команд ops-<id>.bin. */
+    val deviceId: String
+        get() = sp.getString("device_id", null) ?: java.util.UUID.randomUUID().toString().take(8)
+            .also { sp.edit().putString("device_id", it).apply() }
+
+    /** Очередь команд изменилась и ещё не выгружена в облако. */
+    var outboxDirty: Boolean
+        get() = sp.getBoolean("outbox_dirty", false)
+        set(v) = sp.edit().putBoolean("outbox_dirty", v).apply()
+
     /** Откуда взяты последние данные: "home" или "cloud". */
     var dataSource: String
         get() = sp.getString("data_source", "home") ?: "home"
