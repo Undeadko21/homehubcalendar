@@ -96,6 +96,13 @@ class AppBridge(private val activity: MainActivity) {
     @JavascriptInterface
     fun version(): String = BuildConfig.VERSION_NAME
 
+    @JavascriptInterface
+    fun versionCode(): Int = BuildConfig.VERSION_CODE
+
+    /** Скачать и установить свежую версию с сервера (кнопка «Обновить» в настройках). */
+    @JavascriptInterface
+    fun updateApp() = activity.runOnUiThread { activity.startUpdate() }
+
     /** Можно ли поставить виджет из приложения (зависит от лаунчера). */
     @JavascriptInterface
     fun canPinWidget(): Boolean = Widgets.canPin(activity)
@@ -127,6 +134,10 @@ class MainActivity : Activity() {
             settings.userAgentString = settings.userAgentString + " HomeHubApp/" + BuildConfig.VERSION_NAME
             setBackgroundColor(Color.TRANSPARENT)
             addJavascriptInterface(AppBridge(this@MainActivity), "HomeHubApp")
+            // WebView сам файлы не скачивает: ссылку на APK превращаем в установку обновления.
+            setDownloadListener { url, _, _, _, _ ->
+                if (url.contains("/app.apk")) startUpdate() else startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            }
             webViewClient = object : WebViewClient() {
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                     if (request.isForMainFrame) showError()
@@ -243,6 +254,8 @@ class MainActivity : Activity() {
     }
 
     /** Скачивает APK во внутренний кэш и открывает системный установщик. */
+    fun startUpdate() { server?.let { installUpdate(it) } }
+
     private fun installUpdate(base: String) {
         if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
             Toast.makeText(this, "Разрешите установку из этого приложения и нажмите «Обновить» ещё раз", Toast.LENGTH_LONG).show()

@@ -158,8 +158,9 @@
         <div class="row"><button class="btn" @click="changeServer">Сменить сервер</button></div>
       </template>
       <div v-if="appInfo?.available" class="row">
-        <span class="lbl">Версия {{ appInfo.versionName }} <small class="muted block">{{ Math.round(appInfo.size / 1024) }} КБ</small></span>
-        <a class="btn filled" href="/app.apk" download>Скачать</a>
+        <span class="lbl">Версия {{ appInfo.versionName }} <small class="muted block">{{ Math.round(appInfo.size / 1024) }} КБ{{ canUpdate && !hasUpdate ? ' · у вас последняя' : '' }}</small></span>
+        <button v-if="canUpdate" class="btn filled" :disabled="!hasUpdate" @click="updateApp">{{ hasUpdate ? 'Обновить' : 'Актуальна' }}</button>
+        <a v-else class="btn filled" href="/app.apk" download>Скачать</a>
       </div>
       <div v-else-if="appInfo" class="row"><span class="muted small">Приложение ещё не собрано на этом сервере.</span></div>
     </div>
@@ -284,6 +285,9 @@ const appVersionInstalled = inApp ? (() => { try { return window.HomeHubApp.vers
 const hostName = location.host
 const appInfo = ref(null)
 api.appInfo().then((v) => (appInfo.value = v)).catch(() => (appInfo.value = { available: false }))
+const canUpdate = inApp && !!window.HomeHubApp.updateApp  // в приложении 1.6+
+const hasUpdate = computed(() => canUpdate && appInfo.value?.available && Number(appInfo.value.versionCode) > Number(bridge('versionCode', 0)))
+function updateApp() { try { window.HomeHubApp.updateApp() } catch {} }
 function changeServer() { try { window.HomeHubApp.changeServer() } catch {} }
 const bridge = (name, fallback) => { try { return window.HomeHubApp?.[name] ? window.HomeHubApp[name]() : fallback } catch { return fallback } }
 const canPin = ref(inApp && bridge('canPinWidget', false))
