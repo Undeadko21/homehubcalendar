@@ -209,6 +209,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        continueUpdateIfNeeded()
         val now = Prefs(this).server
         if (now != null && now != server) { server = now; load() }
         else if (offline) tryHome()
@@ -312,29 +313,68 @@ class MainActivity : Activity() {
     /** Скачивает APK во внутренний кэш и открывает системный установщик. */
     fun startUpdate() { server?.let { installUpdate(it) } }
 
+    private var updateAfterPermission = false
+
+    private fun updateFailed(msg: String, base: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Не удалось обновить")
+            .setMessage(msg)
+            .setPositiveButton("Скачать через браузер") { _, _ ->
+                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$base/app.apk"))) } catch (_: Exception) {}
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
+    }
+
     private fun installUpdate(base: String) {
         if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(this, "Разрешите установку из этого приложения и нажмите «Обновить» ещё раз", Toast.LENGTH_LONG).show()
-            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            updateAfterPermission = true
+            AlertDialog.Builder(this)
+                .setTitle("Нужно разрешение")
+                .setMessage("Android просит разрешить этому приложению устанавливать обновления. Включите переключатель на следующем экране и вернитесь назад — обновление продолжится само.")
+                .setPositiveButton("Открыть настройки") { _, _ ->
+                    startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                }
+                .setNegativeButton("Отмена") { _, _ -> updateAfterPermission = false }
+                .show()
             return
         }
-        Toast.makeText(this, "Скачиваю обновление…", Toast.LENGTH_SHORT).show()
+        val progress = AlertDialog.Builder(this).setMessage("Скачиваю обновление…").setCancelable(false).show()
         scope.launch {
+            var error: String? = null
             val file = withContext(Dispatchers.IO) {
                 try {
                     val dir = File(cacheDir, "update").apply { mkdirs() }
                     val out = File(dir, "homehub-calendar.apk")
-                    java.net.URL("$base/app.apk").openStream().use { i -> out.outputStream().use { i.copyTo(it) } }
-                    out
-                } catch (e: Exception) { null }
+                    val c = java.net.URL("$base/app.apk").openConnection() as java.net.HttpURLConnection
+                    c.connectTimeout = 8000; c.readTimeout = 30000
+                    if (c.responseCode != 200) { error = "Сервер ответил ${c.responseCode}"; null }
+                    else {
+                        c.inputStream.use { i -> out.outputStream().use { i.copyTo(it) } }
+                        out
+                    }
+                } catch (e: Exception) { error = e.javaClass.simpleName + ": " + (e.message ?: ""); null }
             }
+            progress.dismiss()
             if (file == null || file.length() < 10_000) {
-                Toast.makeText(this@MainActivity, "Не удалось скачать обновление", Toast.LENGTH_LONG).show()
+                updateFailed(error ?: "Файл обновления слишком мал или не найден на сервере.", base)
                 return@launch
             }
-            val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", file)
-            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+            try {
+                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", file)
+                startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) {
+                updateFailed("Не открылся установщик: " + e.javaClass.simpleName + " " + (e.message ?: ""), base)
+            }
+        }
+    }
+
+    /** Вернулись с экрана разрешений — продолжаем обновление. */
+    private fun continueUpdateIfNeeded() {
+        if (updateAfterPermission && Build.VERSION.SDK_INT >= 26 && packageManager.canRequestPackageInstalls()) {
+            updateAfterPermission = false
+            startUpdate()
         }
     }
 }
