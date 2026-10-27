@@ -61,6 +61,7 @@ API: `GET /api/config`, `GET /api/events?start&end`, `GET /api/holidays?start&en
 Vue 3 + Vite, FullCalendar только для «Недели» и «Месяца». Без роутера: вид в `state.view`.
 
 - `lib/store.js` — общее состояние, фильтр людей (localStorage), кэш запросов.
+- `lib/report.js` — ловит ошибки клиента, показывает красный баннер в App.vue и шлёт на `POST /api/client-log` (смотреть `GET /api/client-log`). Для старых WebView: `@vitejs/plugin-legacy` (полифилы) и класс `no-color-mix` на `<html>` с запасными стилями.
 - `lib/useRange.js` — загрузка событий для диапазона; перезагрузка по `state.revision`.
 - `views/` — Today, Timeline (собственная «семейная лента»), Calendar (FullCalendar), Agenda, Free, Settings.
 - `components/` — EventPill (таблетка события), EventDialog (карточка-лист), EscortBadge (→ кто / ← кто),

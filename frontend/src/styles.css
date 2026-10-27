@@ -144,3 +144,19 @@ input.field, select.field, textarea.field {
 
 .kiosk.night { filter: brightness(.55); }
 .kiosk { cursor: none; }
+
+/* Старые WebView (Chrome < 111) не знают color-mix: события становятся нейтральными
+   с цветной полоской слева — всё читается, просто без цветной заливки. */
+.no-color-mix .pill,
+.no-color-mix .blk,
+.no-color-mix .block,
+.no-color-mix .item,
+.no-color-mix .opt.on,
+.no-color-mix .person,
+.no-color-mix .choice:not(.on) {
+  background: var(--surface-2) !important;
+  color: var(--ink) !important;
+}
+.no-color-mix .pill.allday, .no-color-mix .block.allday { background: var(--c) !important; color: #fff !important; }
+.no-color-mix .cal .fc-event { background: var(--surface-2) !important; color: var(--ink) !important; }
+.no-color-mix .cal .fc-event .fc-event-main { color: var(--ink) !important; }

@@ -292,6 +292,34 @@ def get_widget(days: int = 2, people: str | None = None):
     return widget.build(events.events(start, start + timedelta(days=days)), plist, tz, now, days, only)
 
 
+# ---------- ошибки из браузеров и приложения (для диагностики) ----------
+CLIENT_LOG: list[dict] = []
+
+
+class ClientLog(BaseModel):
+    message: str
+    stack: str = ""
+    url: str = ""
+    ua: str = ""
+    kind: str = "error"
+
+
+@app.post("/api/client-log")
+def post_client_log(body: ClientLog, request: Request):
+    entry = {**body.model_dump(), "at": datetime.now(tz).isoformat(timespec="seconds"),
+             "ip": request.client.host if request.client else ""}
+    entry = {k: (v[:2000] if isinstance(v, str) else v) for k, v in entry.items()}
+    CLIENT_LOG.append(entry)
+    del CLIENT_LOG[:-100]
+    log.warning("Ошибка в клиенте %s: %s", entry["ip"], entry["message"])
+    return {"ok": True}
+
+
+@app.get("/api/client-log")
+def get_client_log():
+    return list(reversed(CLIENT_LOG))
+
+
 @app.get("/api/app")
 def get_app():
     """Последняя версия приложения для Android, которую раздаёт этот сервер."""

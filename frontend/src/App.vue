@@ -54,6 +54,12 @@
           <button class="btn filled" @click="setView('settings')">Подключить</button>
         </div>
 
+        <div v-if="problems.list.length" class="problem" role="alert">
+          <strong>Что-то пошло не так</strong>
+          <span v-for="(p, i) in problems.list" :key="i">{{ p }}</span>
+          <button class="btn sm" @click="problems.list.splice(0)">Скрыть</button>
+        </div>
+
         <main class="main">
           <TodayView v-if="state.view === 'today'" />
           <TimelineView v-else-if="state.view === 'timeline'" />
@@ -90,6 +96,7 @@ import LoginScreen from './components/LoginScreen.vue'
 import MiniMonth from './components/MiniMonth.vue'
 import PeopleList from './components/PeopleList.vue'
 import Sheet from './components/Sheet.vue'
+import { problems } from './lib/report'
 import TodayView from './views/TodayView.vue'
 import TimelineView from './views/TimelineView.vue'
 import CalendarView from './views/CalendarView.vue'
@@ -271,6 +278,13 @@ onUnmounted(() => { timers.forEach(clearInterval); ro?.disconnect() })
   background: var(--surface-2); font-weight: 600;
 }
 .main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.problem {
+  margin: 10px 20px 0; padding: 10px 14px; border-radius: var(--radius-m);
+  background: var(--surface-2); background: color-mix(in srgb, var(--red) 12%, var(--surface));
+  color: var(--ink); display: flex; flex-direction: column; gap: 2px; font-size: 13px;
+}
+.problem strong { color: var(--red); font-size: 14px; }
+.problem .btn { align-self: flex-start; padding-left: 0; }
 .tabbar { display: none; }
 
 /* --- телефон и узкие окна --- */

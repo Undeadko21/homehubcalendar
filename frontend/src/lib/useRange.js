@@ -1,6 +1,7 @@
 // Загружает события и особые дни для диапазона, который зависит от состояния.
 import { computed, ref, watch } from 'vue'
 import { state, fetchRange, isEventVisible } from './store'
+import { report } from './report'
 
 export function useRange(rangeFn) {
   const raw = ref([])
@@ -22,6 +23,7 @@ export function useRange(rangeFn) {
       }
     } catch (e) {
       error.value = e.message
+      report('Не удалось загрузить события: ' + e.message, { stack: e.stack, kind: 'events' })
     } finally {
       loading.value = false
     }
