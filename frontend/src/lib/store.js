@@ -120,17 +120,17 @@ export async function loadConfig() {
 
 const cache = new Map()
 
-export async function fetchRange(start, end) {
+// События и особые дни грузятся независимо: праздники не должны задерживать показ событий.
+export function fetchRange(start, end) {
   const key = `${state.revision}|${+start}|${+end}`
   if (cache.has(key)) return cache.get(key)
-  const p = Promise.all([
-    api.events(isoLocal(start), isoLocal(end)),
-    api.holidays(isoDate(start), isoDate(end)).catch(() => []),
-  ]).then(([events, holidays]) => ({ events, holidays }))
-  cache.set(key, p)
-  p.catch(() => cache.delete(key))
+  const events = api.events(isoLocal(start), isoLocal(end))
+  const holidays = api.holidays(isoDate(start), isoDate(end)).catch(() => [])
+  const entry = { events, holidays }
+  cache.set(key, entry)
+  events.catch(() => cache.delete(key))
   if (cache.size > 30) cache.delete(cache.keys().next().value)
-  return p
+  return entry
 }
 
 export async function refreshStatus() {

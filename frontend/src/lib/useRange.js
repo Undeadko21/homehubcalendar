@@ -14,11 +14,13 @@ export function useRange(rangeFn) {
     const { start, end } = range.value
     loading.value = true
     try {
-      const res = await fetchRange(start, end)
+      const res = fetchRange(start, end)
+      const same = () => +range.value.start === +start && +range.value.end === +end
+      res.holidays.then((h) => { if (same()) holidays.value = h })
+      const evs = await res.events
       // Проверяем, что за время запроса диапазон не сменился.
-      if (+range.value.start === +start && +range.value.end === +end) {
-        raw.value = res.events
-        holidays.value = res.holidays
+      if (same()) {
+        raw.value = evs
         error.value = null
       }
     } catch (e) {

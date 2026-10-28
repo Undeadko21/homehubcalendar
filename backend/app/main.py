@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import logging
 import os
+import threading
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -63,6 +64,7 @@ def poll_cloud() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    threading.Thread(target=_warm, daemon=True).start()
     if os.environ.get("HOMECAL_NO_SCHEDULER") != "1":
         scheduler.add_job(engine.run, "interval", minutes=settings.sync.interval_minutes,
                           next_run_time=datetime.now(tz), id="sync", max_instances=1, coalesce=True)
@@ -161,7 +163,22 @@ def _ws_changed() -> None:
 
 
 ws = writeq.WriteService(db, lambda k: make_target(k), _ws_changed)
-engine.on_change = lambda: (ws.reapply(), events.invalidate())
+def _warm() -> None:
+    """Прогрев: разобрать события заранее, чтобы первое открытие календаря не ждало."""
+    try:
+        s = datetime.combine(date.today(), time(0), tz)
+        events.events(s - timedelta(days=7), s + timedelta(days=14))
+    except Exception:  # noqa: BLE001
+        log.exception("Прогрев")
+
+
+def _synced() -> None:
+    ws.reapply()
+    events.invalidate()
+    threading.Thread(target=_warm, daemon=True).start()
+
+
+engine.on_change = _synced
 
 
 def _run_write(fn):

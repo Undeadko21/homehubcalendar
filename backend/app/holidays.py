@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 
 import httpx
@@ -51,7 +53,7 @@ def _fetch_isdayoff(year: int, country: str) -> str:
     r = httpx.get(
         "https://isdayoff.ru/api/getdata",
         params={"year": year, "pre": 1, "cc": country},
-        timeout=15,
+        timeout=5,
     )
     r.raise_for_status()
     codes = r.text.strip()
@@ -66,6 +68,8 @@ class HolidayService:
         self.db = db
         self.provider = (cfg or {}).get("provider", "isdayoff")
         self.country = (cfg or {}).get("country", "ru")
+        self._fail: dict[int, float] = {}      # год -> когда последний раз не удалось скачать
+        self._refreshing: set[int] = set()
 
     def _codes(self, year: int) -> str:
         if self.provider == "fixed":
@@ -75,14 +79,35 @@ class HolidayService:
         fresh = updated and datetime.fromisoformat(updated) > datetime.now(timezone.utc) - CACHE_TTL
         if cached and fresh:
             return cached
+        if cached:
+            # Устарел, но показывать можно: обновляем в фоне, чтобы не задерживать открытие календаря.
+            self._refresh_async(year, key)
+            return cached
+        if time.time() - self._fail.get(year, 0) < 1800:   # недавно не вышло — не ждём сайт на каждом запросе
+            return _fixed_codes(year)
         try:
             codes = _fetch_isdayoff(year, self.country)
             self.db.kv_set(key, codes)
             return codes
         except Exception as e:  # noqa: BLE001
-            log.warning("Производственный календарь недоступен (%s), использую %s", e,
-                        "кэш" if cached else "фиксированные праздники")
-            return cached or _fixed_codes(year)
+            self._fail[year] = time.time()
+            log.warning("Производственный календарь недоступен (%s), использую фиксированные праздники", e)
+            return _fixed_codes(year)
+
+    def _refresh_async(self, year: int, key: str) -> None:
+        if year in self._refreshing or time.time() - self._fail.get(year, 0) < 1800:
+            return
+        self._refreshing.add(year)
+
+        def job():
+            try:
+                self.db.kv_set(key, _fetch_isdayoff(year, self.country))
+            except Exception as e:  # noqa: BLE001
+                self._fail[year] = time.time()
+                log.warning("Не удалось обновить производственный календарь (%s), остаётся кэш", e)
+            finally:
+                self._refreshing.discard(year)
+        threading.Thread(target=job, daemon=True).start()
 
     def between(self, start: date, end: date) -> list[dict]:
         """Особые дни в диапазоне [start, end). Обычные выходные не возвращаются."""

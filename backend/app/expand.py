@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import timezone, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import icalendar
@@ -51,12 +51,69 @@ def _text(comp, key: str) -> str:
     return str(v).strip() if v is not None else ""
 
 
+# Границы событий по содержимому объекта: разбирать заново ради «этого в сентябре 2024 нет» не нужно.
+# Значение — (самое раннее, самое позднее | None, если повторяется бесконечно / неизвестно), с запасом в сутки.
+_BOUNDS: dict[tuple[int, int], tuple[datetime, datetime | None]] = {}
+_MARGIN = timedelta(days=2)
+
+
+def _utc(v) -> datetime:
+    if isinstance(v, datetime):
+        return v.astimezone(timezone.utc) if v.tzinfo else v.replace(tzinfo=timezone.utc)
+    return datetime(v.year, v.month, v.day, tzinfo=timezone.utc)
+
+
+def _bounds(cal) -> tuple[datetime, datetime | None]:
+    lo: datetime | None = None
+    hi: datetime | None = None
+    open_end = False
+    for c in cal.walk("VEVENT"):
+        try:
+            start = c.decoded("DTSTART")
+        except Exception:  # noqa: BLE001
+            return datetime.min.replace(tzinfo=timezone.utc), None
+        s = _utc(start)
+        lo = s if lo is None else min(lo, s)
+        if "RDATE" in c:
+            open_end = True
+        end = None
+        if "DTEND" in c:
+            end = c.decoded("DTEND")
+        elif "DURATION" in c:
+            end = start + c.decoded("DURATION")
+        e = _utc(end) if end is not None else s
+        rr = c.get("RRULE")
+        if rr is not None:
+            until = rr.get("UNTIL")
+            if until:
+                e = max(e, _utc(until[0])) + (e - s)
+            else:
+                open_end = True
+        hi = e if hi is None else max(hi, e)
+    if lo is None:
+        return datetime.min.replace(tzinfo=timezone.utc), None
+    return lo - _MARGIN, (None if open_end else hi + _MARGIN)
+
+
 def expand_ics(ics_text: str, range_start: datetime, range_end: datetime, tz: ZoneInfo) -> list[Occurrence]:
+    key = (len(ics_text), hash(ics_text))
+    b = _BOUNDS.get(key)
+    if b is not None:
+        lo, hi = b
+        if range_end.astimezone(timezone.utc) < lo or (hi is not None and range_start.astimezone(timezone.utc) > hi):
+            return []
     try:
         cal = icalendar.Calendar.from_ical(ics_text)
     except Exception as e:  # noqa: BLE001
         log.warning("Не удалось разобрать iCalendar: %s", e)
         return []
+    if b is None:
+        if len(_BOUNDS) > 60000:
+            _BOUNDS.clear()
+        try:
+            _BOUNDS[key] = _bounds(cal)
+        except Exception:  # noqa: BLE001
+            _BOUNDS[key] = (datetime.min.replace(tzinfo=timezone.utc), None)
 
     try:
         components = recurring_ical_events.of(cal, components=["VEVENT"]).between(range_start, range_end)
