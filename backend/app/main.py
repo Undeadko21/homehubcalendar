@@ -22,7 +22,7 @@ from .db import Database
 from .events import UNASSIGNED, EventService
 from .freetime import find_free
 from . import birthdays as bd, ops, reminders, snapshot, widget
-from .cloud import CloudSync
+from .cloud import CloudError, CloudSync
 from .holidays import HolidayService
 from .sync import SyncEngine
 
@@ -501,7 +501,10 @@ def get_cloud():
 
 @app.put("/api/cloud")
 def put_cloud(body: CloudIn):
-    cloud.set_token(body.token)
+    try:
+        cloud.set_token(body.token)
+    except CloudError as e:
+        raise HTTPException(400, str(e))
     return cloud.tick(force=True)
 
 

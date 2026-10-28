@@ -32,6 +32,14 @@ class CloudError(Exception):
     pass
 
 
+BAD_TOKEN = "Это не похоже на токен Яндекс.Диска: нужна одна длинная строка из латинских букв, цифр и знаков (обычно начинается с y0_)"
+
+
+def token_ok(token: str | None) -> bool:
+    t = (token or "").strip()
+    return len(t) >= 20 and t.isascii() and not any(c.isspace() for c in t)
+
+
 def encrypt(key: bytes, data: bytes) -> bytes:
     nonce = os.urandom(12)
     return nonce + AESGCM(key).encrypt(nonce, data, b"homehub-v1")
@@ -124,6 +132,8 @@ class CloudSync:
 
     def set_token(self, token: str | None) -> None:
         if token:
+            if not token_ok(token):
+                raise CloudError(BAD_TOKEN)
             self.db.kv_set("cloud:token", {"token": token.strip()})
         else:
             self.db.kv_set("cloud:token", {})
@@ -131,7 +141,7 @@ class CloudSync:
 
     def code(self) -> str | None:
         url = self._state().get("public_url")
-        if not url:
+        if not url or not token_ok(self._token()):
             return None
         # t — токен записи: нужен приложению, чтобы вне дома класть команды в папку на Диске
         payload = {"u": url, "k": _b64(self.key()), "t": self._token()}
@@ -182,6 +192,10 @@ class CloudSync:
         if not token:
             return self.status()
         st = self._state()
+        if not token_ok(token):  # когда-то сохранили не токен (например, заголовок раздела)
+            st["last_error"] = BAD_TOKEN
+            self.db.kv_set("cloud:state", st)
+            return self.status()
         snap = self.build_snapshot()
         digest = hashlib.sha256(json.dumps({k: v for k, v in snap.items() if k != "generated"},
                                            sort_keys=True, ensure_ascii=False).encode()).hexdigest()

@@ -549,7 +549,7 @@ def test_cloud_snapshot_roundtrip_and_throttle(db):
 
     def handler(req: httpx.Request) -> httpx.Response:
         path = req.url.path
-        assert req.headers.get("authorization") in ("OAuth tok", None)
+        assert req.headers.get("authorization") in ("OAuth y0_testtoken_0123456789abcdef", None)
         if path.endswith("/resources/upload"):
             return httpx.Response(200, json={"href": "https://up.example/f"})
         if req.url.host == "up.example":
@@ -565,7 +565,7 @@ def test_cloud_snapshot_roundtrip_and_throttle(db):
     mk = lambda token: YandexDisk(token, httpx.Client(transport=httpx.MockTransport(handler)))
     cloud = CloudSync(db, lambda: snapshot.build(svc, db, TZ, datetime(2026, 10, 27, 12, 0, tzinfo=TZ)), mk)
     assert cloud.tick()["configured"] is False and not uploads
-    cloud.set_token("tok")
+    cloud.set_token("y0_testtoken_0123456789abcdef")
     st = cloud.tick()
     assert st["last_error"] is None and st["code"].startswith("hhc1.") and len(uploads) == 1
     # расшифровывается ключом из кода подключения и совпадает со снимком
@@ -637,7 +637,7 @@ def test_ops_from_phone_are_applied_once(db):
         return httpx.Response(404)
 
     cloud = CloudSync(db, lambda: {}, lambda t: YandexDisk(t, httpx.Client(transport=httpx.MockTransport(handler))))
-    cloud.set_token("tok")
+    cloud.set_token("y0_testtoken_0123456789abcdef")
     db.kv_set("cloud:state", {"public_url": "https://yadi.sk/d/x"})
     cloud_state["files"]["ops-phone1.bin"] = encrypt(cloud.key(), json.dumps(
         [{"id": "ph-1", "t": 1, "type": "item_add", "list_id": lid, "text": "Сыр"}]).encode())
@@ -645,3 +645,17 @@ def test_ops_from_phone_are_applied_once(db):
     assert cloud.poll_ops(lambda items: calls.append(items) or ops.apply(db, items)) is True
     assert cloud.poll_ops(lambda items: calls.append(items) or ops.apply(db, items)) is False  # файл не менялся
     assert len(calls) == 1 and "Сыр" in [i["text"] for i in db.lists()[0]["items"]]
+
+
+def test_bad_cloud_token_is_rejected(tmp_path):
+    from app.cloud import CloudError
+    from app.db import Database
+    db = Database(tmp_path / "t.sqlite3")
+    from app.cloud import CloudSync
+    c = CloudSync(db, lambda: {}, lambda t: None)
+    for bad in ("Облако: связь вне дома", "короткий", "has space in token 0123456789"):
+        try:
+            c.set_token(bad)
+            raise AssertionError("принят: " + bad)
+        except CloudError:
+            pass
