@@ -17,11 +17,11 @@ struct RootView: View {
                 .navigationTitle(model.menuTitle.isEmpty ? "Календарь" : model.menuTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
+                    ToolbarItem(placement: .navigationBarLeading) {
                         Button { sheet = .next } label: { Image(systemName: "list.bullet") }
                             .accessibilityLabel("Ближайшие события")
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .navigationBarTrailing) {
                         Button { sheet = .settings } label: { Image(systemName: "gearshape") }
                             .accessibilityLabel("Подключение")
                     }
