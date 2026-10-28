@@ -1,0 +1,35 @@
+name: macOS app
+on:
+  push:
+    branches: [main]
+    paths: ['macos/**', '!macos/release/**', '.github/workflows/macos.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Версии
+        run: swift --version && xcodebuild -version
+      - name: Тесты
+        run: cd macos && swift test
+      - name: Сборка приложения
+        run: macos/build-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HomeHub-Calendar-mac
+          path: macos/build/HomeHub-Calendar.zip
+      - name: Положить сборку в репозиторий (её раздаёт сервер)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p macos/release
+          cp macos/build/HomeHub-Calendar.zip macos/release/HomeHub-Calendar.zip
+          echo "{\"version\": \"$(cat macos/version.txt)\", \"build\": ${GITHUB_RUN_NUMBER}}" > macos/release/version.json
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add macos/release
+          git commit -m "macOS: сборка ${GITHUB_RUN_NUMBER} [skip ci]" || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
