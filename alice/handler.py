@@ -19,7 +19,8 @@ from datetime import datetime, timedelta
 
 SKILL_NAME = "Семья"
 CACHE_SECONDS = 120   # снимок на Диске меняется раз в пару минут, чаще ходить незачем
-FETCH_TIMEOUT = 2.0   # Алиса ждёт ответ не дольше 3 секунд
+FETCH_TIMEOUT = 8.0   # один запрос к Диску (поток доработает и после ответа Алисе)
+WAIT_SECONDS = 2.4    # Алиса ждёт ответ не дольше 3 секунд
 _cache: dict = {"t": 0.0, "snap": None}
 
 # --------------------------------------------------------------------------- снимок
@@ -39,21 +40,40 @@ def _get(url: str) -> bytes:
         return r.read()
 
 
+def _fetch() -> dict:
+    pub = os.environ["HOMEHUB_URL"]
+    meta = json.loads(_get("https://cloud-api.yandex.net/v1/disk/public/resources/download?"
+                           + urllib.parse.urlencode({"public_key": pub})))
+    return json.loads(decrypt(_b64(os.environ["HOMEHUB_KEY"]), _get(meta["href"])))
+
+
+_job: dict = {"thread": None, "err": None}
+
+
+def _run_fetch():
+    try:
+        snap = _fetch()
+        _cache.update(t=time.time(), snap=snap)
+        _job["err"] = None
+    except Exception as e:  # noqa: BLE001
+        _job["err"] = e
+
+
 def load_snapshot() -> dict:
-    """Скачивает и расшифровывает снимок; держит копию в памяти. Если Диск не ответил вовремя — отдаёт прежнюю копию."""
+    """Снимок с Диска, копия в памяти. Загрузка идёт в потоке: если на холодном старте Диск отвечает
+    дольше ~2,4 с, поток доработает, и повторный вопрос получит готовый ответ."""
+    import threading
     if _cache["snap"] and time.time() - _cache["t"] < CACHE_SECONDS:
         return _cache["snap"]
-    try:
-        pub = os.environ["HOMEHUB_URL"]
-        meta = json.loads(_get("https://cloud-api.yandex.net/v1/disk/public/resources/download?"
-                               + urllib.parse.urlencode({"public_key": pub})))
-        snap = json.loads(decrypt(_b64(os.environ["HOMEHUB_KEY"]), _get(meta["href"])))
-    except Exception:
-        if _cache["snap"]:
-            return _cache["snap"]
-        raise
-    _cache.update(t=time.time(), snap=snap)
-    return snap
+    th = _job["thread"]
+    if th is None or not th.is_alive():
+        th = threading.Thread(target=_run_fetch, daemon=True)
+        _job["thread"] = th
+        th.start()
+    th.join(WAIT_SECONDS)
+    if _cache["snap"]:
+        return _cache["snap"]
+    raise RuntimeError("снимок ещё грузится: %r" % (_job["err"],))
 
 # --------------------------------------------------------------------------- русский язык
 
@@ -313,6 +333,6 @@ def handler(event, context=None):
     try:
         out = respond(req, load_snapshot())
     except Exception as e:  # навык не должен молчать
-        out = _reply("Не получилось загрузить календарь. Попробуйте позже.")
+        out = _reply("Календарь ещё просыпается. Повторите вопрос через несколько секунд.")
         print("error:", repr(e))
     return out if "request" in event else {"statusCode": 200, "headers": {"Content-Type": "application/json"}, "body": json.dumps(out, ensure_ascii=False)}
