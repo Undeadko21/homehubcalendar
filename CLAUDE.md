@@ -77,6 +77,15 @@
   GitHub Actions (`ios.yml`, macos-15) собирает **неподписанный** `.ipa` (AltStore подписывает на телефоне) и кладёт в `ios/release/` (`[skip ci]`).
   Сервер раздаёт `/app-ios.ipa`, `/api/app-ios` и источник для AltStore `/altstore.json` (адрес берётся из запроса; AltStore → Sources → «+»).
   Виджета нет (App Groups на бесплатном аккаунте ненадёжны). Версия — `ios/version.txt`.
+- **Запись событий в Яндекс (v0.8).** `writer.py`: `build_ics` (TZID конфигурационного пояса, весь день — VALUE=DATE с исключающим концом, RRULE daily/weekly/monthly/yearly + interval/count/until),
+  `apply_edit` (правка мастер-VEVENT; для серии — сдвиг на разницу от редактируемого вхождения, `occurrence`), `add_exdate` («удалить только это»), `CalDavTarget` (caldav: create/update/delete). API:
+  `POST /api/event`, `PUT /api/event/{uid}`, `DELETE /api/event/{uid}?calendar=&occurrence=`; после записи объект кладётся в `objects` (`put_object/delete_object/find_object`), кэш сбрасывается,
+  снимок обновляется. Календарь пишущий, если его источник `type: caldav` (поле `writable` в `/api/config`, `write: false` в источнике отключает). Правка серии — вся серия. `make_target` в main подменяется в тестах.
+  **На настоящем Яндексе проверялось только вручную пользователем** (в среде разработки доступа нет). UI: `EventEditor.vue`, кнопка «+» в тулбаре, «Изменить» в `EventDialog`.
+- **Напоминания о встречах (v0.8).** `kv settings:event_reminders` = `{people: {id: [минуты…]}}` (`reminders.load_rules/save_rules`, `GET|PUT /api/settings/event-reminders`, UI `EventReminders.vue`). `reminders.build(... event_rules)`
+  даёт `kind: event` с готовым `at`, `people` (кому именно это время) и `start`; устройства только фильтруют по своим выбранным людям (Android `Reminders.apply`, `Notifier.swift`). Событий на весь день, приватных и поездок это не касается.
+- **Автообновление Mac.** `macos/Sources/HomeHubMac/Updater.swift`: проверка `/api/app-mac` (при запуске и раз в 6 ч), сравнение с `CFBundleVersion` (= номер запуска CI), скачивание zip, распаковка `ditto`,
+  замена .app скриптом после выхода процесса + перезапуск. Не работает из «Загрузок» (AppTranslocation) и без прав на папку; вне дома — вручную. Первая версия с обновлением ставится вручную.
 - Свободное время: `freetime.py` — объединение занятости выбранных людей (+ их поездки).
 - Настройки из UI (`configured=1`) важнее правил из config.yaml и не перетираются синхронизацией.
 
