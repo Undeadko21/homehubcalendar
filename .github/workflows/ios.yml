@@ -1,0 +1,44 @@
+name: iOS app
+on:
+  push:
+    branches: [main]
+    paths: ['ios/**', '!ios/release/**', 'macos/Sources/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: XcodeGen
+        run: brew install xcodegen
+      - name: Сборка без подписи (AltStore подпишет Apple ID на самом телефоне)
+        run: |
+          VER=$(cat ios/version.txt)
+          cd ios
+          xcodegen generate
+          xcodebuild -project HomeHubCalendar.xcodeproj -scheme HomeHubCalendar -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            MARKETING_VERSION="$VER" CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+          rm -rf Payload && mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/HomeHubCalendar.app Payload/
+          zip -qry HomeHub-Calendar.ipa Payload
+          ls -la HomeHub-Calendar.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HomeHub-Calendar-ios
+          path: ios/HomeHub-Calendar.ipa
+      - name: Положить сборку в репозиторий (её раздаёт сервер)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p ios/release
+          cp ios/HomeHub-Calendar.ipa ios/release/HomeHub-Calendar.ipa
+          echo "{\"version\": \"$(cat ios/version.txt)\", \"build\": ${GITHUB_RUN_NUMBER}, \"date\": \"$(date -u +%Y-%m-%d)\"}" > ios/release/version.json
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add ios/release
+          git commit -m "iOS: сборка ${GITHUB_RUN_NUMBER} [skip ci]" || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main

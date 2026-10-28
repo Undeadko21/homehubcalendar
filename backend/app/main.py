@@ -49,6 +49,8 @@ APP_DIR = Path(os.environ.get("HOMECAL_APP_DIR", Path(__file__).resolve().parent
 
 MAC_DIR = Path(os.environ.get("HOMECAL_MAC_DIR", Path(__file__).resolve().parents[2] / "macos" / "release"))
 
+IOS_DIR = Path(os.environ.get("HOMECAL_IOS_DIR", Path(__file__).resolve().parents[2] / "ios" / "release"))
+
 STATIC_DIR = Path(os.environ.get("HOMECAL_STATIC", Path(__file__).resolve().parents[2] / "frontend" / "dist"))
 
 
@@ -663,6 +665,55 @@ def download_app_mac():
     if not f.exists():
         raise HTTPException(404, "Приложение для Mac ещё не собрано")
     return FileResponse(f, media_type="application/zip", filename="HomeHub-Calendar.zip")
+
+
+def _ios_release() -> dict | None:
+    meta, ipa = IOS_DIR / "version.json", IOS_DIR / "HomeHub-Calendar.ipa"
+    if not (meta.exists() and ipa.exists()):
+        return None
+    import json
+    return {**json.loads(meta.read_text(encoding="utf-8")), "size": ipa.stat().st_size}
+
+
+@app.get("/api/app-ios")
+def get_app_ios():
+    rel = _ios_release()
+    return {"available": False} if not rel else {"available": True, "url": "/app-ios.ipa", **rel}
+
+
+@app.get("/app-ios.ipa", include_in_schema=False)
+def download_app_ios():
+    f = IOS_DIR / "HomeHub-Calendar.ipa"
+    if not f.exists():
+        raise HTTPException(404, "Приложение для iPhone ещё не собрано")
+    return FileResponse(f, media_type="application/octet-stream", filename="HomeHub-Calendar.ipa")
+
+
+@app.get("/altstore-icon.png", include_in_schema=False)
+def altstore_icon():
+    f = IOS_DIR / "icon.png"
+    if not f.exists():
+        raise HTTPException(404)
+    return FileResponse(f, media_type="image/png")
+
+
+@app.get("/altstore.json", include_in_schema=False)
+def altstore_source(request: Request):
+    """Источник для AltStore: добавьте этот адрес в AltStore → Sources, и приложение будет ставиться и обновляться оттуда."""
+    rel = _ios_release() or {}
+    base = str(request.base_url).rstrip("/")
+    version = {"version": rel.get("version", "1.0"), "buildVersion": str(rel.get("build", 1)), "date": rel.get("date", "2026-01-01"),
+               "size": rel.get("size", 0), "downloadURL": f"{base}/app-ios.ipa", "minOSVersion": "16.0",
+               "localizedDescription": "Окно календаря, ближайшие события и напоминания."}
+    app_ = {"name": "Домашний календарь", "bundleIdentifier": "ru.homehub.calendar.ios", "developerName": "HomeHub",
+            "subtitle": "Семейный календарь", "tintColor": "FF3B30", "iconURL": f"{base}/altstore-icon.png",
+            "localizedDescription": "Семейный календарь: общий вид дня, поездки детей, ближайшие события и напоминания. Вне дома читает снимок из облака.",
+            "screenshotURLs": [], "versions": [version],
+            # поля прежнего формата источников — для старых версий AltStore
+            "version": version["version"], "versionDate": version["date"], "size": version["size"],
+            "downloadURL": version["downloadURL"]}
+    return {"name": "Домашний календарь", "identifier": "ru.homehub.calendar.source", "sourceURL": f"{base}/altstore.json",
+            "apps": [app_] if rel else [], "news": []}
 
 
 # ---------- веб-интерфейс ----------

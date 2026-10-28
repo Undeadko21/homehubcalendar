@@ -222,6 +222,24 @@
         правой кнопкой → «Открыть» (приложение подписано без аккаунта разработчика Apple).
       </p>
     </template>
+    <template v-if="!inApp">
+      <h3 class="group-title">Приложение для iPhone (AltStore)</h3>
+      <div class="group">
+        <div v-if="iosInfo?.available" class="row">
+          <span class="lbl">Версия {{ iosInfo.version }} <small class="muted block">{{ (iosInfo.size / 1048576).toFixed(1) }} МБ · iOS 16+</small></span>
+          <a class="btn" href="/app-ios.ipa" download>.ipa</a>
+        </div>
+        <div v-else-if="iosInfo" class="row"><span class="muted small">Сборка для iPhone ещё не готова.</span></div>
+        <div class="row stack">
+          <span class="lbl">Источник для AltStore <small class="muted block">AltStore → Sources → «+» → вставьте адрес; приложение будет обновляться оттуда</small></span>
+          <div class="code"><code>{{ origin }}/altstore.json</code><button class="btn" @click="copyText(origin + '/altstore.json')">Копировать</button></div>
+        </div>
+      </div>
+      <p class="group-note">
+        AltStore ставит приложение на iPhone с вашим бесплатным Apple ID; подпись живёт 7 дней, AltStore продлевает её
+        сам, когда iPhone и компьютер с AltServer в одной Wi-Fi сети.
+      </p>
+    </template>
     <p class="group-note">
       Откройте эту страницу на телефоне в домашней Wi-Fi сети и нажмите «Скачать». Android спросит разрешение
       ставить приложения из браузера — разрешите. Виджет «Семейный день» добавляется кнопкой в приложении
@@ -383,6 +401,16 @@ const appVersionInstalled = inApp ? (() => { try { return window.HomeHubApp.vers
 const hostName = location.host
 const appInfo = ref(null)
 api.appInfo().then((v) => (appInfo.value = v)).catch(() => (appInfo.value = { available: false }))
+const iosInfo = ref(null)
+fetch('/api/app-ios').then((r) => r.json()).then((v) => (iosInfo.value = v)).catch(() => (iosInfo.value = { available: false }))
+const origin = location.origin
+function copyText(t) {
+  try {
+    const a = document.createElement('textarea')
+    a.value = t; a.style.position = 'fixed'; a.style.opacity = '0'
+    document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove()
+  } catch { /* не критично */ }
+}
 const macInfo = ref(null)
 fetch('/api/app-mac').then((r) => r.json()).then((v) => (macInfo.value = v)).catch(() => (macInfo.value = { available: false }))
 const canUpdate = inApp && !!window.HomeHubApp.updateApp  // в приложении 1.6+
@@ -547,4 +575,6 @@ a.btn.filled { text-decoration: none; }
 .danger { margin-top: 24px; }
 .del { width: 100%; border: 0; background: none; color: var(--red); justify-content: center; font-weight: 500; }
 @media (max-width: 899px) { .settings { padding: 0 12px 36px; } }
+.code { display: flex; gap: 8px; align-items: center; }
+.code code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; background: var(--fill); padding: 6px 8px; border-radius: 8px; }
 </style>

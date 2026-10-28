@@ -9,3 +9,8 @@ __pycache__/
 .pytest_cache/
 macos/build/
 macos/.build/
+ios/build/
+ios/Payload/
+ios/*.xcodeproj/
+ios/Info.plist
+ios/HomeHub-Calendar.ipa

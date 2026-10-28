@@ -1,7 +1,11 @@
 import Foundation
 import SwiftUI
 import WebKit
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import HomeHubCore
 
 enum AppError: LocalizedError {
@@ -54,10 +58,12 @@ final class AppModel: ObservableObject {
 
     private func start() {
         Task { await loop() }
+        #if os(macOS)
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             guard let model = self else { return }
             Task { @MainActor in await model.refresh() }
         }
+        #endif
     }
 
     // MARK: - Состояние

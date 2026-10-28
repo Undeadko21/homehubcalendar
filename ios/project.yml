@@ -1,0 +1,38 @@
+name: HomeHubCalendar
+options:
+  bundleIdPrefix: ru.homehub
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  HomeHubCalendar:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      # Общая логика с приложением для Mac: расшифровка снимка, «что дальше», модель, уведомления.
+      - path: ../macos/Sources/HomeHubCore
+      - path: ../macos/Sources/HomeHubMac/AppModel.swift
+      - path: ../macos/Sources/HomeHubMac/Notifier.swift
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Домашний календарь
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSLocalNetworkUsageDescription: Приложение обращается к серверу календаря в вашей домашней сети.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [ru.homehub.calendar.refresh]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ru.homehub.calendar.ios
+        PRODUCT_NAME: HomeHubCalendar
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
