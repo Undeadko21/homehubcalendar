@@ -49,9 +49,14 @@ final class AppModel: ObservableObject {
             snapshot = snap
             source = .cache
         }
-        Task { [weak self] in await self?.loop() }
+        start()
+    }
+
+    private func start() {
+        Task { await loop() }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in await self?.refresh() }
+            guard let model = self else { return }
+            Task { @MainActor in await model.refresh() }
         }
     }
 

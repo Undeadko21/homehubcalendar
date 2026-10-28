@@ -47,6 +47,8 @@ STARTED = datetime.now(tz)
 # Приложение для Android: собранный APK и его версия (android/release в репозитории).
 APP_DIR = Path(os.environ.get("HOMECAL_APP_DIR", Path(__file__).resolve().parents[2] / "android" / "release"))
 
+MAC_DIR = Path(os.environ.get("HOMECAL_MAC_DIR", Path(__file__).resolve().parents[2] / "macos" / "release"))
+
 STATIC_DIR = Path(os.environ.get("HOMECAL_STATIC", Path(__file__).resolve().parents[2] / "frontend" / "dist"))
 
 
@@ -641,6 +643,26 @@ def download_app():
         raise HTTPException(404, "Приложение ещё не собрано")
     return FileResponse(apk, media_type="application/vnd.android.package-archive",
                         filename="homehub-calendar.apk")
+
+
+@app.get("/api/app-mac")
+def get_app_mac():
+    """Сборка приложения для macOS (кладёт в репозиторий GitHub Actions)."""
+    meta = MAC_DIR / "version.json"
+    zip_ = MAC_DIR / "HomeHub-Calendar.zip"
+    if not (meta.exists() and zip_.exists()):
+        return {"available": False}
+    import json
+    return {"available": True, "url": "/app-mac.zip", "size": zip_.stat().st_size,
+            **json.loads(meta.read_text(encoding="utf-8"))}
+
+
+@app.get("/app-mac.zip", include_in_schema=False)
+def download_app_mac():
+    f = MAC_DIR / "HomeHub-Calendar.zip"
+    if not f.exists():
+        raise HTTPException(404, "Приложение для Mac ещё не собрано")
+    return FileResponse(f, media_type="application/zip", filename="HomeHub-Calendar.zip")
 
 
 # ---------- веб-интерфейс ----------

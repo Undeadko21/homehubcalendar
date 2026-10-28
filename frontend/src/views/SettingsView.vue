@@ -207,6 +207,21 @@
       </div>
       <div v-else-if="appInfo" class="row"><span class="muted small">Приложение ещё не собрано на этом сервере.</span></div>
     </div>
+    <template v-if="!inApp">
+      <h3 class="group-title">Приложение для Mac</h3>
+      <div class="group">
+        <div v-if="macInfo?.available" class="row">
+          <span class="lbl">Версия {{ macInfo.version }} <small class="muted block">{{ (macInfo.size / 1048576).toFixed(1) }} МБ · macOS 13+</small></span>
+          <a class="btn filled" href="/app-mac.zip" download>Скачать</a>
+        </div>
+        <div v-else-if="macInfo" class="row"><span class="muted small">Сборка для Mac ещё не готова.</span></div>
+      </div>
+      <p class="group-note">
+        Окно календаря и значок в строке меню с ближайшим событием; вне дома читает снимок из облака (код подключения —
+        в разделе «Подключение»). Распакуйте zip, перенесите программу в «Программы» и при первом запуске нажмите на ней
+        правой кнопкой → «Открыть» (приложение подписано без аккаунта разработчика Apple).
+      </p>
+    </template>
     <p class="group-note">
       Откройте эту страницу на телефоне в домашней Wi-Fi сети и нажмите «Скачать». Android спросит разрешение
       ставить приложения из браузера — разрешите. Виджет «Семейный день» добавляется кнопкой в приложении
@@ -368,6 +383,8 @@ const appVersionInstalled = inApp ? (() => { try { return window.HomeHubApp.vers
 const hostName = location.host
 const appInfo = ref(null)
 api.appInfo().then((v) => (appInfo.value = v)).catch(() => (appInfo.value = { available: false }))
+const macInfo = ref(null)
+fetch('/api/app-mac').then((r) => r.json()).then((v) => (macInfo.value = v)).catch(() => (macInfo.value = { available: false }))
 const canUpdate = inApp && !!window.HomeHubApp.updateApp  // в приложении 1.6+
 const hasUpdate = computed(() => canUpdate && appInfo.value?.available && Number(appInfo.value.versionCode) > Number(bridge('versionCode', 0)))
 function updateApp() { try { window.HomeHubApp.updateApp() } catch {} }
