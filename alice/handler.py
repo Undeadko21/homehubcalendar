@@ -18,7 +18,8 @@ import urllib.request
 from datetime import datetime, timedelta
 
 SKILL_NAME = "Семья"
-CACHE_SECONDS = 60
+CACHE_SECONDS = 120   # снимок на Диске меняется раз в пару минут, чаще ходить незачем
+FETCH_TIMEOUT = 2.0   # Алиса ждёт ответ не дольше 3 секунд
 _cache: dict = {"t": 0.0, "snap": None}
 
 # --------------------------------------------------------------------------- снимок
@@ -34,18 +35,23 @@ def decrypt(key: bytes, blob: bytes) -> bytes:
 
 
 def _get(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=8) as r:
+    with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT) as r:
         return r.read()
 
 
 def load_snapshot() -> dict:
-    """Скачивает и расшифровывает снимок; держит копию в памяти на минуту."""
+    """Скачивает и расшифровывает снимок; держит копию в памяти. Если Диск не ответил вовремя — отдаёт прежнюю копию."""
     if _cache["snap"] and time.time() - _cache["t"] < CACHE_SECONDS:
         return _cache["snap"]
-    pub = os.environ["HOMEHUB_URL"]
-    meta = json.loads(_get("https://cloud-api.yandex.net/v1/disk/public/resources/download?"
-                           + urllib.parse.urlencode({"public_key": pub})))
-    snap = json.loads(decrypt(_b64(os.environ["HOMEHUB_KEY"]), _get(meta["href"])))
+    try:
+        pub = os.environ["HOMEHUB_URL"]
+        meta = json.loads(_get("https://cloud-api.yandex.net/v1/disk/public/resources/download?"
+                               + urllib.parse.urlencode({"public_key": pub})))
+        snap = json.loads(decrypt(_b64(os.environ["HOMEHUB_KEY"]), _get(meta["href"])))
+    except Exception:
+        if _cache["snap"]:
+            return _cache["snap"]
+        raise
     _cache.update(t=time.time(), snap=snap)
     return snap
 
