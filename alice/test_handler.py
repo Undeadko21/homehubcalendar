@@ -48,7 +48,7 @@ def text(cmd, state=None):
 
 def test_genitive_and_matching():
     assert [h.genitive(n) for n in ("Оля", "Маша", "Папа", "Олег", "Игорь", "Андрей", "Бабушка Нина")] == \
-        ["Оли", "Маши", "Папы", "Олега", "Игоря", "Андрея", "Бабушка Нина"]
+        ["Оли", "Маши", "Папы", "Олега", "Игоря", "Андрея", "Бабушки Нины"]
     assert h.find_person(SNAP, ["оли"])["id"] == "olya"
     assert h.find_person(SNAP, ["олега"])["id"] == "oleg"
     assert h.find_person(SNAP, ["оленька"])["id"] == "olya"
@@ -105,3 +105,16 @@ def test_load_snapshot_roundtrip(monkeypatch):
     h._cache.update(t=0, snap=None)
     out = h.handler({"request": {"command": "когда следующая встреча оли", "nlu": {"tokens": ["когда", "следующая", "встреча", "оли"]}}})
     assert "Не получилось" not in out["response"]["text"] and "Оли" in out["response"]["text"]
+
+
+def test_full_and_double_names():
+    snap = {**SNAP, "people": [{"id": "olya", "name": "Ольга Иванова", "keywords": ""},
+                               {"id": "masha", "name": "Мария", "keywords": ""},
+                               {"id": "papa", "name": "Анатолий", "keywords": ""}]}
+    assert h.find_person(snap, ["оли"])["id"] == "olya"
+    assert h.find_person(snap, ["ольги"])["id"] == "olya"
+    assert h.find_person(snap, ["иванову"])["id"] == "olya"
+    assert h.find_person(snap, ["маши"])["id"] == "masha"
+    assert h.find_person(snap, ["толи"])["id"] == "papa"
+    assert h.find_person(snap, ["анатолия"])["id"] == "papa"
+    assert h.genitive("Ольга Иванова") == "Ольги Ивановой"

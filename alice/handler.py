@@ -70,11 +70,46 @@ def _name_matches(word: str, name: str) -> bool:
     return len(stem) >= 2 and word.startswith(stem) and word[len(stem):] in tails
 
 
-def genitive(name: str) -> str:
+# Полное имя → как его называют дома. Нужны только распространённые; остальное решают слова автопривязки.
+_SHORT = {
+    "александр": ["саша", "шура", "сашка"], "александра": ["саша", "шура", "сашенька"], "алексей": ["леша", "алеша"],
+    "анастасия": ["настя", "настенька"], "анатолий": ["толя", "толик"], "андрей": ["андрюша"], "анна": ["аня", "анечка", "анюта"],
+    "артем": ["тема", "темка"], "валентина": ["валя"], "василий": ["вася"], "виктор": ["витя"], "виктория": ["вика"],
+    "владимир": ["вова", "володя"], "галина": ["галя"], "дмитрий": ["дима", "митя"], "евгений": ["женя"],
+    "евгения": ["женя"], "екатерина": ["катя", "катюша"], "елена": ["лена", "леночка"], "елизавета": ["лиза"],
+    "иван": ["ваня"], "игорь": ["игорек"], "ирина": ["ира", "иришка"], "константин": ["костя"], "ксения": ["ксюша"],
+    "людмила": ["люда", "люся"], "любовь": ["люба"], "максим": ["макс"], "маргарита": ["рита"],
+    "мария": ["маша", "машенька", "маруся"], "михаил": ["миша"], "надежда": ["надя"], "наталья": ["наташа", "ната"],
+    "наталия": ["наташа", "ната"], "николай": ["коля"], "ольга": ["оля", "оленька", "олечка"], "павел": ["паша"],
+    "полина": ["поля"], "светлана": ["света"], "сергей": ["сережа", "серега"], "софья": ["соня"], "софия": ["соня"],
+    "татьяна": ["таня", "танюша"], "юлия": ["юля"], "яна": [],
+}
+
+
+def _aliases(name: str) -> list[str]:
+    """Имя и слова из него: «Оля Иванова» → оля, иванова; «Ольга» → ольга, оля, оленька…"""
+    out = []
+    for w in name.replace("ё", "е").lower().replace("-", " ").split():
+        out.append(w)
+        out += _SHORT.get(w, [])
+    # и в обратную сторону: Оля → Ольга
+    for full, shorts in _SHORT.items():
+        if any(w in shorts for w in out[:1]):
+            out.append(full)
+    return out
+
+
+def genitive(name: str, surname: bool = False) -> str:
     """У Оли, у Маши, у Папы, у Олега."""
-    if " " in name or not name:
+    if not name:
         return name
+    if " " in name:
+        parts = name.split()
+        return " ".join(genitive(w, surname=(i > 0 and w.lower().endswith(("ова", "ева", "ина", "ына", "ская", "цкая")) and len(parts) == 2 and parts[0].lower() not in ("бабушка", "дедушка", "тётя", "тетя")))
+                        for i, w in enumerate(parts))
     last = name[-1].lower()
+    if surname and last == "а":
+        return name[:-1] + "ой"
     if last in "ая":
         prev = name[-2].lower() if len(name) > 1 else ""
         return name[:-1] + ("и" if last == "я" or prev in "гкхжчшщц" else "ы")
@@ -114,7 +149,7 @@ def when_text(start: datetime, now: datetime) -> tuple[str, str]:
 def find_person(snap: dict, words: list[str]) -> dict | None:
     best = None
     for p in snap.get("people", []):
-        cands = [p["name"]] + [k.strip() for k in (p.get("keywords") or "").split(",") if k.strip()]
+        cands = _aliases(p["name"]) + [k.strip() for k in (p.get("keywords") or "").split(",") if k.strip()]
         for w in words:
             if any(_name_matches(w, c) for c in cands):
                 score = len(w)
@@ -250,7 +285,7 @@ def respond(req: dict, snap: dict, now: datetime | None = None) -> dict:
         if not person:
             return _reply("Скажите, чьё расписание: например, «когда следующая встреча Оли». Или представьтесь: «я Оля».", end=False)
     if not person:
-        return _reply("Не поняла, чьё расписание. " + HELP, end=False)
+        return _reply("Не поняла, чьё расписание. Я знаю: " + ", ".join(p["name"] for p in snap.get("people", [])) + ". " + HELP, end=False)
 
     whose = "у вас" if mine else f"у {genitive(person['name'])}"
     whose_gen = "у вас" if mine else genitive(person["name"])
