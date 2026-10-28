@@ -1,6 +1,8 @@
 import SwiftUI
 import UIKit
+#if canImport(HomeHubCore)
 import HomeHubCore
+#endif
 
 struct RootView: View {
     @ObservedObject var model: AppModel

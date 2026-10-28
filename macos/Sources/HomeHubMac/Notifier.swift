@@ -1,6 +1,8 @@
 import Foundation
 import UserNotifications
+#if canImport(HomeHubCore)
 import HomeHubCore
+#endif
 
 /// Локальные уведомления из блока `reminders` снимка: поездки за N минут, вечерний дайджест, дни рождения.
 /// Каждый раз пересоздаём очередь целиком, поэтому изменения на сервере подхватываются сами.

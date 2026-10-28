@@ -6,7 +6,9 @@ import AppKit
 #else
 import UIKit
 #endif
+#if canImport(HomeHubCore)
 import HomeHubCore
+#endif
 
 enum AppError: LocalizedError {
     case pin, http(Int)
