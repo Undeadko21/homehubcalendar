@@ -73,11 +73,31 @@ class YandexDisk:
             raise CloudError(f"{what}: Яндекс.Диск ответил {r.status_code}")
         return r
 
-    def upload(self, data: bytes) -> None:
-        r = self._check(self.c.get(f"{API}/resources/upload", params={"path": FILE, "overwrite": "true"}, headers=self.h),
+    def upload(self, data: bytes, path: str = FILE) -> None:
+        r = self._check(self.c.get(f"{API}/resources/upload", params={"path": path, "overwrite": "true"}, headers=self.h),
                         "запрос загрузки")
         href = r.json()["href"]
         self._check(self.c.put(href, content=data), "загрузка файла")
+
+    def mkdir(self, path: str) -> None:
+        r = self.c.put(f"{API}/resources", params={"path": path}, headers=self.h)
+        if r.status_code != 409:  # 409 — папка уже есть
+            self._check(r, "создание папки")
+
+    def ls(self, path: str) -> list[dict]:
+        """Файлы папки: name, size, modified."""
+        r = self.c.get(f"{API}/resources", params={
+            "path": path, "limit": 200, "fields": "_embedded.items.name,_embedded.items.size,_embedded.items.modified"},
+            headers=self.h)
+        if r.status_code == 404:
+            return []
+        items = (self._check(r, "список файлов").json().get("_embedded") or {}).get("items") or []
+        return items
+
+    def rm(self, path: str) -> None:
+        r = self.c.delete(f"{API}/resources", params={"path": path, "permanently": "true"}, headers=self.h)
+        if r.status_code != 404:
+            self._check(r, "удаление файла")
 
     def _meta(self) -> dict:
         r = self._check(self.c.get(f"{API}/resources", params={"path": FILE, "fields": "public_key,public_url"},

@@ -3,7 +3,8 @@
     <section class="hero">
       <div class="clock">
         <span class="hm">{{ hm }}</span>
-        <span v-if="holiday" class="holiday">{{ holiday.name }}</span>
+        <span v-if="holiday && holiday.type !== 'vacation'" class="holiday">{{ holiday.name }}</span>
+        <span v-if="holiday?.vacation" class="vacation">{{ holiday.vacation }}</span>
       </div>
       <WeatherNow />
     </section>
@@ -124,6 +125,7 @@ const trips = computed(() =>
 .clock { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
 .hm { font-family: var(--font-display); font-size: clamp(64px, 9vw, 112px); font-weight: 200; letter-spacing: -0.04em; line-height: .9; }
 .holiday { color: var(--red); font-weight: 600; font-size: 17px; }
+.vacation { color: #34c759; font-weight: 600; font-size: 17px; }
 .sec { font-size: 20px; font-weight: 700; margin: 0 0 10px; letter-spacing: -0.01em; }
 
 .trips .group { background: var(--surface-2); max-width: 760px; }

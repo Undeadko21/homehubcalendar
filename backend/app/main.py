@@ -21,7 +21,8 @@ from .config import load_settings
 from .db import Database
 from .events import UNASSIGNED, EventService
 from .freetime import find_free
-from . import birthdays as bd, ops, reminders, snapshot, widget
+from . import birthdays as bd, ops, reminders, school, snapshot, stats, widget
+from .backup import BackupService
 from .cloud import CloudError, CloudSync
 from .holidays import HolidayService
 from .sync import SyncEngine
@@ -40,6 +41,8 @@ engine = SyncEngine(db, settings.sources, on_change=events.invalidate)
 engine.seed_people(settings.people)
 scheduler = BackgroundScheduler(timezone=tz)
 cloud = CloudSync(db, lambda: snapshot.build(events, db, tz))
+backup = BackupService(db, cloud, tz)
+STARTED = datetime.now(tz)
 
 # Приложение для Android: собранный APK и его версия (android/release в репозитории).
 APP_DIR = Path(os.environ.get("HOMECAL_APP_DIR", Path(__file__).resolve().parents[2] / "android" / "release"))
@@ -62,6 +65,8 @@ async def lifespan(app: FastAPI):
         # Снимок для телефона вне дома: проверяем раз в 2 минуты, на Диск пишем при изменениях и раз в час.
         scheduler.add_job(cloud.tick, "interval", minutes=2, id="cloud", max_instances=1, coalesce=True)
         scheduler.add_job(poll_cloud, "interval", minutes=1, id="cloud-ops", max_instances=1, coalesce=True)
+        scheduler.add_job(backup.run, "cron", hour=3, minute=30, id="backup", max_instances=1, coalesce=True,
+                          misfire_grace_time=6 * 3600)
         scheduler.start()
     yield
     if scheduler.running:
@@ -145,7 +150,83 @@ def get_events(start: str, end: str, people: str | None = None):
 
 @app.get("/api/holidays")
 def get_holidays(start: str, end: str):
-    return holidays.between(date.fromisoformat(start[:10]), date.fromisoformat(end[:10]))
+    a, z = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
+    return school.merge(db, holidays.between(a, z), a, z)
+
+
+class SchoolIn(BaseModel):
+    breaks: list[dict]
+
+
+@app.get("/api/school")
+def get_school():
+    return {"breaks": school.load(db)}
+
+
+@app.put("/api/school")
+def put_school(body: SchoolIn):
+    out = school.save(db, body.breaks)
+    return {"breaks": out}
+
+
+@app.get("/api/stats")
+def get_stats(start: str, end: str):
+    s, e = _parse_dt(start), _parse_dt(end)
+    if e <= s or (e - s) > timedelta(days=400):
+        raise HTTPException(400, "Некорректный диапазон")
+    people = [p for p in db.list_people()]
+    return stats.build(events.events(s, e), people, s, e)
+
+
+@app.get("/api/backup")
+def get_backup():
+    return backup.status()
+
+
+@app.post("/api/backup")
+def run_backup():
+    return backup.run()
+
+
+@app.get("/api/system")
+def get_system():
+    """Всё, что нужно для страницы «Состояние»: версии, синхронизация, облако, копии, ошибки клиентов."""
+    now = datetime.now(tz)
+    sources = db.sync_status()
+    cl, bk = cloud.status(), backup.status()
+    problems: list[str] = []
+    for s in sources:
+        if s.get("last_error"):
+            problems.append(f"Синхронизация {s['source_id']}: {s['last_error']}")
+        elif s.get("last_ok"):
+            age = now - datetime.fromisoformat(s["last_ok"]).astimezone(tz)
+            if age > timedelta(minutes=max(30, settings.sync.interval_minutes * 4)):
+                problems.append(f"Календарь {s['source_id']} давно не обновлялся ({int(age.total_seconds() // 60)} мин)")
+    if cl["configured"]:
+        if cl.get("last_error"):
+            problems.append("Облако: " + cl["last_error"])
+        if cl.get("ops_error"):
+            problems.append("Команды с телефона: " + cl["ops_error"])
+        if bk.get("last_error"):
+            problems.append("Резервная копия: " + bk["last_error"])
+        elif bk.get("last_ok") and now - datetime.fromisoformat(bk["last_ok"]).astimezone(tz) > timedelta(days=3):
+            problems.append("Резервной копии не было больше 3 суток")
+    jobs = {j.id: j.next_run_time.isoformat(timespec="seconds") for j in scheduler.get_jobs() if j.next_run_time}
+    count = lambda sql: (db.query(sql) or [{"n": 0}])[0]["n"]  # noqa: E731
+    try:
+        db_size = os.path.getsize(db.path)
+    except OSError:
+        db_size = None
+    return {
+        "version": __version__, "started": STARTED.isoformat(timespec="seconds"), "now": now.isoformat(timespec="seconds"),
+        "db_size": db_size,
+        "counts": {"people": count("SELECT COUNT(*) n FROM people"), "calendars": count("SELECT COUNT(*) n FROM calendars"),
+                   "objects": count("SELECT COUNT(*) n FROM objects"), "birthdays": count("SELECT COUNT(*) n FROM birthdays")},
+        "sources": sources, "sync_interval": settings.sync.interval_minutes, "syncing": engine.running,
+        "cloud": {k: cl[k] for k in ("configured", "last_ok", "last_error", "ops_error")},
+        "backup": bk, "jobs": jobs, "client_errors": len(CLIENT_LOG),
+        "last_client_error": CLIENT_LOG[-1] if CLIENT_LOG else None, "problems": problems,
+    }
 
 
 @app.get("/api/status")

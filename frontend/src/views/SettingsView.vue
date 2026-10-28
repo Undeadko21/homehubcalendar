@@ -164,7 +164,18 @@
 
     <!-- Дни рождения -->
     <template v-if="page === 'birthdays'">
+    <h3 class="group-title">Дни рождения</h3>
     <BirthdaysEditor />
+    <h3 class="group-title">Школьные каникулы</h3>
+    <SchoolBreaks />
+    </template>
+
+    <template v-if="page === 'stats'">
+    <StatsPanel />
+    </template>
+
+    <template v-if="page === 'system'">
+    <SystemPanel />
     </template>
 
     <!-- Приложение и экраны -->
@@ -288,6 +299,9 @@ import TemplatesEditor from '../components/TemplatesEditor.vue'
 import BirthdaysEditor from '../components/BirthdaysEditor.vue'
 import RemindersSettings from '../components/RemindersSettings.vue'
 import CloudSettings from '../components/CloudSettings.vue'
+import SchoolBreaks from '../components/SchoolBreaks.vue'
+import StatsPanel from '../components/StatsPanel.vue'
+import SystemPanel from '../components/SystemPanel.vue'
 
 // Системные цвета Apple
 const PALETTE = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#a2845e']
@@ -312,17 +326,24 @@ const menu = computed(() => {
       icon: ico('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 14.8c2 .6 3.2 2.3 3.5 5.2"/>') },
     { id: 'trips', title: 'Поездки детей', color: '#ff9500', sub: kids ? `детей: ${kids} · дорога, шаблоны` : 'дорога, шаблоны, «дома»',
       icon: ico('<path d="M5 16V9l2-4h10l2 4v7M3 16h18v3H3zM7.5 12.5h.01M16.5 12.5h.01"/>') },
-    { id: 'birthdays', title: 'Дни рождения', color: '#ff2d55', sub: 'даты и напоминания',
+    { id: 'birthdays', title: 'Дни рождения и каникулы', color: '#ff2d55', sub: 'даты, напоминания, школьные каникулы',
       icon: ico('<path d="M4 20h16v-7H4zM12 13V8M12 8c-1.2 0-1.5-1.3-.8-2.2L12 4l.8 1.8c.7.9.4 2.2-.8 2.2zM4 16c2 1.500 3.500 1.500 5.500 0s3.500-1.500 5.500 0 3 1 5 0"/>') },
     { id: 'connect', title: 'Подключение', color: '#34c759', warn: bad,
       sub: bad ? 'есть ошибка синхронизации' : (srcs.find((s) => s.last_ok) ? 'обновлено ' + fmt(srcs.find((s) => s.last_ok).last_ok) : 'Яндекс, синхронизация, облако'),
       icon: ico('<path d="M20 12a8 8 0 01-14 5.300M4 12a8 8 0 0114-5.300"/><path d="M18 3v4h-4M6 21v-4h4"/>') },
+    { id: 'stats', title: 'Итоги семьи', color: '#00c7be', sub: 'встречи, часы и поездки по людям',
+      icon: ico('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>') },
+    { id: 'system', title: 'Состояние и копии', color: '#8e8e93', warn: sysProblems.value > 0,
+      sub: sysProblems.value ? `проблем: ${sysProblems.value}` : 'синхронизация, облако, резервные копии',
+      icon: ico('<path d="M3 12h4l3-8 4 16 3-8h4"/>') },
     { id: 'app', title: 'Приложение и экраны', color: '#5856d6', sub: inApp ? 'версия ' + appVersionInstalled : 'Android, виджет, экран на стене',
       icon: ico('<rect x="7" y="2.500" width="10" height="19" rx="2"/><path d="M11 18.500h2"/>') },
   ]
 })
 const current = computed(() => menu.value.find((m) => m.id === page.value))
 const newName = ref('')
+const sysProblems = ref(0)
+api.system().then((r) => { sysProblems.value = r.problems.length }).catch(() => {})
 const sources = computed(() => state.status?.sources || [])
 const editPeople = ref([])
 const editCals = ref([])

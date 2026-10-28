@@ -4,6 +4,8 @@
     <span class="desc">
       {{ w.text }}<br />
       <span class="faint">{{ w.min }}…{{ w.max }}°<template v-if="w.rain >= 30">, дождь {{ w.rain }}%</template></span>
+      <template v-if="w.hint"><br /><span class="hint">{{ w.hint }}</span></template>
+      <template v-if="w.next"><br /><span class="faint">Завтра: {{ w.next.min }}…{{ w.next.max }}°<template v-if="w.next.rain >= 30">, дождь {{ w.next.rain }}%</template></span></template>
     </span>
   </div>
 </template>
@@ -29,13 +31,24 @@ async function load() {
   if (latitude == null || longitude == null) return
   try {
     const q = new URLSearchParams({
-      latitude, longitude, timezone: 'auto', forecast_days: 1,
+      latitude, longitude, timezone: 'auto', forecast_days: 2,
       current: 'temperature_2m,weather_code',
       daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max',
     })
     const r = await fetch('https://api.open-meteo.com/v1/forecast?' + q)
     const d = await r.json()
+    const rain = d.daily.precipitation_probability_max?.[0] ?? 0
+    const t = Math.round(d.current.temperature_2m)
+    const min = Math.round(d.daily.temperature_2m_min[0])
+    const code = d.current.weather_code
+    const snowy = [71, 73, 75, 77, 85, 86].includes(code)
+    const hint = rain >= 50 ? (snowy || min <= 0 ? 'Возможен снег — тёплая обувь' : 'Возьмите зонт')
+      : t <= -15 ? 'Очень холодно — потеплее' : t >= 28 ? 'Жарко — вода и кепка' : ''
     w.value = {
+      hint,
+      next: d.daily.temperature_2m_max.length > 1 ? {
+        min: Math.round(d.daily.temperature_2m_min[1]), max: Math.round(d.daily.temperature_2m_max[1]),
+        rain: d.daily.precipitation_probability_max?.[1] ?? 0 } : null,
       t: Math.round(d.current.temperature_2m),
       text: CODES[d.current.weather_code] || '',
       min: Math.round(d.daily.temperature_2m_min[0]),
@@ -54,4 +67,5 @@ onUnmounted(() => clearInterval(t))
 .weather { display: flex; align-items: center; gap: 12px; }
 .temp { font-size: 48px; font-weight: 300; letter-spacing: -0.03em; line-height: 1; }
 .desc { font-size: 15px; line-height: 1.35; }
+.hint { font-weight: 600; }
 </style>

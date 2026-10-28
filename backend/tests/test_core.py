@@ -659,3 +659,76 @@ def test_bad_cloud_token_is_rejected(tmp_path):
             raise AssertionError("принят: " + bad)
         except CloudError:
             pass
+
+
+def test_backup_roundtrip_and_rotation(tmp_path):
+    import sqlite3
+    from app import backup as bk
+    from app.cloud import CloudSync
+
+    db = Database(tmp_path / "t.sqlite3")
+    db.kv_set("marker", {"x": 1})
+
+    class FakeDisk:
+        files: dict = {}
+
+        def __init__(self, token):
+            pass
+
+        def mkdir(self, p):
+            pass
+
+        def upload(self, data, path):
+            FakeDisk.files[path.rsplit("/", 1)[1]] = data
+
+        def ls(self, p):
+            return [{"name": n} for n in FakeDisk.files]
+
+        def rm(self, path):
+            FakeDisk.files.pop(path.rsplit("/", 1)[1], None)
+
+    c = CloudSync(db, lambda: {}, FakeDisk)
+    c.set_token("y0_testtoken_0123456789abcdef")
+    svc = bk.BackupService(db, c, TZ, FakeDisk)
+    assert svc.run()["last_error"] is None
+    (name, blob), = FakeDisk.files.items()
+    out = tmp_path / "restored.db"
+    out.write_bytes(bk.unseal(c.key(), blob))
+    assert sqlite3.connect(out).execute("SELECT value FROM kv WHERE key='marker'").fetchone()[0] == '{"x": 1}'
+    # старые копии удаляются
+    for i in range(20):
+        FakeDisk.files[f"homehub-2020010{i:02d}-0330{bk.SUFFIX}"] = b"x"
+    svc.run()
+    assert len(FakeDisk.files) <= bk.KEEP
+
+
+def test_school_breaks_merge_with_holidays(db):
+    from datetime import date
+    from app import school
+    school.save(db, [{"name": "Осенние каникулы", "from": "2026-10-26", "to": "2026-11-03"}, {"name": "x", "from": "bad", "to": "2026-01-01"}])
+    assert len(school.load(db)) == 1
+    h = HolidayService(db, {"provider": "fixed"})
+    out = {d["date"]: d for d in school.merge(db, h.between(date(2026, 10, 25), date(2026, 11, 6)), date(2026, 10, 25), date(2026, 11, 6))}
+    assert out["2026-10-27"]["type"] == "vacation"
+    assert out["2026-11-04"]["type"] == "holiday" and "vacation" not in out["2026-11-04"]
+    assert out["2026-11-03"]["vacation"] == "Осенние каникулы"
+    assert "2026-10-25" not in out or out["2026-10-25"].get("vacation") is None
+
+
+def test_stats_counts_events_and_trips():
+    from app import stats
+    people = [{"id": "a", "name": "Оля", "color": "#f00"}, {"id": "b", "name": "Толя", "color": "#00f"}]
+    evs = [
+        {"id": "1", "title": "Йога", "start": "2026-10-26T19:00:00+05:00", "end": "2026-10-26T20:00:00+05:00", "all_day": False, "people": ["a"]},
+        {"id": "2", "title": "Йога", "start": "2026-10-28T19:00:00+05:00", "end": "2026-10-28T20:30:00+05:00", "all_day": False, "people": ["a", "b"]},
+        {"id": "2:dropoff", "title": "Отвезти", "start": "2026-10-28T18:00:00+05:00", "end": "2026-10-28T19:00:00+05:00",
+         "all_day": False, "people": ["b"], "duty": {"role": "dropoff", "parent": {"id": "2"}}},
+        {"id": "3", "title": "Праздник", "start": "2026-10-27", "end": "2026-10-28", "all_day": True, "people": ["a"]},
+    ]
+    r = stats.build(evs, people, datetime(2026, 10, 1, tzinfo=TZ), datetime(2026, 11, 1, tzinfo=TZ))
+    assert r["events"] == 2 and r["hours"] == 2.5 and r["trips"] == 1
+    a, b = r["people"][0], r["people"][1]
+    assert (a["name"], a["events"], a["minutes"]) == ("Оля", 2, 150)
+    assert b["events"] == 1 and b["dropoff"] == 1
+    assert r["top_titles"] == [{"title": "Йога", "count": 2}]
+    assert r["busiest_day"]["events"] == 1

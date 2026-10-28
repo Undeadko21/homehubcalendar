@@ -54,5 +54,10 @@ export const api = {
   cloud: () => request('GET', '/api/cloud'),
   saveCloud: (token) => request('PUT', '/api/cloud', { token }),
   pushCloud: () => request('POST', '/api/cloud/push'),
+  school: () => request('GET', '/api/school'),
+  saveSchool: (breaks) => request('PUT', '/api/school', { breaks }),
+  stats: (start, end) => request('GET', `/api/stats?${q({ start, end })}`),
+  system: () => request('GET', '/api/system'),
+  runBackup: () => request('POST', '/api/backup'),
   patchCalendar: (key, patch) => request('PATCH', `/api/calendars/${key}`, patch),
 }

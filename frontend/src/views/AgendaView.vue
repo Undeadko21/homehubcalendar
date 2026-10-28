@@ -52,7 +52,7 @@ const groups = computed(() => {
     const d = addDays(start.value, i)
     const evs = events.value.filter((e) => overlaps(e, d, addDays(d, 1)))
     const holiday = holidayMap.value[isoDate(d)]
-    if (!evs.length && !holiday) continue
+    if (!evs.length && (!holiday || holiday.type === 'vacation')) continue
     const weekend = d.getDay() === 0 || d.getDay() === 6
     const diff = Math.round((d - startOfDay(now)) / 86400000)
     const rel = diff === 0 ? 'Сегодня — ' : diff === 1 ? 'Завтра — ' : ''
