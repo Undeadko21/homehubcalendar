@@ -193,7 +193,7 @@ def answer_next(snap, person, now, whose, whose_gen):
             continue
         s = _dt(e["start"])
         if s <= now:
-            return _ans(f"{_cap(whose)} сейчас идёт: {e['title']}, до {_dt(e['end']):%H:%M}.")
+            return _ans(f"Сейчас {whose}: {e['title']}, до {_dt(e['end']):%H:%M}.")
         text, tts = when_text(s, now)
         return _ans(f"Следующая встреча {whose_gen}: {e['title']}, {text}.", f"Следующая встреча {whose_gen}: {e['title']}, {tts}.")
     return _ans(f"{_cap(whose_gen)} ближайшие дни встреч нет.")
@@ -202,7 +202,7 @@ def answer_next(snap, person, now, whose, whose_gen):
 def answer_now(snap, person, now, whose, whose_gen):
     for e in _events_of(snap, person["id"]):
         if not e.get("all_day") and _dt(e["start"]) <= now < _dt(e["end"]):
-            return _ans(f"{_cap(whose_gen)} сейчас: {e['title']}, до {_dt(e['end']):%H:%M}.")
+            return _ans(f"Сейчас {whose_gen}: {e['title']}, до {_dt(e['end']):%H:%M}.")
     return answer_next(snap, person, now, whose, whose_gen)
 
 
