@@ -43,6 +43,7 @@
               <button v-for="v in VIEWS" :key="v.id" role="tab" :aria-selected="state.view === v.id"
                       :class="{ on: state.view === v.id }" @click="setView(v.id)">{{ v.label }}</button>
             </div>
+            <button v-if="writableCalendars().length" class="btn icon add-btn" aria-label="Новое событие" @click="newEvent()">+</button>
             <button class="btn icon search-btn" aria-label="Поиск" @click="setView('search')"><IconSearch /></button>
             <span class="m-sync" :title="syncTitle"><span :class="['sync-dot', syncState]"></span></span>
           </div>
@@ -93,15 +94,17 @@
         <PeopleList />
       </Sheet>
       <EventDialog />
+      <EventEditor />
     </template>
   </div>
 </template>
 
 <script setup>
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
-import { state, loadConfig, setView, refreshStatus, syncNow, reload, CAL_VIEWS, weekDays } from './lib/store'
+import { state, newEvent, writableCalendars, loadConfig, setView, refreshStatus, syncNow, reload, CAL_VIEWS, weekDays } from './lib/store'
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
 import EventDialog from './components/EventDialog.vue'
+import EventEditor from './components/EventEditor.vue'
 import LoginScreen from './components/LoginScreen.vue'
 import MiniMonth from './components/MiniMonth.vue'
 import PeopleList from './components/PeopleList.vue'

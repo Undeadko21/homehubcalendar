@@ -3,6 +3,7 @@
     <div v-if="e" class="ev" :style="{ '--c': color }">
       <div class="head">
         <h2>{{ e.title }}</h2>
+        <button v-if="canEdit" class="btn" @click="edit">Изменить</button>
         <button class="btn close" @click="close">Готово</button>
       </div>
       <p class="when">
@@ -144,7 +145,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { state, personById, eventColor, reload, refreshSelected } from '../lib/store'
+import { state, personById, eventColor, reload, refreshSelected, editEvent, writableCalendars } from '../lib/store'
 import { eventRange, formatEventTime, formatTime, relativeDayName } from '../lib/dates'
 import { api } from '../lib/api'
 import PeoplePicker from './PeoplePicker.vue'
@@ -257,6 +258,10 @@ function resetMode() {
   const sc = e.value.escort.mode_scope || 'series'
   return run(() => api.setEscort(e.value.uid, sc === 'once' ? e.value.start : null, 'mode', null))
 }
+
+const canEdit = computed(() => !!e.value && !e.value.private && !e.value.duty && !e.value.birthday &&
+  (e.value.calendars || []).some((k) => writableCalendars().some((c) => c.key === k)))
+function edit() { const ev = e.value; state.selected = null; editEvent(ev) }
 
 function close() { state.selected = null }
 </script>

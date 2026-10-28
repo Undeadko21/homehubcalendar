@@ -31,6 +31,10 @@ export const api = {
   savePerson: (p) => request('PUT', `/api/people/${encodeURIComponent(p.id)}`, p),
   deletePerson: (id) => request('DELETE', `/api/people/${encodeURIComponent(id)}`),
   saveAccount: (id, username, password) => request('PUT', `/api/accounts/${encodeURIComponent(id)}`, { username, password }),
+  createEvent: (b) => request('POST', '/api/event', b),
+  updateEvent: (uid, b) => request('PUT', `/api/event/${encodeURIComponent(uid)}`, b),
+  deleteEvent: (uid, calendar, occurrence) =>
+    request('DELETE', `/api/event/${encodeURIComponent(uid)}?${q(occurrence ? { calendar, occurrence } : { calendar })}`),
   setEventPeople: (uid, people) => request('POST', '/api/event-people', { uid, people }),
   setEscort: (uid, occurrence, role, person) => request('POST', '/api/escort', { uid, occurrence, role, person }),
   saveEscortSettings: (s) => request('PUT', '/api/settings/escort', s),

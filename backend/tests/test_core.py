@@ -732,3 +732,98 @@ def test_stats_counts_events_and_trips():
     assert b["events"] == 1 and b["dropoff"] == 1
     assert r["top_titles"] == [{"title": "Йога", "count": 2}]
     assert r["busiest_day"]["events"] == 1
+
+
+# ---------- запись событий ----------
+def _occ(ics, a="2026-11-01", b="2027-03-01"):
+    return expand_ics(ics, datetime.fromisoformat(a).replace(tzinfo=TZ), datetime.fromisoformat(b).replace(tzinfo=TZ), TZ)
+
+
+def test_writer_build_edit_exdate_roundtrip():
+    from app import writer
+
+    uid, ics = writer.build_ics("Йога", datetime(2026, 11, 2, 18, 0), datetime(2026, 11, 2, 19, 0), False, TZ,
+                                location="Зал", repeat={"freq": "weekly", "count": 4})
+    occ = _occ(ics)
+    assert len(occ) == 4 and occ[0].start == "2026-11-02T18:00:00+05:00" and occ[0].title == "Йога"
+
+    ics2 = writer.apply_edit(ics, {"title": "Йога+", "start": datetime(2026, 11, 2, 19, 0),
+                                   "end": datetime(2026, 11, 2, 20, 0), "all_day": False, "location": ""}, TZ)
+    occ = _occ(ics2)
+    assert len(occ) == 4 and occ[0].title == "Йога+" and occ[0].start == "2026-11-02T19:00:00+05:00"
+    assert "SEQUENCE:1" in ics2
+
+    ics3 = writer.add_exdate(ics2, datetime(2026, 11, 9, 19, 0), TZ)
+    assert len(_occ(ics3)) == 3
+    # убрали повтор — одно событие
+    ics4 = writer.apply_edit(ics3, {"repeat": None}, TZ)
+    assert len(_occ(ics4)) == 1
+    # не повторяющееся: exdate = удалить объект целиком
+    _, single = writer.build_ics("Раз", datetime(2026, 11, 3, 10), None, False, TZ)
+    assert writer.add_exdate(single, datetime(2026, 11, 3, 10), TZ) is None
+
+
+def test_writer_all_day_and_validation():
+    from app import writer
+
+    _, ics = writer.build_ics("Каникулы", datetime(2026, 11, 5), datetime(2026, 11, 5), True, TZ)
+    assert "DTSTART;VALUE=DATE:20261105" in ics and "DTEND;VALUE=DATE:20261106" in ics
+    with pytest.raises(writer.WriteError):
+        writer.build_ics(" ", datetime(2026, 11, 5), None, False, TZ)
+    with pytest.raises(writer.WriteError):
+        writer.build_ics("X", datetime(2026, 11, 5, 10), datetime(2026, 11, 5, 9), False, TZ)
+
+
+def test_event_write_api_with_fake_target(tmp_path, monkeypatch):
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("timezone: Asia/Yekaterinburg\nsources:\n  - id: ya\n    type: caldav\n    url: http://x\n"
+                   "    username: u\n    password: p\npeople:\n  - id: anna\n    name: Анна\n")
+    monkeypatch.setenv("HOMECAL_CONFIG", str(cfg))
+    monkeypatch.setenv("HOMECAL_DATA_DIR", str(tmp_path))
+    import importlib
+
+    from fastapi.testclient import TestClient
+
+    from app import main
+    importlib.reload(main)
+
+    class Fake:
+        def __init__(self): self.store = {}
+        def create(self, rid, ics): self.store["/e1.ics"] = ics; return "/e1.ics"
+        def update(self, rid, href, ics): self.store[href] = ics
+        def delete(self, rid, href): del self.store[href]
+
+    fake = Fake()
+    monkeypatch.setattr(main, "make_target", lambda key: fake)
+    main.db.touch_calendar("ya/home", "ya", "home", "Дом", {"people": ["anna"]})
+    c = TestClient(main.app)
+    r = c.post("/api/event", json={"calendar": "ya/home", "title": "Врач", "start": "2026-11-03T10:00:00",
+                                   "end": "2026-11-03T11:00:00", "people": ["anna"]})
+    assert r.status_code == 200, r.text
+    uid = r.json()["uid"]
+    assert "SUMMARY:Врач" in fake.store["/e1.ics"]
+    evs = c.get("/api/events", params={"start": "2026-11-01T00:00:00", "end": "2026-11-10T00:00:00"}).json()
+    assert [e["title"] for e in evs] == ["Врач"]
+
+    assert c.put(f"/api/event/{uid}", json={"calendar": "ya/home", "title": "Врач 2"}).status_code == 200
+    assert "SUMMARY:Врач 2" in fake.store["/e1.ics"]
+    assert c.put("/api/event/nope", json={"calendar": "ya/home"}).status_code == 404
+
+    assert c.delete(f"/api/event/{uid}", params={"calendar": "ya/home"}).status_code == 200
+    assert fake.store == {}
+    assert c.get("/api/events", params={"start": "2026-11-01T00:00:00", "end": "2026-11-10T00:00:00"}).json() == []
+    cal = [x for x in c.get("/api/config").json()["calendars"] if x["key"] == "ya/home"][0]
+    assert cal["writable"] is True
+
+
+def test_writer_edit_occurrence_shifts_series():
+    from app import writer
+
+    _, ics = writer.build_ics("Йога", datetime(2026, 11, 2, 18), datetime(2026, 11, 2, 19), False, TZ,
+                              repeat={"freq": "weekly", "count": 3})
+    # правим вторую неделю: перенос на 19:00–20:30 — вся серия сдвигается
+    new = writer.apply_edit(ics, {"start": datetime(2026, 11, 9, 19), "end": datetime(2026, 11, 9, 20, 30),
+                                  "all_day": False, "occurrence": datetime(2026, 11, 9, 18)}, TZ)
+    occ = _occ(new)
+    assert [o.start for o in occ][0] == "2026-11-02T19:00:00+05:00" and occ[0].end == "2026-11-02T20:30:00+05:00"
+    assert len(occ) == 3

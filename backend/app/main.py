@@ -21,7 +21,7 @@ from .config import load_settings
 from .db import Database
 from .events import UNASSIGNED, EventService
 from .freetime import find_free
-from . import birthdays as bd, ops, reminders, school, snapshot, stats, widget
+from . import birthdays as bd, ops, reminders, school, snapshot, stats, widget, writer
 from .backup import BackupService
 from .cloud import CloudError, CloudSync
 from .holidays import HolidayService
@@ -119,6 +119,42 @@ def health():
     return {"ok": True, "version": __version__}
 
 
+def _source_cfg(cal_key: str) -> dict | None:
+    sid = cal_key.split("/", 1)[0]
+    for s in settings.sources:
+        if s.get("id") == sid:
+            return s
+    return None
+
+
+def _writable(cal_key: str) -> bool:
+    s = _source_cfg(cal_key)
+    return bool(s and s.get("type") == "caldav" and s.get("write", True) is not False)
+
+
+def make_target(cal_key: str):
+    """Цель записи для календаря; в тестах подменяется."""
+    s = _source_cfg(cal_key)
+    if not s or not _writable(cal_key):
+        raise HTTPException(400, "В этот календарь запись невозможна (он только для чтения)")
+    eff = engine.effective_config(s)
+    if not (eff.get("username") and eff.get("password")):
+        raise HTTPException(400, "Не указаны логин и пароль — Настройки → Учётные записи")
+    return writer.CalDavTarget(eff["url"], eff["username"], eff["password"])
+
+
+def _remote_id(cal_key: str) -> str:
+    return cal_key.split("/", 1)[1]
+
+
+def _after_write() -> None:
+    events.invalidate()
+    try:
+        cloud.tick(force=True)
+    except Exception:  # noqa: BLE001
+        log.exception("Облако после записи")
+
+
 @app.get("/api/config")
 def get_config():
     people = db.list_people()
@@ -132,7 +168,7 @@ def get_config():
         "timezone": settings.timezone,
         "version": __version__,
         "people": people,
-        "calendars": cals,
+        "calendars": [{**c, "writable": _writable(c["key"])} for c in cals],
         "weather": settings.weather,
         "pin_enabled": bool(settings.pin),
         "accounts": engine.accounts(),
@@ -321,6 +357,129 @@ def set_event_people(body: EventPeople):
             raise HTTPException(400, f"Неизвестные люди: {', '.join(unknown)}")
     db.set_event_people(body.uid, body.people)
     events.invalidate()
+    return {"ok": True}
+
+
+class RepeatIn(BaseModel):
+    freq: str | None = None  # daily | weekly | monthly | yearly
+    interval: int = 1
+    count: int | None = None
+    until: str | None = None
+
+
+class EventIn(BaseModel):
+    calendar: str
+    title: str
+    start: str
+    end: str | None = None
+    all_day: bool = False
+    location: str = ""
+    description: str = ""
+    repeat: RepeatIn | None = None
+    people: list[str] | None = None
+
+
+class EventEdit(BaseModel):
+    calendar: str
+    title: str | None = None
+    start: str | None = None
+    end: str | None = None
+    all_day: bool = False
+    location: str | None = None
+    description: str | None = None
+    repeat: RepeatIn | None = None
+    repeat_set: bool = False  # True — применить repeat (в т.ч. убрать повтор)
+    people: list[str] | None = None
+    people_set: bool = False
+    occurrence: str | None = None  # начало редактируемого вхождения (для серий)
+
+
+def _check_people(people):
+    known = {p["id"] for p in db.list_people()}
+    bad = [p for p in people or [] if p not in known]
+    if bad:
+        raise HTTPException(400, f"Неизвестные люди: {', '.join(bad)}")
+
+
+@app.post("/api/event")
+def create_event(body: EventIn):
+    target = make_target(body.calendar)
+    _check_people(body.people)
+    try:
+        uid, ics = writer.build_ics(
+            body.title, _parse_dt(body.start), _parse_dt(body.end) if body.end else None, body.all_day, tz,
+            body.location, body.description, body.repeat.model_dump() if body.repeat else None)
+        href = target.create(_remote_id(body.calendar), ics)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.exception("Создание события")
+        raise HTTPException(400, writer.friendly(e))
+    db.put_object(body.calendar, href, ics)
+    if body.people is not None:
+        db.set_event_people(uid, body.people)
+    _after_write()
+    return {"ok": True, "uid": uid}
+
+
+@app.put("/api/event/{uid}")
+def update_event(uid: str, body: EventEdit):
+    found = db.find_object(uid, body.calendar)
+    if not found:
+        raise HTTPException(404, "Событие не найдено (возможно, оно удалено)")
+    cal_key, href, ics = found
+    target = make_target(cal_key)
+    _check_people(body.people)
+    fields: dict = {}
+    if body.title is not None:
+        fields["title"] = body.title
+    if body.start is not None:
+        fields.update(start=_parse_dt(body.start), end=_parse_dt(body.end) if body.end else None,
+                      all_day=body.all_day, occurrence=_parse_dt(body.occurrence) if body.occurrence else None)
+    if body.location is not None:
+        fields["location"] = body.location
+    if body.description is not None:
+        fields["description"] = body.description
+    if body.repeat_set:
+        fields["repeat"] = body.repeat.model_dump() if body.repeat else None
+    try:
+        new_ics = writer.apply_edit(ics, fields, tz)
+        target.update(_remote_id(cal_key), href, new_ics)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.exception("Правка события")
+        raise HTTPException(400, writer.friendly(e))
+    db.put_object(cal_key, href, new_ics)
+    if body.people_set:
+        db.set_event_people(uid, body.people)
+    _after_write()
+    return {"ok": True}
+
+
+@app.delete("/api/event/{uid}")
+def delete_event(uid: str, calendar: str, occurrence: str | None = None):
+    """occurrence — время начала вхождения: убрать только его (для серий); иначе удаляется всё событие."""
+    found = db.find_object(uid, calendar)
+    if not found:
+        raise HTTPException(404, "Событие не найдено (возможно, оно удалено)")
+    cal_key, href, ics = found
+    target = make_target(cal_key)
+    try:
+        new_ics = writer.add_exdate(ics, _parse_dt(occurrence), tz) if occurrence else None
+        if new_ics:
+            target.update(_remote_id(cal_key), href, new_ics)
+            db.put_object(cal_key, href, new_ics)
+        else:
+            target.delete(_remote_id(cal_key), href)
+            db.delete_object(cal_key, href)
+            db.set_event_people(uid, None)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.exception("Удаление события")
+        raise HTTPException(400, writer.friendly(e))
+    _after_write()
     return {"ok": True}
 
 

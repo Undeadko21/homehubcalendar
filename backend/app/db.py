@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -380,6 +381,28 @@ class Database:
                 "INSERT INTO objects (calendar_key, href, ics) VALUES (?,?,?)",
                 [(calendar_key, href, ics) for href, ics in objects.items()],
             )
+
+    def put_object(self, calendar_key: str, href: str, ics: str) -> None:
+        with self.tx() as c:
+            c.execute("INSERT INTO objects (calendar_key, href, ics) VALUES (?,?,?) "
+                      "ON CONFLICT(calendar_key, href) DO UPDATE SET ics=excluded.ics",
+                      (calendar_key, href, ics))
+
+    def delete_object(self, calendar_key: str, href: str) -> None:
+        with self.tx() as c:
+            c.execute("DELETE FROM objects WHERE calendar_key=? AND href=?", (calendar_key, href))
+
+    def find_object(self, uid: str, calendar_key: str | None = None) -> tuple[str, str, str] | None:
+        """(calendar_key, href, ics) объекта с таким UID."""
+        sql = "SELECT calendar_key, href, ics FROM objects WHERE ics LIKE ?"
+        params: list = [f"%UID:{uid}%"]
+        if calendar_key:
+            sql += " AND calendar_key=?"
+            params.append(calendar_key)
+        for r in self.query(sql, tuple(params)):
+            if re.search(rf"^UID:{re.escape(uid)}\s*$", r["ics"], re.M):
+                return r["calendar_key"], r["href"], r["ics"]
+        return None
 
     def objects_for(self, calendar_key: str) -> list[str]:
         return [r["ics"] for r in self.query("SELECT ics FROM objects WHERE calendar_key=?", (calendar_key,))]

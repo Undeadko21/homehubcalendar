@@ -30,6 +30,7 @@ export const state = reactive({
   selected: null, // открытое в карточке событие
   timelineDays: prefs.timelineDays || 7,
   calView: prefs.calView || 'timeline', // последний календарный вид (вкладка «Календарь» на телефоне)
+  editor: null, // { event } — правка, {} — новое событие
   peopleSheet: false, // лист «Люди» на телефоне
 })
 
@@ -40,6 +41,11 @@ const mq = typeof matchMedia === 'function' ? matchMedia('(max-width: 599px)') :
 export const screen = reactive({ narrow: !!mq?.matches })
 mq?.addEventListener?.('change', (e) => { screen.narrow = e.matches })
 export const weekDays = () => (screen.narrow ? 3 : 7)
+
+export const writableCalendars = () => (state.config?.calendars || []).filter((c) => c.writable && !c.hidden)
+
+export function newEvent(date) { state.editor = { date: date || state.cursor } }
+export function editEvent(e) { state.editor = { event: e } }
 
 export function openEvent(e) {
   // Поездка («Отвезти Марка…») открывает карточку исходного события ребёнка.
