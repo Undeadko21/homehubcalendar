@@ -170,6 +170,11 @@
     <SchoolBreaks />
     </template>
 
+    <template v-if="page === 'reminders'">
+    <h3 class="group-title">Напоминать перед встречами</h3>
+    <EventReminders />
+    </template>
+
     <template v-if="page === 'stats'">
     <StatsPanel />
     </template>
@@ -332,6 +337,7 @@ import TemplatesEditor from '../components/TemplatesEditor.vue'
 import BirthdaysEditor from '../components/BirthdaysEditor.vue'
 import RemindersSettings from '../components/RemindersSettings.vue'
 import CloudSettings from '../components/CloudSettings.vue'
+import EventReminders from '../components/EventReminders.vue'
 import SchoolBreaks from '../components/SchoolBreaks.vue'
 import StatsPanel from '../components/StatsPanel.vue'
 import SystemPanel from '../components/SystemPanel.vue'
@@ -361,6 +367,8 @@ const menu = computed(() => {
       icon: ico('<path d="M5 16V9l2-4h10l2 4v7M3 16h18v3H3zM7.5 12.5h.01M16.5 12.5h.01"/>') },
     { id: 'birthdays', title: 'Дни рождения и каникулы', color: '#ff2d55', sub: 'даты, напоминания, школьные каникулы',
       icon: ico('<path d="M4 20h16v-7H4zM12 13V8M12 8c-1.2 0-1.5-1.3-.8-2.2L12 4l.8 1.8c.7.9.4 2.2-.8 2.2zM4 16c2 1.500 3.500 1.500 5.500 0s3.500-1.500 5.500 0 3 1 5 0"/>') },
+    { id: 'reminders', title: 'Напоминания о встречах', color: '#ff3b30', sub: 'за сколько минут — для каждого человека',
+      icon: ico('<path d="M6 16V11a6 6 0 0112 0v5l1.500 2h-15zM10 20a2 2 0 004 0"/>') },
     { id: 'connect', title: 'Подключение', color: '#34c759', warn: bad,
       sub: bad ? 'есть ошибка синхронизации' : (srcs.find((s) => s.last_ok) ? 'обновлено ' + fmt(srcs.find((s) => s.last_ok).last_ok) : 'Яндекс, синхронизация, облако'),
       icon: ico('<path d="M20 12a8 8 0 01-14 5.300M4 12a8 8 0 0114-5.300"/><path d="M18 3v4h-4M6 21v-4h4"/>') },

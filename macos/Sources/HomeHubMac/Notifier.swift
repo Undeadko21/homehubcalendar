@@ -32,6 +32,8 @@ enum Notifier {
                           let s = r.start.flatMap({ DateParse.parse($0) }) else { continue }
                     fire = s.addingTimeInterval(-Double(lead) * 60)
                 } else if let at = r.at {
+                    // Напоминания о встречах: время считает сервер по настройкам человека, здесь только «чьи».
+                    if r.kind == "event", tripPeople.isDisjoint(with: r.people ?? []) { continue }
                     fire = DateParse.parse(at)
                 }
                 if let f = fire, f > now { items.append((f, r)) }

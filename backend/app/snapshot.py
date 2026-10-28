@@ -37,7 +37,8 @@ def build(events: EventService, db: Database, tz: ZoneInfo, now: datetime | None
         "generated": now.isoformat(timespec="seconds"),
         "widget": widget.build(wid_events, people, tz, now, 3, None, soon),
         # lead=None: «за сколько минут» и «чьи поездки» выбирает каждый телефон сам
-        "reminders": reminders.build(evs, db.birthdays(), now, tz, None, None, HORIZON_DAYS),
+        "reminders": reminders.build(evs, db.birthdays(), now, tz, None, None, HORIZON_DAYS,
+                                    reminders.load_rules(db)),
         # --- для офлайн-экрана и команд с телефона (этап 2) ---
         "people": [{k: p.get(k) for k in ("id", "name", "color", "emoji", "needs_escort", "keywords")} for p in people.values()],
         "events": [_compact(e) for e in evs],

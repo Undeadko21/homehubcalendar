@@ -827,3 +827,24 @@ def test_writer_edit_occurrence_shifts_series():
     occ = _occ(new)
     assert [o.start for o in occ][0] == "2026-11-02T19:00:00+05:00" and occ[0].end == "2026-11-02T20:30:00+05:00"
     assert len(occ) == 3
+
+
+def test_event_reminders_per_person(db):
+    from app import reminders
+
+    ics = ev("yoga@test", "Йога", "20261029T180000", "20261029T190000")
+    _setup(db, {"a": (["anna", "boris"], [ics])})
+    svc = EventService(db, TZ)
+    evs = svc.events(datetime(2026, 10, 29, 0, tzinfo=TZ), datetime(2026, 10, 30, 0, tzinfo=TZ))
+    assert reminders.save_rules(db, {"anna": [30, 10], "boris": [30], "ghost": [5]}, {"anna", "boris"}) == \
+        {"anna": [30, 10], "boris": [30]}
+    now = datetime(2026, 10, 29, 12, tzinfo=TZ)
+    items = reminders.build(evs, [], now, TZ, None, None, 2, reminders.load_rules(db))
+    ev_items = [i for i in items if i["kind"] == "event"]
+    by = {i["id"].rsplit(":", 1)[1]: i for i in ev_items}
+    assert set(by) == {"30", "10"}
+    assert sorted(by["30"]["people"]) == ["anna", "boris"] and by["10"]["people"] == ["anna"]
+    assert by["30"]["at"].startswith("2026-10-29T17:30") and by["30"]["title"] == "Йога — через 30 мин"
+    # фильтр по человеку (устройство Бориса)
+    only_b = reminders.build(evs, [], now, TZ, {"boris"}, None, 2, reminders.load_rules(db))
+    assert [i["id"].rsplit(":", 1)[1] for i in only_b if i["kind"] == "event"] == ["30"]

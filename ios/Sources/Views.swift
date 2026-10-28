@@ -172,7 +172,7 @@ struct SettingsSheet: View {
                     if model.notify {
                         Stepper("Поездки: за \(model.lead) мин", value: $model.lead, in: 5...120, step: 5)
                         ForEach(model.people) { p in
-                            Toggle("Поездки: \(label(p))", isOn: binding(for: p.id, in: \.tripPeople))
+                            Toggle("Напоминать: \(label(p))", isOn: binding(for: p.id, in: \.tripPeople))
                         }
                     }
                 }

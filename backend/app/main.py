@@ -209,6 +209,22 @@ def put_school(body: SchoolIn):
     return {"breaks": out}
 
 
+class EventRemindersIn(BaseModel):
+    people: dict[str, list[int]] = {}
+
+
+@app.get("/api/settings/event-reminders")
+def get_event_reminders():
+    return {"people": reminders.load_rules(db), "choices": list(reminders.LEAD_CHOICES)}
+
+
+@app.put("/api/settings/event-reminders")
+def put_event_reminders(body: EventRemindersIn):
+    out = reminders.save_rules(db, body.people, {p["id"] for p in db.list_people()})
+    cloud.tick(force=True)
+    return {"people": out, "choices": list(reminders.LEAD_CHOICES)}
+
+
 @app.get("/api/stats")
 def get_stats(start: str, end: str):
     s, e = _parse_dt(start), _parse_dt(end)
@@ -721,7 +737,8 @@ def get_reminders(hours: int = 36, lead: int = 30, people: str | None = None):
     start = _today_start()
     evs = events.events(start, start + timedelta(days=4))
     wanted = {p for p in (people or "").split(",") if p} or None
-    items = reminders.build(evs, db.birthdays(), now, tz, wanted, max(0, min(lead, 240)))
+    items = reminders.build(evs, db.birthdays(), now, tz, wanted, max(0, min(lead, 240)), 2,
+                            reminders.load_rules(db))
     lo, hi = now - timedelta(hours=3), now + timedelta(hours=max(1, min(hours, 72)))
     return {"now": now.isoformat(timespec="seconds"),
             "items": [r for r in items if lo <= datetime.fromisoformat(r["at"]) <= hi]}

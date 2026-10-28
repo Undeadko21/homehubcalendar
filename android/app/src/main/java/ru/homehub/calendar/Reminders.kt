@@ -99,7 +99,14 @@ object Reminders {
                     if (who == null || (0 until who.length()).none { who.getString(it) in wanted }) continue
                 }
                 parse(r.optString("start"))?.minus(prefs.notifyLead * 60_000L)
-            } else parse(r.optString("at"))
+            } else {
+                if (r.optString("kind") == "event" && wanted.isNotEmpty()) {
+                    // время считает сервер по настройкам человека; здесь только «чьи»
+                    val who = r.optJSONArray("people")
+                    if (who == null || (0 until who.length()).none { who.getString(it) in wanted }) continue
+                }
+                parse(r.optString("at"))
+            }
             if (at == null || now - at > 3 * 3_600_000L) continue  // давно прошло или не разобрали
             val title = r.optString("title")
             val text = r.optString("text")

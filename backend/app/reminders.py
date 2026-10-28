@@ -3,6 +3,8 @@
 Виды:
   duty   — «пора ехать»: за lead минут до начала окна поездки (только для выбранных людей);
   digest — вечером накануне: у событий детей на следующий день конфликт поездок или не назначен водитель;
+  event  — перед обычной встречей: у каждого человека свои интервалы (kv settings:event_reminders),
+           `people` — те, кому нужно именно это напоминание, `at` посчитан сервером;
   bday   — утром в день рождения и накануне вечером.
 Идентификатор стабилен, поэтому приложение не показывает одно и то же дважды.
 
@@ -15,10 +17,42 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from .birthdays import upcoming
+from .db import Database
+
+EVENT_KEY = "settings:event_reminders"
+LEAD_CHOICES = (5, 10, 15, 30, 45, 60, 120, 1440)
+
+
+def load_rules(db: Database) -> dict[str, list[int]]:
+    """{человек: [за сколько минут напомнить, ...]}"""
+    return (db.kv_get(EVENT_KEY)[0] or {}).get("people", {})
+
+
+def save_rules(db: Database, people: dict, known: set[str]) -> dict[str, list[int]]:
+    clean: dict[str, list[int]] = {}
+    for pid, leads in (people or {}).items():
+        if pid not in known:
+            continue
+        vals = sorted({int(x) for x in leads or [] if 1 <= int(x) <= 10080}, reverse=True)[:4]
+        if vals:
+            clean[pid] = vals
+    db.kv_set(EVENT_KEY, {"people": clean})
+    return clean
+
+
+def _lead_text(m: int) -> str:
+    if m % 1440 == 0:
+        d = m // 1440
+        return "завтра" if d == 1 else f"через {d} дн."
+    if m % 60 == 0:
+        h = m // 60
+        return "через 1 час" if h == 1 else f"через {h} ч"
+    return f"через {m} мин"
 
 
 def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: ZoneInfo,
-          people: set[str] | None, lead: int | None = 30, horizon_days: int = 2) -> list[dict]:
+          people: set[str] | None, lead: int | None = 30, horizon_days: int = 2,
+          event_rules: dict[str, list[int]] | None = None) -> list[dict]:
     now = now.astimezone(tz)
     today = now.date()
     out: list[dict] = []
@@ -43,6 +77,29 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
         if lead is not None:
             item["at"] = (start - timedelta(minutes=lead)).isoformat()
         out.append(item)
+
+    # Обычные встречи: у каждого человека свои интервалы.
+    if event_rules:
+        for e in events:
+            if e.get("duty") or e["all_day"] or e.get("private"):
+                continue
+            start = datetime.fromisoformat(e["start"])
+            by_lead: dict[int, list[str]] = {}
+            for pid in e["people"]:
+                for m in event_rules.get(pid, []):
+                    by_lead.setdefault(m, []).append(pid)
+            for m, who in by_lead.items():
+                if people is not None and not (set(who) & people):
+                    continue
+                at = start - timedelta(minutes=m)
+                if at < now - timedelta(hours=3) or start < now:
+                    continue
+                text = f"в {start.strftime('%H:%M')}"
+                if e.get("location"):
+                    text += f" · {e['location']}"
+                out.append({"id": f"event:{e['id']}:{e['start']}:{m}", "kind": "event", "at": at.isoformat(timespec="seconds"),
+                            "start": e["start"], "people": who,
+                            "title": f"{e['title']} — {_lead_text(m)}", "text": text})
 
     # Дайджест проблем с поездками: накануне в 20:00 для каждого из ближайших дней.
     for d in range(1, max(1, horizon_days) + 1):

@@ -8,16 +8,20 @@ import HomeHubCore
 struct MenuLabel: View {
     @ObservedObject var model: AppModel
     var body: some View {
-        if model.menuTitle.isEmpty {
-            Image(systemName: "calendar")
-        } else {
-            Text(model.menuTitle)
+        Group {
+            if model.menuTitle.isEmpty {
+                Image(systemName: "calendar")
+            } else {
+                Text(model.menuTitle)
+            }
         }
+        .task { await Updater.shared.loop(model) }
     }
 }
 
 struct MenuView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var updater = Updater.shared
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -30,6 +34,11 @@ struct MenuView: View {
                 ForEach(model.upcoming.prefix(6)) { item in
                     ItemRow(item: item, model: model)
                 }
+            }
+            if case .available(let info) = updater.state {
+                Button("Обновить приложение до сборки \(info.build)") { Task { await updater.install(info) } }
+            } else if case .installing = updater.state {
+                Text("Устанавливаю обновление…").font(.caption).foregroundStyle(.secondary)
             }
             Divider()
             HStack {
@@ -177,6 +186,7 @@ struct SettingsForm: View {
     @ObservedObject var model: AppModel
     let compact: Bool
     @State private var login = (SMAppService.mainApp.status == .enabled)
+    @ObservedObject private var updater = Updater.shared
 
     var body: some View {
         Form {
@@ -208,10 +218,25 @@ struct SettingsForm: View {
                     Toggle("Показывать уведомления", isOn: $model.notify)
                     if model.notify {
                         Stepper("Поездки: за \(model.lead) мин", value: $model.lead, in: 5...120, step: 5)
+                        Text("Поездки и встречи. За сколько минут напоминать о встречах, задаётся для каждого человека в настройках календаря.")
+                            .font(.caption).foregroundStyle(.secondary)
                         ForEach(model.people) { p in
-                            Toggle("Поездки: \(label(p))", isOn: binding(for: p.id, in: \.tripPeople))
+                            Toggle("Напоминать: \(label(p))", isOn: binding(for: p.id, in: \.tripPeople))
                         }
                     }
+                }
+                Section("Обновление приложения") {
+                    Text(updater.statusText).font(.caption)
+                        .foregroundStyle({ if case .failed = updater.state { return Color.red }; return Color.secondary }())
+                    Toggle("Обновлять автоматически", isOn: $updater.auto)
+                    HStack {
+                        Button("Проверить") { Task { await updater.check(model.serverBase) } }
+                        if case .available(let info) = updater.state {
+                            Button("Установить сборку \(info.build)") { Task { await updater.install(info) } }
+                        }
+                    }
+                    Text("Новые версии берутся с сервера дома: проверка при запуске и раз в 6 часов, приложение перезапустится само.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Система") {
                     Toggle("Запускать при входе в систему", isOn: Binding(get: { login }, set: { on in
