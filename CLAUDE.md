@@ -71,6 +71,12 @@
   Swift локально недоступен: собирает и тестирует GitHub Actions (`.github/workflows/macos.yml`, macos-14) и кладёт `macos/release/HomeHub-Calendar.zip` +
   `version.json` в main (`[skip ci]`); сервер раздаёт `/app-mac.zip`, `/api/app-mac` (`HOMECAL_MAC_DIR`). Версия — `macos/version.txt`. Ошибки CI смотреть:
   `gh api repos/Undeadko21/homehubcalendar/actions/jobs/<id>/logs`. Подпись ad-hoc (без аккаунта Apple): первый запуск через «Открыть».
+- **Приложение для iPhone** (`ios/`, SwiftUI, iOS 16+, ставится через AltStore бесплатным Apple ID): проект генерирует XcodeGen из `ios/project.yml` (в нём же
+  Info.plist), в цель входят общие файлы Mac-приложения (`HomeHubCore/`, `AppModel.swift`, `Notifier.swift` — поэтому там `#if canImport(HomeHubCore)`
+  и `#if os(macOS)`). Интерфейс: NavigationStack с WebView сервера (или список из снимка), листы «Ближайшие» и «Настройки», фоновое обновление BGAppRefresh.
+  GitHub Actions (`ios.yml`, macos-15) собирает **неподписанный** `.ipa` (AltStore подписывает на телефоне) и кладёт в `ios/release/` (`[skip ci]`).
+  Сервер раздаёт `/app-ios.ipa`, `/api/app-ios` и источник для AltStore `/altstore.json` (адрес берётся из запроса; AltStore → Sources → «+»).
+  Виджета нет (App Groups на бесплатном аккаунте ненадёжны). Версия — `ios/version.txt`.
 - Свободное время: `freetime.py` — объединение занятости выбранных людей (+ их поездки).
 - Настройки из UI (`configured=1`) важнее правил из config.yaml и не перетираются синхронизацией.
 
