@@ -7,6 +7,15 @@
         <button type="submit" class="btn filled" :disabled="busy || !f.title.trim()">{{ busy ? '…' : 'Сохранить' }}</button>
       </div>
 
+      <div v-if="isNew" class="group">
+        <div class="row between">
+          <input v-model="quick" class="in" placeholder="Быстро: «Йога завтра в 18:30 у Оли»" autocomplete="off"
+                 @keydown.enter.prevent="fillQuick" />
+          <button type="button" class="btn link" :disabled="busy || !quick.trim()" @click="fillQuick">Разобрать</button>
+        </div>
+        <p v-if="quickNote" class="faint small qn">{{ quickNote }}</p>
+      </div>
+
       <div class="group">
         <div class="row"><input v-model="f.title" class="in" placeholder="Название" autocomplete="off" required /></div>
         <div class="row"><input v-model="f.location" class="in" placeholder="Место" autocomplete="off" /></div>
@@ -104,6 +113,8 @@ const cals = computed(() => writableCalendars())
 const busy = ref(false)
 const error = ref('')
 const confirmDel = ref(false)
+const quick = ref('')
+const quickNote = ref('')
 const f = reactive({ title: '', location: '', description: '', allDay: false, startDate: '', startTime: '', endDate: '',
   endTime: '', repeat: '', until: '', calendar: '', people: [] })
 let origPeople = []
@@ -115,6 +126,8 @@ const LS = 'homecal.lastCalendar'
 watch(ed, (v) => {
   error.value = ''
   confirmDel.value = false
+  quick.value = ''
+  quickNote.value = ''
   if (!v) return
   if (v.event) {
     const e = v.event
@@ -157,6 +170,23 @@ watch(() => [f.startDate, f.startTime], ([d, t], old) => {
 function syncEnd() {}
 
 function close() { state.editor = null }
+
+async function fillQuick() {
+  if (!quick.value.trim()) return
+  quickNote.value = ''
+  try {
+    const r = await api.quick(quick.value)
+    f.title = r.title || f.title
+    f.allDay = r.all_day
+    f.startDate = r.date; f.endDate = r.date
+    if (!r.all_day) { f.startTime = r.start; f.endTime = r.end }
+    f.repeat = r.repeat?.freq || ''
+    if (r.people.length) f.people = r.people
+    quickNote.value = 'Проверьте поля ниже и нажмите «Сохранить»' + (r.notes.length ? ' · ' + r.notes.join(', ') : '')
+  } catch (err) {
+    quickNote.value = 'Не удалось разобрать: ' + err.message
+  }
+}
 
 function payload() {
   const sd = f.allDay ? `${f.startDate}T00:00:00` : `${f.startDate}T${f.startTime}:00`

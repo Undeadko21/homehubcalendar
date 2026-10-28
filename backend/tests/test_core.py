@@ -848,3 +848,104 @@ def test_event_reminders_per_person(db):
     # фильтр по человеку (устройство Бориса)
     only_b = reminders.build(evs, [], now, TZ, {"boris"}, None, 2, reminders.load_rules(db))
     assert [i["id"].rsplit(":", 1)[1] for i in only_b if i["kind"] == "event"] == ["30"]
+
+
+def test_write_queue_retry_journal_undo(tmp_path, monkeypatch):
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("timezone: Asia/Yekaterinburg\nsources:\n  - id: ya\n    type: caldav\n    url: http://x\n"
+                   "    username: u\n    password: p\npeople:\n  - id: anna\n    name: Анна\n")
+    monkeypatch.setenv("HOMECAL_CONFIG", str(cfg))
+    monkeypatch.setenv("HOMECAL_DATA_DIR", str(tmp_path))
+    import importlib
+
+    from fastapi.testclient import TestClient
+
+    from app import main
+    importlib.reload(main)
+
+    class Fake:
+        down = False
+        def __init__(self): self.store = {}; self.n = 0
+        def _chk(self):
+            if self.down: raise ConnectionError("connection refused")
+        def create(self, rid, ics): self._chk(); self.n += 1; h = f"/e{self.n}.ics"; self.store[h] = ics; return h
+        def update(self, rid, href, ics): self._chk(); self.store[href] = ics
+        def delete(self, rid, href): self._chk(); del self.store[href]
+
+    fake = Fake()
+    monkeypatch.setattr(main, "make_target", lambda key: fake)
+    main.db.touch_calendar("ya/home", "ya", "home", "Дом", {"people": ["anna"]})
+    c = TestClient(main.app)
+    rng = {"start": "2026-11-01T00:00:00", "end": "2026-11-10T00:00:00"}
+
+    fake.down = True
+    r = c.post("/api/event", json={"calendar": "ya/home", "title": "Врач", "start": "2026-11-03T10:00:00"}).json()
+    assert r["pending"] is True and fake.store == {}
+    assert [e["title"] for e in c.get("/api/events", params=rng).json()] == ["Врач"]
+    uid = r["uid"]
+    # правка до отправки сливается с созданием
+    c.put(f"/api/event/{uid}", json={"calendar": "ya/home", "title": "Врач 2"})
+    assert main.ws.pending_count() == 1
+    # синхронизация не должна стирать неотправленное
+    main.db.replace_objects("ya/home", {})
+    main.ws.reapply()
+    assert [e["title"] for e in c.get("/api/events", params=rng).json()] == ["Врач 2"]
+    assert c.get("/api/status").status_code == 200
+
+    fake.down = False
+    assert main.ws.flush() == {"done": 1, "failed": 0, "left": 0}
+    assert list(fake.store) == ["/e1.ics"] and "SUMMARY:Врач 2" in fake.store["/e1.ics"]
+    found = main.db.find_object(uid)
+    assert found[1] == "/e1.ics"
+
+    # журнал и отмена
+    log = c.get("/api/changes").json()["items"]
+    assert [x["action"] for x in log] == ["update", "create"]
+    assert c.post(f"/api/changes/{log[0]['id']}/undo").status_code == 200   # правка отменена
+    assert "SUMMARY:Врач\r" in fake.store["/e1.ics"] or "SUMMARY:Врач\n" in fake.store["/e1.ics"]
+    assert c.delete(f"/api/event/{uid}", params={"calendar": "ya/home"}).status_code == 200
+    assert fake.store == {}
+    dl = c.get("/api/changes").json()["items"][0]
+    assert dl["action"] == "delete"
+    assert c.post(f"/api/changes/{dl['id']}/undo").status_code == 200       # удаление отменено
+    assert len(fake.store) == 1
+    assert [e["title"] for e in c.get("/api/events", params=rng).json()] == ["Врач"]
+
+
+def test_quick_parse_phrases():
+    from app.quick import parse
+
+    P = [{"id": "olya", "name": "Оля", "keywords": ""}, {"id": "mark", "name": "Марк", "keywords": "футбол"}]
+    now = datetime(2026, 10, 28, 16, 0)
+    r = parse("Йога завтра в 18:30 у Оли", now, P)
+    assert (r["title"], r["date"], r["start"], r["end"], r["people"]) == ("Йога", "2026-10-29", "18:30", "19:30", ["olya"])
+    r = parse("Бассейн по вторникам в 15:00 на 45 минут", now, P)
+    assert r["repeat"] == {"freq": "weekly"} and r["date"] == "2026-11-03" and r["end"] == "15:45"
+    r = parse("Купить подарок 5.12", now, P)
+    assert r["all_day"] and r["date"] == "2026-12-05" and r["title"] == "Купить подарок"
+    r = parse("футбол в пятницу 17:00-18:30", now, P)
+    assert r["title"] == "Футбол" and r["end"] == "18:30" and r["people"] == ["mark"]
+
+
+def test_settings_export_import_roundtrip(tmp_path):
+    from app import portable
+
+    a = Database(tmp_path / "a.sqlite3")
+    a.upsert_person({"id": "anna", "name": "Анна", "color": "#ff0000", "keywords": "йога"})
+    a.touch_calendar("s/x", "s", "x", "Дом", {"people": ["anna"]})
+    a.set_event_people("u1", ["anna"])
+    a.add_list("Ремонт")
+    a.kv_set("settings:school", {"breaks": [1]})
+    a.kv_set("auth:ya", {"password": "secret"})
+    blob = portable.export(a, "t")
+    assert "secret" not in str(blob)
+
+    b = Database(tmp_path / "b.sqlite3")
+    b.upsert_person({"id": "zzz", "name": "Лишний"})
+    counts = portable.import_(b, blob)
+    assert counts["people"] == 1
+    assert [p["id"] for p in b.list_people()] == ["anna"] and b.list_people()[0]["keywords"] == "йога"
+    assert b.get_calendar("s/x")["people"] == ["anna"] and b.event_people() == {"u1": ["anna"]}
+    assert b.kv_get("settings:school")[0] == {"breaks": [1]} and b.kv_get("auth:ya")[0] is None
+    with pytest.raises(ValueError):
+        portable.import_(b, {"format": "other"})

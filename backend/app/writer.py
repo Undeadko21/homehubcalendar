@@ -182,6 +182,10 @@ def _same(rid, occ: datetime, tz: ZoneInfo) -> bool:
     return rid == (occ.date() if isinstance(occ, datetime) else occ)
 
 
+def title_of(ics: str) -> str:
+    return str(_master(Calendar.from_ical(ics)).get("SUMMARY") or "Без названия")
+
+
 def uid_of(ics: str) -> str:
     return str(_master(Calendar.from_ical(ics)).get("UID"))
 

@@ -35,6 +35,11 @@ export const api = {
   updateEvent: (uid, b) => request('PUT', `/api/event/${encodeURIComponent(uid)}`, b),
   deleteEvent: (uid, calendar, occurrence) =>
     request('DELETE', `/api/event/${encodeURIComponent(uid)}?${q(occurrence ? { calendar, occurrence } : { calendar })}`),
+  importSettings: (blob) => request('POST', '/api/import', blob),
+  quick: (text) => request('POST', '/api/quick', { text }),
+  changes: () => request('GET', '/api/changes'),
+  undoChange: (id) => request('POST', `/api/changes/${id}/undo`),
+  flushChanges: () => request('POST', '/api/changes/flush'),
   setEventPeople: (uid, people) => request('POST', '/api/event-people', { uid, people }),
   setEscort: (uid, occurrence, role, person) => request('POST', '/api/escort', { uid, occurrence, role, person }),
   saveEscortSettings: (s) => request('PUT', '/api/settings/escort', s),

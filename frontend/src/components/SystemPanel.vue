@@ -43,6 +43,23 @@
         кода подключения (поле «k», он же HOMEHUB_KEY навыка Алисы): <code>backend/tools/restore_backup.py</code>.
       </p>
 
+      <h3 class="group-title">Перенос настроек</h3>
+      <div class="group">
+        <div class="row">
+          <a class="btn link" href="/api/export" download>Скачать настройки (файл)</a>
+        </div>
+        <div class="row">
+          <label class="btn link file">Загрузить настройки из файла…
+            <input type="file" accept="application/json,.json" hidden @change="importFile" />
+          </label>
+        </div>
+      </div>
+      <p class="group-note">
+        В файле: люди, привязка календарей, шаблоны и поездки, дни рождения, каникулы, списки, настройки напоминаний.
+        Событий, паролей и токенов в нём нет — они вернутся после подключения Яндекса. При загрузке текущие люди, шаблоны и списки заменяются.
+      </p>
+      <p v-if="note" class="group-note">{{ note }}</p>
+
       <h3 class="group-title">Сервер</h3>
       <div class="group">
         <div class="row"><span class="lbl">Версия</span><span class="val muted">{{ s.version }}</span></div>
@@ -64,6 +81,7 @@ import { api } from '../lib/api'
 const s = ref(null)
 const busy = ref(false)
 const err = ref('')
+const note = ref('')
 const fmt = (d) => new Date(d).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 const kb = (n) => (n == null ? '—' : n > 1048576 ? (n / 1048576).toFixed(1) + ' МБ' : Math.max(1, Math.round(n / 1024)) + ' КБ')
 function ago(d) {
@@ -79,6 +97,19 @@ async function backup() {
   try { await api.runBackup() } catch (e) { err.value = e.message }
   busy.value = false
   load()
+}
+async function importFile(ev) {
+  const file = ev.target.files?.[0]
+  ev.target.value = ''
+  if (!file) return
+  err.value = ''; note.value = ''
+  try {
+    const blob = JSON.parse(await file.text())
+    const r = await api.importSettings(blob)
+    note.value = 'Настройки загружены: ' + Object.entries(r.counts).map(([k, v]) => `${k} ${v}`).join(', ') + '. Обновите страницу.'
+  } catch (e) {
+    err.value = e.message
+  }
 }
 let t
 onMounted(() => { load(); t = setInterval(load, 20000) })

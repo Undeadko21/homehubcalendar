@@ -9,10 +9,13 @@ import { computed, ref, watch } from 'vue'
 import FullCalendar from '@fullcalendar/vue3'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
+import interactionPlugin from '@fullcalendar/interaction'
 import ruLocale from '@fullcalendar/core/locales/ru'
-import { state, openEvent, eventColor, screen } from '../lib/store'
+import { state, openEvent, eventColor, screen, writableCalendars, reload } from '../lib/store'
+import { api } from '../lib/api'
+import { problems } from '../lib/report'
 import { useRange } from '../lib/useRange'
-import { addDays, startOfDay, startOfWeek, startOfMonth, isoDate } from '../lib/dates'
+import { addDays, startOfDay, startOfWeek, startOfMonth, isoDate, isoLocal } from '../lib/dates'
 
 const props = defineProps({ mode: { type: String, default: 'week' } })
 const fc = ref(null)
@@ -33,6 +36,31 @@ const range = () => {
 }
 const { events, holidayMap } = useRange(range)
 
+// Двигать и растягивать можно обычные события в календарях Яндекса; повторяющиеся и приватные — только через форму.
+const canDrag = (e) => !e.private && !e.duty && !e.recurring && !e.birthday &&
+  (e.calendars || []).some((k) => writableCalendars().some((c) => c.key === k))
+
+async function moved(info) {
+  const e = info.event.extendedProps.src
+  if (info.event.allDay !== !!e.all_day || !info.event.start) { info.revert(); return }
+  const cal = (e.calendars || []).find((k) => writableCalendars().some((c) => c.key === k))
+  let start = info.event.start
+  let end = info.event.end
+  try {
+    if (e.all_day) {
+      end = end || addDays(start, 1)
+      await api.updateEvent(e.uid, { calendar: cal, start: isoDate(start) + 'T00:00:00', end: isoDate(end) + 'T00:00:00', all_day: true })
+    } else {
+      end = end || new Date(start.getTime() + 3600_000)
+      await api.updateEvent(e.uid, { calendar: cal, start: isoLocal(start), end: isoLocal(end), all_day: false })
+    }
+    reload()
+  } catch (err) {
+    info.revert()
+    problems.list.push('Не удалось перенести событие: ' + err.message)
+  }
+}
+
 const fcEvents = computed(() =>
   events.value.map((e) => {
     const c = eventColor(e)
@@ -46,13 +74,20 @@ const fcEvents = computed(() =>
       borderColor: c,
       textColor: e.all_day ? '#fff' : `color-mix(in srgb, ${c} 62%, var(--ink))`,
       classNames: [e.private ? 'is-private' : '', e.escort_issue ? 'esc-' + e.escort_issue : '', e.duty ? 'is-duty' : ''],
+      editable: canDrag(e),
       extendedProps: { src: e },
     }
   }),
 )
 
 const options = computed(() => ({
-  plugins: [dayGridPlugin, timeGridPlugin],
+  plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin],
+  editable: false,
+  eventDrop: moved,
+  eventResize: moved,
+  snapDuration: '00:15:00',
+  longPressDelay: 400,
+  eventLongPressDelay: 400,
   locale: ruLocale,
   initialView: viewName.value,
   views: { timeGrid3: { type: 'timeGrid', duration: { days: 3 } } },

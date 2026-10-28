@@ -21,7 +21,7 @@ from .config import load_settings
 from .db import Database
 from .events import UNASSIGNED, EventService
 from .freetime import find_free
-from . import birthdays as bd, ops, reminders, school, snapshot, stats, widget, writer
+from . import birthdays as bd, ops, reminders, school, snapshot, stats, widget, writer, writeq, quick, portable
 from .backup import BackupService
 from .cloud import CloudError, CloudSync
 from .holidays import HolidayService
@@ -67,6 +67,7 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(engine.run, "interval", minutes=settings.sync.interval_minutes,
                           next_run_time=datetime.now(tz), id="sync", max_instances=1, coalesce=True)
         # Снимок для телефона вне дома: проверяем раз в 2 минуты, на Диск пишем при изменениях и раз в час.
+        scheduler.add_job(ws.flush, "interval", minutes=2, id="writeq", max_instances=1, coalesce=True)
         scheduler.add_job(cloud.tick, "interval", minutes=2, id="cloud", max_instances=1, coalesce=True)
         scheduler.add_job(poll_cloud, "interval", minutes=1, id="cloud-ops", max_instances=1, coalesce=True)
         scheduler.add_job(backup.run, "cron", hour=3, minute=30, id="backup", max_instances=1, coalesce=True,
@@ -148,11 +149,29 @@ def _remote_id(cal_key: str) -> str:
 
 
 def _after_write() -> None:
+    _ws_changed()
+
+
+def _ws_changed() -> None:
     events.invalidate()
     try:
         cloud.tick(force=True)
     except Exception:  # noqa: BLE001
         log.exception("Облако после записи")
+
+
+ws = writeq.WriteService(db, lambda k: make_target(k), _ws_changed)
+engine.on_change = lambda: (ws.reapply(), events.invalidate())
+
+
+def _run_write(fn):
+    try:
+        return fn()
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.exception("Запись в Яндекс")
+        raise HTTPException(400, writer.friendly(e))
 
 
 @app.get("/api/config")
@@ -251,6 +270,10 @@ def get_system():
     sources = db.sync_status()
     cl, bk = cloud.status(), backup.status()
     problems: list[str] = []
+    if ws.pending_count():
+        problems.append(f"Не отправлено в Яндекс: {ws.pending_count()} (повторю сам, когда сервер ответит)")
+    if ws.last_error():
+        problems.append("Запись в Яндекс отклонена: " + ws.last_error())
     for s in sources:
         if s.get("last_error"):
             problems.append(f"Синхронизация {s['source_id']}: {s['last_error']}")
@@ -419,23 +442,20 @@ def _check_people(people):
 
 @app.post("/api/event")
 def create_event(body: EventIn):
-    target = make_target(body.calendar)
+    make_target(body.calendar)  # заранее проверяем, что в календарь можно писать
     _check_people(body.people)
-    try:
+
+    def go():
         uid, ics = writer.build_ics(
             body.title, _parse_dt(body.start), _parse_dt(body.end) if body.end else None, body.all_day, tz,
             body.location, body.description, body.repeat.model_dump() if body.repeat else None)
-        href = target.create(_remote_id(body.calendar), ics)
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001
-        log.exception("Создание события")
-        raise HTTPException(400, writer.friendly(e))
-    db.put_object(body.calendar, href, ics)
+        sent = ws.create(body.calendar, ics)
+        return uid, sent
+    uid, sent = _run_write(go)
     if body.people is not None:
         db.set_event_people(uid, body.people)
     _after_write()
-    return {"ok": True, "uid": uid}
+    return {"ok": True, "uid": uid, "pending": not sent}
 
 
 @app.put("/api/event/{uid}")
@@ -444,7 +464,7 @@ def update_event(uid: str, body: EventEdit):
     if not found:
         raise HTTPException(404, "Событие не найдено (возможно, оно удалено)")
     cal_key, href, ics = found
-    target = make_target(cal_key)
+    make_target(cal_key)
     _check_people(body.people)
     fields: dict = {}
     if body.title is not None:
@@ -458,19 +478,11 @@ def update_event(uid: str, body: EventEdit):
         fields["description"] = body.description
     if body.repeat_set:
         fields["repeat"] = body.repeat.model_dump() if body.repeat else None
-    try:
-        new_ics = writer.apply_edit(ics, fields, tz)
-        target.update(_remote_id(cal_key), href, new_ics)
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001
-        log.exception("Правка события")
-        raise HTTPException(400, writer.friendly(e))
-    db.put_object(cal_key, href, new_ics)
+    sent = _run_write(lambda: ws.update(cal_key, href, ics, writer.apply_edit(ics, fields, tz)))
     if body.people_set:
         db.set_event_people(uid, body.people)
     _after_write()
-    return {"ok": True}
+    return {"ok": True, "pending": not sent}
 
 
 @app.delete("/api/event/{uid}")
@@ -480,23 +492,69 @@ def delete_event(uid: str, calendar: str, occurrence: str | None = None):
     if not found:
         raise HTTPException(404, "Событие не найдено (возможно, оно удалено)")
     cal_key, href, ics = found
-    target = make_target(cal_key)
-    try:
+    make_target(cal_key)
+
+    def go():
         new_ics = writer.add_exdate(ics, _parse_dt(occurrence), tz) if occurrence else None
         if new_ics:
-            target.update(_remote_id(cal_key), href, new_ics)
-            db.put_object(cal_key, href, new_ics)
-        else:
-            target.delete(_remote_id(cal_key), href)
-            db.delete_object(cal_key, href)
-            db.set_event_people(uid, None)
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001
-        log.exception("Удаление события")
-        raise HTTPException(400, writer.friendly(e))
+            return ws.update(cal_key, href, ics, new_ics)
+        sent = ws.delete(cal_key, href, ics)
+        db.set_event_people(uid, None)
+        return sent
+    sent = _run_write(go)
     _after_write()
-    return {"ok": True}
+    return {"ok": True, "pending": not sent}
+
+
+class QuickIn(BaseModel):
+    text: str
+
+
+@app.post("/api/quick")
+def quick_parse(body: QuickIn):
+    """Разбор фразы вроде «Йога завтра в 18:30 у Оли» в поля формы (ничего не создаёт)."""
+    if not body.text.strip():
+        raise HTTPException(400, "Пустая фраза")
+    return quick.parse(body.text, datetime.now(tz).replace(tzinfo=None), db.list_people())
+
+
+@app.get("/api/export")
+def export_settings():
+    data = portable.export(db, __version__)
+    name = f"homehub-settings-{datetime.now(tz):%Y-%m-%d}.json"
+    return JSONResponse(data, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.post("/api/import")
+def import_settings(body: dict):
+    try:
+        counts = portable.import_(db, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001
+        log.exception("Импорт настроек")
+        raise HTTPException(400, f"Не удалось загрузить настройки: {e}")
+    events.invalidate()
+    return {"ok": True, "counts": counts}
+
+
+@app.get("/api/changes")
+def get_changes():
+    """Журнал правок (последние первыми) и число ещё не отправленных в Яндекс."""
+    items = [{k: v for k, v in e.items() if k not in ("before", "after")} for e in reversed(ws.journal())]
+    return {"items": items, "pending": ws.pending_count(), "error": ws.last_error()}
+
+
+@app.post("/api/changes/{entry_id}/undo")
+def undo_change(entry_id: str):
+    title = _run_write(lambda: ws.undo(entry_id))
+    _after_write()
+    return {"ok": True, "title": title}
+
+
+@app.post("/api/changes/flush")
+def flush_changes():
+    return ws.flush()
 
 
 class EscortIn(BaseModel):

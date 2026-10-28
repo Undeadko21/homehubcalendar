@@ -175,6 +175,11 @@
     <EventReminders />
     </template>
 
+    <template v-if="page === 'changes'">
+    <h3 class="group-title">Последние правки</h3>
+    <ChangeLog />
+    </template>
+
     <template v-if="page === 'stats'">
     <StatsPanel />
     </template>
@@ -338,6 +343,7 @@ import BirthdaysEditor from '../components/BirthdaysEditor.vue'
 import RemindersSettings from '../components/RemindersSettings.vue'
 import CloudSettings from '../components/CloudSettings.vue'
 import EventReminders from '../components/EventReminders.vue'
+import ChangeLog from '../components/ChangeLog.vue'
 import SchoolBreaks from '../components/SchoolBreaks.vue'
 import StatsPanel from '../components/StatsPanel.vue'
 import SystemPanel from '../components/SystemPanel.vue'
@@ -372,6 +378,8 @@ const menu = computed(() => {
     { id: 'connect', title: 'Подключение', color: '#34c759', warn: bad,
       sub: bad ? 'есть ошибка синхронизации' : (srcs.find((s) => s.last_ok) ? 'обновлено ' + fmt(srcs.find((s) => s.last_ok).last_ok) : 'Яндекс, синхронизация, облако'),
       icon: ico('<path d="M20 12a8 8 0 01-14 5.300M4 12a8 8 0 0114-5.300"/><path d="M18 3v4h-4M6 21v-4h4"/>') },
+    { id: 'changes', title: 'Журнал изменений', color: '#af52de', sub: 'правки событий и отмена',
+      icon: ico('<path d="M3 12a9 9 0 109-9 9 9 0 00-7 3.500M3 4v4h4M12 7v5l3 2"/>') },
     { id: 'stats', title: 'Итоги семьи', color: '#00c7be', sub: 'встречи, часы и поездки по людям',
       icon: ico('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>') },
     { id: 'system', title: 'Состояние и копии', color: '#8e8e93', warn: sysProblems.value > 0,
