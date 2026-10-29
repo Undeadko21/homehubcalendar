@@ -53,7 +53,7 @@
             <!-- Общие события: один блок через колонки всех участников -->
             <button
               v-for="s in spans" :key="s.key"
-              class="blk span" :class="[{ past: s.past, now: s.current, private: s.e.private, short: s.h < 34, 'duty-style': s.e.duty }, s.e.escort_issue ? 'esc-' + s.e.escort_issue : '']"
+              class="blk span" :class="[{ shared: s.people.length > 1 && !s.e.duty, past: s.past, now: s.current, private: s.e.private, short: s.h < 34, 'duty-style': s.e.duty }, s.e.escort_issue ? 'esc-' + s.e.escort_issue : '']"
               :style="{ '--c': s.color, top: s.y + 'px', height: s.h + 'px', left: `calc(${s.c0} * 100% / ${columns.length})`, width: `calc(${s.c1 - s.c0 + 1} * 100% / ${columns.length} - 4px)` }"
               :title="`${s.e.title}, ${s.time}`"
               @click="openEvent(s.e)"

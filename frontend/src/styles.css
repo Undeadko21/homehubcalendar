@@ -178,3 +178,28 @@ select.sel { border: 0; background: var(--fill); border-radius: 8px; padding: 6p
 }
 .switch:checked { background: var(--ok); }
 .switch:checked::after { transform: translateX(20px); }
+
+/* Общие встречи (несколько участников): тонкая рамка цвета события поверх заливки */
+.pill.shared, .blk.shared, .block.multi {
+  outline: 1.5px solid color-mix(in srgb, var(--c) 70%, transparent);
+  outline-offset: -1.5px;
+}
+.no-color-mix .pill.shared, .no-color-mix .blk.shared, .no-color-mix .block.multi { outline-color: var(--c); }
+
+/* Тёмная тема: плашки событий читаются лучше — светлее текст, плотнее заливка, прошедшие не гаснут до нечитаемости */
+:root[data-theme='dark'] .pill:not(.allday):not(.private),
+:root[data-theme='dark'] .block:not(.allday):not(.private),
+:root[data-theme='dark'] .blk:not(.private) {
+  color: color-mix(in srgb, var(--c) 38%, var(--ink));
+  background-color: color-mix(in srgb, var(--c) 26%, var(--surface));
+}
+:root[data-theme='dark'] .pill.past, :root[data-theme='dark'] .block.past, :root[data-theme='dark'] .blk.past { opacity: .7; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .pill:not(.allday):not(.private),
+  :root:not([data-theme='light']) .block:not(.allday):not(.private),
+  :root:not([data-theme='light']) .blk:not(.private) {
+    color: color-mix(in srgb, var(--c) 38%, var(--ink));
+    background-color: color-mix(in srgb, var(--c) 26%, var(--surface));
+  }
+  :root:not([data-theme='light']) .pill.past, :root:not([data-theme='light']) .block.past, :root:not([data-theme='light']) .blk.past { opacity: .7; }
+}

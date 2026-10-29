@@ -270,6 +270,8 @@
     <h3 class="group-title">Экран на стене</h3>
     <div class="group">
       <div class="row"><code class="link">{{ kioskUrl }}</code></div>
+      <div class="row stack"><span class="lbl">Экран на кухню <small class="muted block">крупные часы, погода, ближайшие события, поездки и дела — для планшета на стене</small></span>
+        <code class="link">{{ kitchenUrl }}</code></div>
     </div>
     <p class="group-note">
       Откройте ссылку на планшете в полноэкранном режиме: ночью экран приглушается, данные обновляются сами.
@@ -426,6 +428,7 @@ watch(() => state.config, (c) => {
 }, { immediate: true })
 
 const kioskUrl = computed(() => `${location.origin}/?kiosk&view=today`)
+const kitchenUrl = computed(() => `${location.origin}/?kiosk&view=kitchen`)
 
 // Приложение для Android (внутри приложения доступен мост window.HomeHubApp)
 const inApp = typeof window !== 'undefined' && !!window.HomeHubApp

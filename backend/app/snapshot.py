@@ -19,7 +19,7 @@ HORIZON_DAYS = 7
 def _compact(e: dict) -> dict:
     """Событие для офлайн-экрана телефона: без описаний, ссылок и родительского события поездки."""
     out = {k: e[k] for k in ("id", "uid", "title", "start", "end", "all_day", "location", "people", "recurring",
-                             "escort", "escort_issue") if k in e}
+                             "escort", "escort_issue", "color") if k in e}
     if e.get("duty"):
         out["duty"] = {"role": e["duty"]["role"], "parent": e["duty"]["parent"]["id"]}
     return out

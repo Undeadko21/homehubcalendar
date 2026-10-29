@@ -69,7 +69,8 @@
         </div>
 
         <main class="main">
-          <TodayView v-if="state.view === 'today'" />
+          <KitchenView v-if="state.view === 'kitchen'" />
+          <TodayView v-else-if="state.view === 'today'" />
           <TimelineView v-else-if="state.view === 'timeline'" />
           <CalendarView v-else-if="state.view === 'week' || state.view === 'month'" :mode="state.view" />
           <AgendaView v-else-if="state.view === 'agenda'" />
@@ -119,6 +120,7 @@ import { problems } from './lib/report'
 import TodayView from './views/TodayView.vue'
 import TimelineView from './views/TimelineView.vue'
 import CalendarView from './views/CalendarView.vue'
+import KitchenView from './views/KitchenView.vue'
 import AgendaView from './views/AgendaView.vue'
 import FreeView from './views/FreeView.vue'
 import SettingsView from './views/SettingsView.vue'

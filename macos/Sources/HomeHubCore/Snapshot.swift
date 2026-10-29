@@ -21,9 +21,10 @@ public struct Event: Codable, Hashable, Identifiable {
     public let location: String?
     public let people: [String]
     public let duty: Duty?
+    public let color: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, start, end, allDay = "all_day", location, people, duty
+        case id, title, start, end, allDay = "all_day", location, people, duty, color
     }
 
     public init(from decoder: Decoder) throws {
@@ -36,12 +37,13 @@ public struct Event: Codable, Hashable, Identifiable {
         location = try c.decodeIfPresent(String.self, forKey: .location)
         people = try c.decodeIfPresent([String].self, forKey: .people) ?? []
         duty = try c.decodeIfPresent(Duty.self, forKey: .duty)
+        color = try c.decodeIfPresent(String.self, forKey: .color)
     }
 
     public init(id: String, title: String, start: String, end: String, allDay: Bool = false,
-                location: String? = nil, people: [String] = [], duty: Duty? = nil) {
+                location: String? = nil, people: [String] = [], duty: Duty? = nil, color: String? = nil) {
         self.id = id; self.title = title; self.start = start; self.end = end
-        self.allDay = allDay; self.location = location; self.people = people; self.duty = duty
+        self.allDay = allDay; self.location = location; self.people = people; self.duty = duty; self.color = color
     }
 }
 

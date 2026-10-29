@@ -121,6 +121,13 @@
   UI — «Подключение» → `FeedsSettings.vue`. Ошибки ICS-источника не содержат ссылку. Отменённые встречи («Отменено:», «Canceled:» в начале названия) скрываются в `expand.py` (`is_cancelled_title`).
 - **Цвет общих встреч.** `kv settings:shared_color` (`PUT /api/settings/shared-color`, в `/api/config` — `shared_color`) красит встречи с ≥2 людьми; свой цвет события — `kv event_colors {uid: #hex}` (`POST /api/event-color`, важнее общего, по UID — на все повторы).
   `EventService._apply_colors` кладёт `color` в событие (до добавления поездок взрослым, у `duty` цвета нет); фронт: `eventColor`, `EventPill`, `DayGrid`, `TimelineView` берут `e.color` первым; `widget.py` отдаёт его в `colors`. UI: `ColorPick.vue`, карточка события и «Люди» → «Общие встречи».
+- **v0.11.** *Склейка дублей:* `events._PREFIX_RE` срезает «Fwd:/Re:/Приглашение:/Accepted:…» перед нечёткой склейкой (в карточке остаётся название без приставки). *Подсказки правил поездок:* `escorts.suggest_templates`
+  + `GET /api/templates/suggestions` (≥3 одинаковых ручных назначений ребёнку в один день недели на похожее название; серия считается один раз), блок «Похоже на правило» в `TemplatesEditor`.
+  *Дела:* `list_items.due` (миграция), исполнитель — `person_id`; `POST/PATCH` принимают `due` (YYYY-MM-DD); напоминания `reminders.build(..., todos, sync_statuses)`: в 9:00 в день срока и накануне в 19:00, с исполнителем — `kind: event` (фильтр по людям на устройстве),
+  без — `kind: todo`. *Молчащая синхронизация:* `reminders.sync_alerts` — `kind: alert` через 24 ч после последнего успеха источника (время считается от `last_ok`, поэтому снимок не «дрожит»).
+  Цвет события теперь в снимке (`_compact`), Swift `Event.color`, офлайн-экран Android. *Интерфейс:* рамка у общих встреч (`.shared`), месяц на телефоне — числа с цветными точками (`CalendarView.dotsHtml`, нажатие → день на ленте),
+  «Неделя» 3/5/7 дней (`state.weekDaysPref`, `setWeekDays`), поле «Быстро» на «Сегодня» (`newEvent(date, quick)` → `EventEditor` сам разбирает фразу), тёмная тема: светлее текст плашек и плотнее заливка (конец `styles.css`),
+  экран на кухню `?kiosk&view=kitchen` (`KitchenView.vue`: часы, погода, ближайшие события, поездки, дела/покупки, дни рождения).
 - Свободное время: `freetime.py` — объединение занятости выбранных людей (+ их поездки).
 - Настройки из UI (`configured=1`) важнее правил из config.yaml и не перетираются синхронизацией.
 

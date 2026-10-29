@@ -10,7 +10,7 @@ function loadPrefs() {
 }
 function savePrefs() {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify({ hiddenPeople: state.hiddenPeople, view: state.view, calView: state.calView, timelineDays: state.timelineDays }))
+    localStorage.setItem(LS_KEY, JSON.stringify({ hiddenPeople: state.hiddenPeople, view: state.view, calView: state.calView, timelineDays: state.timelineDays, weekDays: state.weekDaysPref }))
   } catch {}
 }
 
@@ -29,6 +29,7 @@ export const state = reactive({
   revision: 0, // увеличивается после синхронизации — виды перезагружают данные
   selected: null, // открытое в карточке событие
   timelineDays: prefs.timelineDays || 7,
+  weekDaysPref: prefs.weekDays || null, // 3 | 5 | 7; пусто — по размеру экрана
   calView: prefs.calView || 'timeline', // последний календарный вид (вкладка «Календарь» на телефоне)
   moveWarn: null, // предупреждение о конфликтах при переносе: { e, items, resolve }
   moveAsk: null, // перенос повторяющегося события: ждём «только это / вся серия»
@@ -43,11 +44,15 @@ export const CAL_VIEWS = ['timeline', 'week', 'month', 'agenda']
 const mq = typeof matchMedia === 'function' ? matchMedia('(max-width: 599px)') : null
 export const screen = reactive({ narrow: !!mq?.matches })
 mq?.addEventListener?.('change', (e) => { screen.narrow = e.matches })
-export const weekDays = () => (screen.narrow ? 3 : 7)
+export const weekDays = () => state.weekDaysPref || (screen.narrow ? 3 : 7)
+export function setWeekDays(n) {
+  state.weekDaysPref = n
+  savePrefs()
+}
 
 export const writableCalendars = () => (state.config?.calendars || []).filter((c) => c.writable && !c.hidden)
 
-export function newEvent(date) { state.editor = { date: date || state.cursor } }
+export function newEvent(date, quick) { state.editor = { date: date || state.cursor, ...(quick ? { quick } : {}) } }
 export function editEvent(e) { state.editor = { event: e } }
 
 export function openEvent(e) {

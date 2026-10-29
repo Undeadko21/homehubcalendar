@@ -188,7 +188,7 @@ enum Loader {
                 if i == 0 && !e.allDay && en <= now { continue }
                 let time = e.allDay ? "весь день" : "\(hm.string(from: s))–\(hm.string(from: en))"
                 let who = e.people.compactMap { people[$0] }.map { ($0.emoji ?? "").isEmpty ? $0.name : "\($0.emoji!) \($0.name)" }.joined(separator: ", ")
-                let color = e.people.compactMap { people[$0]?.color }.first
+                let color = e.color ?? e.people.compactMap { people[$0]?.color }.first
                 evs.append(WEvent(id: "\(i)-\(e.id)", start: s, end: en, allDay: e.allDay, time: time, title: e.title, who: who,
                                   note: e.duty != nil ? "поездка" : "", location: e.location ?? "", color: color, names: names))
             }

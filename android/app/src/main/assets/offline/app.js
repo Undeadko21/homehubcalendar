@@ -146,7 +146,7 @@
         var p = P(s, e.people[0])
         var past = !e.all_day && new Date(e.end) < new Date()
         return h('button', { class: 'row', style: past ? 'opacity:.5' : '', onclick: function () { sel = e.duty ? e.duty.parent : e.id; scope = 'series'; render() } }, [
-          h('span', { class: 'bar', style: 'background:' + (p ? p.color : '#888') }),
+          h('span', { class: 'bar', style: 'background:' + (e.color || (p ? p.color : '#888')) }),
           h('span', { class: 'when', text: e.all_day ? 'весь день' : hm(e.start) + '\n' + hm(e.end) }),
           h('span', { class: 'main' }, [
             h('div', { class: 't', text: e.title }),

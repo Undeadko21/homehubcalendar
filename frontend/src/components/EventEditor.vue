@@ -203,6 +203,9 @@ watch(() => [f.startDate, f.startTime], ([d, t], old) => {
 })
 function syncEnd() {}
 
+// Фраза пришла с экрана «Сегодня» — сразу разбираем.
+watch(ed, (v) => { if (v?.quick) { quick.value = v.quick; fillQuick() } })
+
 function close() { state.editor = null }
 function openWizard() { state.editor = null; state.wizard = true }
 

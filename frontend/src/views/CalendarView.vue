@@ -1,5 +1,10 @@
 <template>
-  <div class="cal" :class="mode">
+  <div class="cal" :class="[mode, { narrow: screen.narrow }]">
+    <div v-if="mode === 'week'" class="wbar">
+      <div class="seg" role="group" aria-label="Сколько дней показывать">
+        <button v-for="n in [3, 5, 7]" :key="n" :class="{ on: days === n }" @click="setWeekDays(n)">{{ n === 7 ? 'Неделя' : n + ' дня' }}</button>
+      </div>
+    </div>
     <FullCalendar ref="fc" :options="options" />
   </div>
 </template>
@@ -11,14 +16,16 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import ruLocale from '@fullcalendar/core/locales/ru'
-import { state, openEvent, eventColor, screen } from '../lib/store'
+import { state, openEvent, eventColor, screen, weekDays, setWeekDays, setView, setTimelineDays } from '../lib/store'
 import { canMove, moveEvent } from '../lib/moveEvent'
 import { useRange } from '../lib/useRange'
 import { addDays, startOfDay, startOfWeek, startOfMonth, isoDate } from '../lib/dates'
 
 const props = defineProps({ mode: { type: String, default: 'week' } })
 const fc = ref(null)
-const viewName = computed(() => (props.mode === 'month' ? 'dayGridMonth' : screen.narrow ? 'timeGrid3' : 'timeGridWeek'))
+const days = computed(() => weekDays())
+const dotsMonth = computed(() => props.mode === 'month' && screen.narrow)   // на телефоне месяц — числа с точками
+const viewName = computed(() => (props.mode === 'month' ? 'dayGridMonth' : days.value === 7 ? 'timeGridWeek' : `timeGrid${days.value}`))
 
 // Диапазон, который загружаем: для месяца — с запасом на соседние недели в сетке.
 const range = () => {
@@ -26,9 +33,9 @@ const range = () => {
     const s = startOfWeek(startOfMonth(state.cursor))
     return { start: s, end: addDays(s, 42) }
   }
-  if (screen.narrow) {
+  if (days.value !== 7) {
     const s = startOfDay(state.cursor)
-    return { start: s, end: addDays(s, 3) }
+    return { start: s, end: addDays(s, days.value) }
   }
   const s = startOfWeek(state.cursor)
   return { start: s, end: addDays(s, 7) }
@@ -54,14 +61,30 @@ const fcEvents = computed(() =>
       backgroundColor: e.all_day ? `color-mix(in srgb, ${c} 85%, var(--surface))` : `color-mix(in srgb, ${c} 18%, var(--surface))`,
       borderColor: c,
       textColor: e.all_day ? '#fff' : `color-mix(in srgb, ${c} 62%, var(--ink))`,
-      classNames: [e.private ? 'is-private' : '', e.escort_issue ? 'esc-' + e.escort_issue : '', e.duty ? 'is-duty' : ''],
+      classNames: [e.people.length > 1 && !e.duty ? 'is-shared' : '', e.private ? 'is-private' : '', e.escort_issue ? 'esc-' + e.escort_issue : '', e.duty ? 'is-duty' : ''],
       editable: canMove(e),
       extendedProps: { src: e },
     }
   }),
 )
 
-const options = computed(() => ({
+// Месяц на телефоне: под числом цветные точки (до 6), по нажатию — день на шкале.
+function dotsHtml(d) {
+  const key = isoDate(d)
+  const list = events.value.filter((e) => {
+    const s = isoDate(new Date(e.start))
+    const en = e.all_day ? isoDate(addDays(new Date(e.end), -1)) : isoDate(new Date(e.end))
+    return key >= s && key <= (en < s ? s : en)
+  })
+  if (!list.length) return ''
+  const dots = list.slice(0, 6).map((e) => `<i style="background:${eventColor(e)}"></i>`).join('')
+  return `<span class="dots">${dots}${list.length > 6 ? `<b>+${list.length - 6}</b>` : ''}</span>`
+}
+
+const options = computed(() => {
+  const dotsData = dotsMonth.value ? events.value : null   // зависимость: точки пересчитываются, когда пришли события
+  void dotsData
+  return {
   plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin],
   editable: false,
   eventDrop: moved,
@@ -71,7 +94,7 @@ const options = computed(() => ({
   eventLongPressDelay: 400,
   locale: ruLocale,
   initialView: viewName.value,
-  views: { timeGrid3: { type: 'timeGrid', duration: { days: 3 } } },
+  views: { timeGrid3: { type: 'timeGrid', duration: { days: 3 } }, timeGrid5: { type: 'timeGrid', duration: { days: 5 } } },
   initialDate: state.cursor,
   headerToolbar: false,
   height: 'auto',
@@ -90,7 +113,8 @@ const options = computed(() => ({
     const wd = arg.date.toLocaleDateString('ru-RU', { weekday: 'short' })
     return { html: `<span class="wd">${wd}</span> <span class="dn">${arg.date.getDate()}</span>` }
   },
-  ...(props.mode === 'month' ? { dayCellContent: (arg) => ({ html: `<span class="dn">${arg.date.getDate()}</span>` }) } : {}),
+  ...(props.mode === 'month' ? { dayCellContent: (arg) => ({ html: `<span class="dn">${arg.date.getDate()}</span>${dotsMonth.value ? dotsHtml(arg.date) : ''}` }) } : {}),
+  ...(dotsMonth.value ? { dateClick: (info) => { state.cursor = info.date; setTimelineDays(1); setView('timeline') } } : {}),
   displayEventEnd: false,
   // В неделе — как у Apple: сначала название, под ним время начала
   eventContent: (arg) => {
@@ -98,7 +122,7 @@ const options = computed(() => ({
     const esc = (s) => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch])
     return { html: `<div class="ev-t">${esc(arg.event.title)}</div><div class="ev-tm">${esc(arg.timeText)}</div>` }
   },
-  events: fcEvents.value,
+  events: dotsMonth.value ? [] : fcEvents.value,
   eventClick: (info) => openEvent(info.event.extendedProps.src),
   dayCellClassNames: (arg) => dayClasses(arg.date),
   dayHeaderClassNames: (arg) => dayClasses(arg.date),
@@ -106,7 +130,8 @@ const options = computed(() => ({
     const h = holidayMap.value[isoDate(arg.date)]
     if (h) arg.el.title = h.name
   },
-}))
+}
+})
 
 function dayClasses(d) {
   const h = holidayMap.value[isoDate(d)]
@@ -144,6 +169,16 @@ watch(() => [state.cursor, viewName.value], () => {
 .cal .fc-day-today .fc-col-header-cell-cushion .dn { background: var(--red); color: #fff; font-weight: 600; }
 .cal .fc-day-today .fc-col-header-cell-cushion .wd { color: var(--red); }
 .cal th.hd-weekend .fc-col-header-cell-cushion, .cal th.hd-holiday .fc-col-header-cell-cushion, .cal th.hd-dayoff .fc-col-header-cell-cushion { color: var(--ink-2); }
+
+/* месяц на телефоне: числа с точками */
+.cal.month.narrow .fc-daygrid-day-frame { min-height: 62px; cursor: pointer; }
+.cal.month.narrow .fc-daygrid-day-top { flex-direction: column; align-items: center; width: 100%; }
+.cal.month.narrow .fc-daygrid-day-number { display: flex; flex-direction: column; align-items: center; width: 100%; padding: 4px 0 0; }
+.cal .fc .dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; margin-top: 4px; padding: 0 4px; }
+.cal .fc .dots i { width: 7px; height: 7px; border-radius: 50%; display: block; }
+.cal .fc .dots b { font-size: 10px; font-weight: 600; color: var(--ink-2); line-height: 7px; }
+.wbar { padding: 4px 16px 8px; }
+.cal .fc-event.is-shared { outline: 1.5px solid var(--ink-3); outline-offset: -1.5px; }
 
 /* неделя */
 .cal .fc-timegrid-slot { height: 2.6em; }

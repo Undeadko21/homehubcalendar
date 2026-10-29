@@ -9,6 +9,12 @@
       <WeatherNow />
     </section>
 
+    <form class="quick" @submit.prevent="addQuick">
+      <input v-model="quickText" placeholder="Быстро: «Йога завтра в 18:30 у Оли»" aria-label="Быстро добавить событие"
+             autocomplete="off" enterkeyhint="go" />
+      <button class="btn filled" :disabled="!quickText.trim()">＋</button>
+    </form>
+
     <BirthdayStrip />
 
     <!-- Поездки детей: сегодня и завтра -->
@@ -45,7 +51,15 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { state, visiblePeople, openEvent } from '../lib/store'
+import { state, visiblePeople, openEvent, newEvent } from '../lib/store'
+
+const quickText = ref('')
+function addQuick() {
+  const t = quickText.value.trim()
+  if (!t) return
+  quickText.value = ''
+  newEvent(state.cursor, t)
+}
 import { useRange } from '../lib/useRange'
 import { addDays, startOfDay, overlaps, isoDate, eventRange, sameDay, relativeDayName, formatTime } from '../lib/dates'
 import EventPill from '../components/EventPill.vue'
@@ -121,6 +135,9 @@ const trips = computed(() =>
 
 <style scoped>
 .today { padding: 20px 24px 32px; display: flex; flex-direction: column; gap: 26px; max-width: 1400px; }
+.quick { display: flex; gap: 8px; margin: 6px 0 14px; max-width: 640px; }
+.quick input { flex: 1; min-width: 0; font: inherit; padding: 10px 14px; border-radius: 12px; border: .5px solid var(--line); background: var(--surface); color: var(--ink); }
+.quick .btn { min-width: 44px; font-size: 20px; }
 .hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
 .clock { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
 .hm { font-family: var(--font-display); font-size: clamp(64px, 9vw, 112px); font-weight: 200; letter-spacing: -0.04em; line-height: .9; }
