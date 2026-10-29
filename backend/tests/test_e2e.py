@@ -74,7 +74,8 @@ def page(stack):
             b = p.chromium.launch()
         except Exception as e:  # noqa: BLE001
             pytest.skip(f"нет браузера: {e}")
-        pg = b.new_page(viewport={"width": 1200, "height": 900})
+        # Часовой пояс браузера = пояс календаря, иначе в CI (UTC) 10:00 по Екатеринбургу уходит за границу шкалы недели
+        pg = b.new_context(viewport={"width": 1200, "height": 900}, timezone_id="Asia/Yekaterinburg").new_page()
         pg.goto(stack["url"])
         pg.wait_for_selector("text=Сегодня")
         yield pg
