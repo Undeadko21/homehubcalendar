@@ -182,6 +182,19 @@ def _same(rid, occ: datetime, tz: ZoneInfo) -> bool:
     return rid == (occ.date() if isinstance(occ, datetime) else occ)
 
 
+def split_occurrence(ics: str, occurrence: datetime, start: datetime, end: datetime | None, all_day: bool,
+                     tz: ZoneInfo) -> tuple[str, str, str]:
+    """«Только это»: вхождение убирается из серии (EXDATE) и становится отдельным событием с новым временем.
+    Возвращает (ics серии без вхождения, uid нового, ics нового)."""
+    series = add_exdate(ics, occurrence, tz)
+    if series is None:
+        raise WriteError("Событие не повторяется")
+    m = _master(Calendar.from_ical(ics))
+    uid, new = build_ics(str(m.get("SUMMARY") or "Без названия"), start, end, all_day, tz,
+                         str(m.get("LOCATION") or ""), str(m.get("DESCRIPTION") or ""))
+    return series, uid, new
+
+
 def title_of(ics: str) -> str:
     return str(_master(Calendar.from_ical(ics)).get("SUMMARY") or "Без названия")
 

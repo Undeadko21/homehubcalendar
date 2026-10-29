@@ -1,6 +1,17 @@
 <template>
   <div class="cal" :class="mode">
     <FullCalendar ref="fc" :options="options" />
+    <Sheet :open="!!ask" label="Перенести повторяющееся событие" @close="ask = null">
+      <div v-if="ask" class="ask">
+        <h2>{{ ask.e.title }}</h2>
+        <p class="faint">Событие повторяется. Что перенести?</p>
+        <div class="group">
+          <div class="row"><button class="btn link" :disabled="busy" @click="apply('once')">Только это ({{ ask.label }})</button></div>
+          <div class="row"><button class="btn link" :disabled="busy" @click="apply('series')">Всю серию (сдвинуть все повторы)</button></div>
+          <div class="row"><button class="btn" :disabled="busy" @click="ask = null">Отмена</button></div>
+        </div>
+      </div>
+    </Sheet>
   </div>
 </template>
 
@@ -9,6 +20,7 @@ import { computed, ref, watch } from 'vue'
 import FullCalendar from '@fullcalendar/vue3'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
+import Sheet from '../components/Sheet.vue'
 import interactionPlugin from '@fullcalendar/interaction'
 import ruLocale from '@fullcalendar/core/locales/ru'
 import { state, openEvent, eventColor, screen, writableCalendars, reload } from '../lib/store'
@@ -36,28 +48,58 @@ const range = () => {
 }
 const { events, holidayMap } = useRange(range)
 
-// Двигать и растягивать можно обычные события в календарях Яндекса; повторяющиеся и приватные — только через форму.
-const canDrag = (e) => !e.private && !e.duty && !e.recurring && !e.birthday &&
+// Двигать и растягивать можно события в календарях Яндекса (у повторяющихся спросим: только это или вся серия); приватные — только через форму.
+const canDrag = (e) => !e.private && !e.duty && !e.birthday &&
   (e.calendars || []).some((k) => writableCalendars().some((c) => c.key === k))
+
+const ask = ref(null)
+const busy = ref(false)
+
+async function send(e, cal, start, end, scope) {
+  const body = { calendar: cal, all_day: !!e.all_day }
+  if (e.all_day) {
+    end = end || addDays(start, 1)
+    Object.assign(body, { start: isoDate(start) + 'T00:00:00', end: isoDate(end) + 'T00:00:00' })
+  } else {
+    end = end || new Date(start.getTime() + 3600_000)
+    Object.assign(body, { start: isoLocal(start), end: isoLocal(end) })
+  }
+  if (e.recurring) { body.occurrence = e.start; body.scope = scope }
+  await api.updateEvent(e.uid, body)
+}
 
 async function moved(info) {
   const e = info.event.extendedProps.src
   if (info.event.allDay !== !!e.all_day || !info.event.start) { info.revert(); return }
   const cal = (e.calendars || []).find((k) => writableCalendars().some((c) => c.key === k))
-  let start = info.event.start
-  let end = info.event.end
+  const start = info.event.start
+  const end = info.event.end
+  if (e.recurring) {
+    info.revert()   // пока человек не выбрал, событие остаётся на месте
+    ask.value = { e, cal, start, end, label: start.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) }
+    return
+  }
   try {
-    if (e.all_day) {
-      end = end || addDays(start, 1)
-      await api.updateEvent(e.uid, { calendar: cal, start: isoDate(start) + 'T00:00:00', end: isoDate(end) + 'T00:00:00', all_day: true })
-    } else {
-      end = end || new Date(start.getTime() + 3600_000)
-      await api.updateEvent(e.uid, { calendar: cal, start: isoLocal(start), end: isoLocal(end), all_day: false })
-    }
+    await send(e, cal, start, end)
     reload()
   } catch (err) {
     info.revert()
     problems.list.push('Не удалось перенести событие: ' + err.message)
+  }
+}
+
+async function apply(scope) {
+  const a = ask.value
+  busy.value = true
+  try {
+    await send(a.e, a.cal, a.start, a.end, scope)
+    ask.value = null
+    reload()
+  } catch (err) {
+    problems.list.push('Не удалось перенести событие: ' + err.message)
+    ask.value = null
+  } finally {
+    busy.value = false
   }
 }
 

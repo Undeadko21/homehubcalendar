@@ -949,3 +949,15 @@ def test_settings_export_import_roundtrip(tmp_path):
     assert b.kv_get("settings:school")[0] == {"breaks": [1]} and b.kv_get("auth:ya")[0] is None
     with pytest.raises(ValueError):
         portable.import_(b, {"format": "other"})
+
+
+def test_split_occurrence_moves_only_one():
+    from app import writer
+
+    _, ics = writer.build_ics("Йога", datetime(2026, 11, 2, 18), datetime(2026, 11, 2, 19), False, TZ,
+                              location="Зал", repeat={"freq": "weekly", "count": 3})
+    series, uid2, one = writer.split_occurrence(ics, datetime(2026, 11, 9, 18), datetime(2026, 11, 10, 9),
+                                                datetime(2026, 11, 10, 10), False, TZ)
+    assert [o.start for o in _occ(series)] == ["2026-11-02T18:00:00+05:00", "2026-11-16T18:00:00+05:00"]
+    o = _occ(one)
+    assert len(o) == 1 and o[0].title == "Йога" and o[0].start == "2026-11-10T09:00:00+05:00" and o[0].location == "Зал"

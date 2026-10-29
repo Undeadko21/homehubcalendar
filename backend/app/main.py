@@ -448,6 +448,7 @@ class EventEdit(BaseModel):
     people: list[str] | None = None
     people_set: bool = False
     occurrence: str | None = None  # начало редактируемого вхождения (для серий)
+    scope: str | None = None       # series (по умолчанию) | once — только это вхождение
 
 
 def _check_people(people):
@@ -495,6 +496,25 @@ def update_event(uid: str, body: EventEdit):
         fields["description"] = body.description
     if body.repeat_set:
         fields["repeat"] = body.repeat.model_dump() if body.repeat else None
+    if body.scope == "once":
+        if not (body.occurrence and body.start):
+            raise HTTPException(400, "Не указано, какое вхождение переносить")
+
+        def split():
+            series, new_uid, new_ics = writer.split_occurrence(
+                ics, _parse_dt(body.occurrence), _parse_dt(body.start), _parse_dt(body.end) if body.end else None,
+                body.all_day, tz)
+            if "title" in fields or "location" in fields or "description" in fields:
+                new_ics = writer.apply_edit(new_ics, {k: v for k, v in fields.items() if k in ("title", "location", "description")}, tz)
+            ok1 = ws.update(cal_key, href, ics, series)
+            ok2 = ws.create(cal_key, new_ics)
+            ppl = db.event_people().get(uid)
+            if ppl is not None:
+                db.set_event_people(new_uid, ppl)
+            return ok1 and ok2
+        sent = _run_write(split)
+        _after_write()
+        return {"ok": True, "pending": not sent}
     sent = _run_write(lambda: ws.update(cal_key, href, ics, writer.apply_edit(ics, fields, tz)))
     if body.people_set:
         db.set_event_people(uid, body.people)
