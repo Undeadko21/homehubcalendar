@@ -42,10 +42,12 @@
                 :style="{ top: b.y + 'px', height: b.h + 'px', left: b.left + '%', width: b.width + '%' }"
                 :title="`${b.e.title}, ${b.time}`"
                 @click="openEvent(b.e)"
+                @pointerdown="down($event, b.e)"
               >
                 <span class="t">{{ b.e.title }}</span>
                 <span class="tm">{{ b.time }}<template v-if="b.e.location && b.h >= 52">, {{ b.e.location }}</template></span>
                 <EscortBadge v-if="b.e.escort && b.h >= 64" :e="b.e" class="esc" />
+                <i v-if="canMove(b.e)" class="rz" aria-hidden="true" @pointerdown.stop="resize($event, b.e)"></i>
               </button>
             </div>
             <!-- Общие события: один блок через колонки всех участников -->
@@ -55,6 +57,7 @@
               :style="{ '--c': s.color, top: s.y + 'px', height: s.h + 'px', left: `calc(${s.c0} * 100% / ${columns.length})`, width: `calc(${s.c1 - s.c0 + 1} * 100% / ${columns.length} - 4px)` }"
               :title="`${s.e.title}, ${s.time}`"
               @click="openEvent(s.e)"
+              @pointerdown="down($event, s.e)"
             >
               <span class="t">
                 <span class="dots" aria-hidden="true"><i v-for="pid in s.people" :key="pid" :style="{ '--c': colorOf(pid) }"></i></span>
@@ -62,6 +65,7 @@
               </span>
               <span class="tm">{{ s.time }}<template v-if="s.e.location && s.h >= 52">, {{ s.e.location }}</template></span>
               <EscortBadge v-if="s.e.escort && s.h >= 64" :e="s.e" class="esc" />
+              <i v-if="canMove(s.e)" class="rz" aria-hidden="true" @pointerdown.stop="resize($event, s.e)"></i>
             </button>
           </div>
           <!-- Линия «сейчас» -->
@@ -83,6 +87,8 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { openEvent } from '../lib/store'
 import { addDays, eventRange, formatTime, sameDay } from '../lib/dates'
+import { canMove, moveEvent } from '../lib/moveEvent'
+import { startDrag } from '../lib/drag'
 import EventPill from './EventPill.vue'
 import EscortBadge from './EscortBadge.vue'
 
@@ -92,6 +98,44 @@ const props = defineProps({
   now: { type: Date, required: true },
   hourH: { type: Number, default: 52 },
 })
+
+// Перетаскивание: вверх-вниз — время (шаг 15 минут), за нижний край — длительность.
+const STEP = 15
+const snapMin = (dy) => Math.round(((dy / props.hourH) * 60) / STEP) * STEP
+const px = (min) => (min / 60) * props.hourH
+
+function down(ev, e) {
+  if (!canMove(e)) return
+  const el = ev.currentTarget
+  startDrag(ev, el, {
+    onMove: (dx, dy) => { el.style.transform = `translateY(${px(snapMin(dy))}px)` },
+    onEnd: async (dx, dy) => {
+      const m = snapMin(dy)
+      const r = eventRange(e)
+      if (m) await moveEvent(e, new Date(+r.start + m * 60000), new Date(+r.end + m * 60000))
+      el.style.transform = ''
+    },
+    onCancel: () => { el.style.transform = '' },
+  })
+}
+
+function resize(ev, e) {
+  if (!canMove(e)) return
+  const handle = ev.currentTarget
+  const el = handle.parentElement
+  const h0 = el.offsetHeight
+  startDrag(ev, handle, {
+    onMove: (dx, dy) => { el.style.height = Math.max(22, h0 + px(snapMin(dy))) + 'px' },
+    onEnd: async (dx, dy) => {
+      const m = snapMin(dy)
+      const r = eventRange(e)
+      const end = new Date(+r.end + m * 60000)
+      if (m && end > r.start) await moveEvent(e, r.start, end)
+      el.style.height = ''
+    },
+    onCancel: () => { el.style.height = '' },
+  })
+}
 
 const isToday = computed(() => sameDay(props.day, props.now))
 const dayEnd = computed(() => addDays(props.day, 1))
@@ -350,4 +394,9 @@ watch([nowY, hStart, isToday], () => nextTick(follow), { flush: 'post' })
   .blk .t { font-size: 12px; }
   .nowlbl { font-size: 10px; padding: 1px 3px; }
 }
+.blk .rz { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: ns-resize; }
+.blk .rz::after { content: ''; position: absolute; left: 50%; bottom: 2px; width: 18px; height: 3px; margin-left: -9px;
+  border-radius: 2px; background: currentColor; opacity: 0; }
+.blk:hover .rz::after { opacity: .35; }
+.blk.dragging { z-index: 5; box-shadow: 0 6px 18px rgba(0, 0, 0, .25); cursor: grabbing; }
 </style>

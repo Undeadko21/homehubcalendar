@@ -35,7 +35,7 @@
             <span v-if="!narrow" class="pname">{{ lane.person.name }}</span>
           </div>
           <div class="track" :style="{ height: lane.height + 'px' }">
-            <div v-for="(d, i) in dayList" :key="i" class="cell" :class="{ today: d.today, off: d.off }"
+            <div v-for="(d, i) in dayList" :key="i" class="cell" :class="{ today: d.today, off: d.off }" :data-day="isoDate(d.date)"
                  :style="{ left: i * dayW + 'px', width: dayW + 'px' }">
               <i v-for="h in (compact ? [] : hourTicks)" :key="h" class="tick" :style="{ left: hx(h) + 'px' }"></i>
             </div>
@@ -45,6 +45,7 @@
               :style="{ left: b.x + 'px', width: b.w + 'px', top: b.y + 'px', height: (b.allDay ? ALLDAY_H : ROW_H) - 4 + 'px' }"
               :title="b.e.title"
               @click="openEvent(b.e)"
+              @pointerdown="down($event, b)"
             >
               <span v-if="compact && !b.allDay" class="bs">{{ b.startLabel }}</span>
               <span class="bt">{{ b.e.title }}</span>
@@ -64,6 +65,8 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { state, visiblePeople, openEvent, setTimelineDays } from '../lib/store'
 import { useRange } from '../lib/useRange'
+import { canMove, moveEvent } from '../lib/moveEvent'
+import { startDrag, dayUnder } from '../lib/drag'
 import { addDays, startOfDay, startOfWeek, eventRange, isoDate, sameDay, formatTime, DAY } from '../lib/dates'
 
 const H0 = 7
@@ -176,6 +179,46 @@ const lanes = computed(() =>
     .filter((l) => l.count || !l.person.id.startsWith('_')),
 )
 
+// Перетаскивание. Недельный список и события на весь день — на другой день (куда отпустили);
+// шкала времени (1–3 дня) — по горизонтали: время с шагом 15 минут и день.
+function down(ev, b) {
+  const e = b.e
+  if (!canMove(e)) return
+  const el = ev.currentTarget
+  const r = eventRange(e)
+  const dur = r.end - r.start
+  const byDay = b.allDay || compact.value
+  const sameDayEv = sameDay(r.start, new Date(+r.end - 1))
+  if (!byDay && !sameDayEv) return   // через полночь — только через форму
+  startDrag(ev, el, {
+    onMove: (dx, dy) => { el.style.transform = byDay ? `translate(${dx}px, ${dy}px)` : `translateX(${dx}px)` },
+    onEnd: async (dx, dy, up) => {
+      let s = null
+      let en = null
+      if (byDay) {
+        const iso = dayUnder(up.clientX, up.clientY)
+        if (iso) {
+          const [y, m, d] = iso.split('-').map(Number)
+          const delta = Math.round((new Date(y, m - 1, d) - startOfDay(r.start)) / DAY)
+          if (delta) { s = addDays(r.start, delta); en = addDays(r.end, delta) }
+        }
+      } else {
+        const p = b.x - 1 + dx
+        const idx = Math.min(days.value - 1, Math.max(0, Math.floor(p / dayW.value)))
+        const mins = H0 * 60 + ((p - idx * dayW.value) / dayW.value) * (H1 - H0) * 60
+        const snapped = Math.min(H1 * 60 - 15, Math.max(H0 * 60, Math.round(mins / 15) * 15))
+        s = addDays(start.value, idx)
+        s.setHours(0, snapped, 0, 0)
+        if (+s === +r.start) s = null
+        else en = new Date(+s + dur)
+      }
+      if (s) await moveEvent(e, s, en)
+      el.style.transform = ''
+    },
+    onCancel: () => { el.style.transform = '' },
+  })
+}
+
 // Раскладка пересекающихся блоков по строкам (жадно).
 function pack(blocks) {
   blocks.sort((a, b) => a.x - b.x || b.w - a.w)
@@ -268,4 +311,5 @@ const nowX = computed(() => {
   .bar { padding: 10px 12px 2px; }
   .scroller { padding: 6px 12px 20px; }
 }
+.block.dragging { z-index: 6; box-shadow: 0 6px 18px rgba(0, 0, 0, .25); cursor: grabbing; }
 </style>

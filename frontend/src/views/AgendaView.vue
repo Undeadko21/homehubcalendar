@@ -1,12 +1,13 @@
 <template>
   <div class="agenda">
-    <section v-for="g in groups" :key="g.key" class="day">
+    <section v-for="g in groups" :key="g.key" class="day" :data-day="g.key">
       <h2 class="dh" :class="{ today: g.today, off: g.off }">
         <span>{{ g.label }}</span>
         <small v-if="g.holiday" class="hname">{{ g.holiday.name }}</small>
       </h2>
       <button v-for="e in g.events" :key="e.id" class="item" :style="{ '--c': eventColor(e) }"
-              :class="{ past: isPast(e), duty: e.duty, conflict: e.duty && e.escort_issue === 'conflict' }" @click="openEvent(e)">
+              :class="{ past: isPast(e), duty: e.duty, conflict: e.duty && e.escort_issue === 'conflict' }" @click="openEvent(e)"
+              @pointerdown="down($event, e)">
         <span class="time">
           <template v-if="e.all_day">весь день</template>
           <template v-else>{{ startText(e, g.date) }}<br /><span class="faint">{{ endText(e, g.date) }}</span></template>
@@ -34,6 +35,8 @@ import { state, openEvent, eventColor, personById } from '../lib/store'
 import { useRange } from '../lib/useRange'
 import { addDays, startOfDay, overlaps, isoDate, sameDay, eventRange, formatTime, cap } from '../lib/dates'
 import EscortBadge from '../components/EscortBadge.vue'
+import { canMove, moveEvent } from '../lib/moveEvent'
+import { startDrag, dayUnder } from '../lib/drag'
 
 const DAYS = 30
 const extra = ref(0)
@@ -45,6 +48,26 @@ const { events, holidayMap } = useRange(() => ({ start: start.value, end: addDay
 const isPast = (e) => !e.all_day && eventRange(e).end <= now
 const startText = (e, d) => (eventRange(e).start < d ? '…' : formatTime(eventRange(e).start))
 const endText = (e, d) => (eventRange(e).end > addDays(d, 1) ? '…' : formatTime(eventRange(e).end))
+
+// Перетащить событие на другой день: отпустите его над нужным днём (время сохраняется).
+function down(ev, e) {
+  if (!canMove(e)) return
+  const el = ev.currentTarget
+  startDrag(ev, el, {
+    onMove: (dx, dy) => { el.style.transform = `translate(${dx}px, ${dy}px)` },
+    onEnd: async (dx, dy, up) => {
+      const iso = dayUnder(up.clientX, up.clientY)
+      const r = eventRange(e)
+      if (iso) {
+        const [y, m, d] = iso.split('-').map(Number)
+        const delta = Math.round((new Date(y, m - 1, d) - startOfDay(r.start)) / 86400000)
+        if (delta) await moveEvent(e, addDays(r.start, delta), addDays(r.end, delta))
+      }
+      el.style.transform = ''
+    },
+    onCancel: () => { el.style.transform = '' },
+  })
+}
 
 const groups = computed(() => {
   const out = []
@@ -100,4 +123,6 @@ const groups = computed(() => {
   .agenda { padding: 0 12px 30px; }
   .item { grid-template-columns: 52px 4px 1fr; gap: 0 10px; }
 }
+.item.dragging { position: relative; z-index: 6; background: var(--surface); box-shadow: 0 6px 18px rgba(0, 0, 0, .25); }
+.day:has(.dragging) { position: relative; z-index: 2; }
 </style>

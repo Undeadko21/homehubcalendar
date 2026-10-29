@@ -95,6 +95,7 @@
       </Sheet>
       <EventDialog />
       <EventEditor />
+      <MoveScope />
     </template>
   </div>
 </template>
@@ -105,6 +106,7 @@ import { state, newEvent, writableCalendars, loadConfig, setView, refreshStatus,
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
 import EventDialog from './components/EventDialog.vue'
 import EventEditor from './components/EventEditor.vue'
+import MoveScope from './components/MoveScope.vue'
 import LoginScreen from './components/LoginScreen.vue'
 import MiniMonth from './components/MiniMonth.vue'
 import PeopleList from './components/PeopleList.vue'
