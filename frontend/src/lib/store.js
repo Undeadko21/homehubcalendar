@@ -136,6 +136,22 @@ export function fetchRange(start, end) {
   return entry
 }
 
+// Живое обновление: сервер сообщает по SSE, что данные изменились (с этого или другого устройства) — перезагружаемся.
+let live = null
+export function connectLive() {
+  if (live || typeof EventSource === 'undefined') return
+  let rev = null
+  let t = 0
+  live = new EventSource('/api/stream')
+  live.onmessage = (m) => {
+    if (rev !== null && m.data !== rev) {
+      clearTimeout(t)
+      t = setTimeout(() => reload().catch(() => {}), 400)
+    }
+    rev = m.data
+  }
+}
+
 export async function refreshStatus() {
   try { state.status = await api.status() } catch {}
 }

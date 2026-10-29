@@ -28,6 +28,19 @@
         <div v-if="s.cloud.ops_error" class="row"><span class="lbl">Команды с телефона</span><span class="val err">{{ s.cloud.ops_error }}</span></div>
       </div>
 
+      <h3 class="group-title">Проверка записи в Яндекс</h3>
+      <div class="group">
+        <div class="row between"><label for="st-cal">Календарь</label>
+          <select id="st-cal" v-model="testCal"><option v-for="c in writable" :key="c.key" :value="c.key">{{ c.name }}</option></select></div>
+        <div class="row"><button class="btn link" :disabled="busy || !testCal" @click="selftest">{{ testing ? 'Проверяю…' : 'Проверить запись' }}</button></div>
+        <div v-for="(x, i) in testSteps" :key="i" class="row">
+          <span :class="x.ok ? 'ok' : 'err'">{{ x.ok ? '✓' : '✕' }}</span><span class="lbl">{{ x.name }}</span>
+          <span v-if="x.error" class="val err">{{ x.error }}</span><span v-else-if="x.ms != null" class="val muted">{{ x.ms }} мс</span>
+        </div>
+      </div>
+      <p class="group-note">Создаёт на сервере Яндекса тестовое событие на 3:00 через месяц, переносит, делает исключение из серии и удаляет всё.
+        В семейном календаре оно не появляется. Так можно убедиться, что запись работает, не трогая ваши события.</p>
+
       <h3 class="group-title">Резервная копия</h3>
       <div class="group">
         <div class="row"><span class="lbl">Последняя копия</span>
@@ -118,12 +131,22 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../lib/api'
+import { writableCalendars } from '../lib/store'
 
 const s = ref(null)
 const busy = ref(false)
 const err = ref('')
 const note = ref('')
 const files = ref(null)
+const writable = writableCalendars()
+const testCal = ref(writable[0]?.key || '')
+const testSteps = ref([])
+const testing = ref(false)
+async function selftest() {
+  testing.value = true; testSteps.value = []; err.value = ''
+  try { testSteps.value = (await api.selftestWrite(testCal.value)).steps } catch (e) { err.value = e.message }
+  testing.value = false
+}
 const confirm = ref('')
 const perf = ref(null)
 const nameDate = (n) => {

@@ -324,6 +324,18 @@ class CalDavTarget:
             ev = self._calendar(client, remote_id).save_event(ics)
             return str(ev.url)
 
+    def read(self, remote_id: str, href: str) -> str | None:
+        """Текст объекта на сервере (None — объекта нет)."""
+        with self._client() as client:
+            try:
+                ev = self._calendar(client, remote_id).event_by_url(href)
+                ev.load()
+                return ev.data
+            except Exception as e:  # noqa: BLE001
+                if "404" in str(e) or "NotFound" in type(e).__name__:
+                    return None
+                raise
+
     def update(self, remote_id: str, href: str, ics: str) -> None:
         with self._client() as client:
             cal = self._calendar(client, remote_id)

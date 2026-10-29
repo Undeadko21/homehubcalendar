@@ -7,7 +7,7 @@ import threading
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from . import escorts
+from . import escorts, live
 from .db import Database
 from .expand import expand_ics
 
@@ -48,6 +48,7 @@ class EventService:
     def invalidate(self) -> None:
         with self._lock:
             self._cache.clear()
+        live.bump()
 
     def events(self, start: datetime, end: datetime) -> list[dict]:
         key = (start.isoformat(), end.isoformat())

@@ -90,3 +90,14 @@ def test_write_roundtrip_against_radicale(server):
     target.delete(rid, href)
     target.delete(rid, h2)
     assert list(cal.events()) == []
+
+
+def test_selftest_endpoint_on_real_caldav(server, api, monkeypatch):
+    from app import writer
+    client = caldav.DAVClient(url=server, username="u", password="p")
+    cal = client.principal().make_calendar(name="Само", supported_calendar_component_set=["VEVENT"])
+    rid = str(cal.url).rstrip("/").rsplit("/", 1)[-1]
+    monkeypatch.setattr(api.main, "make_target", lambda key: writer.CalDavTarget(server, "u", "p"))
+    r = api.post("/api/selftest/write", json={"calendar": f"ya/{rid}"}).json()
+    assert r["ok"], r
+    assert list(cal.events()) == []

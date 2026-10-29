@@ -168,3 +168,26 @@ def test_login_rate_limit(api, monkeypatch):
     assert api.post("/api/login", json={"pin": "1234"}).status_code == 429   # даже верный PIN, пока блокировка
     m._FAILS.clear()
     assert api.post("/api/login", json={"pin": "1234"}).status_code == 200
+
+
+def test_live_revision_bumps_on_writes(api):
+    from app import live
+    r0 = live.rev
+    api.get("/api/health")
+    assert live.rev == r0                                   # чтение номер не меняет
+    api.post("/api/event", json={"calendar": "ya/home", "title": "X", "start": "2026-11-03T10:00:00", "end": "2026-11-03T11:00:00"})
+    assert live.rev > r0
+    r1 = live.rev
+    api.post("/api/client-log", json={"message": "x"})
+    assert live.rev == r1
+
+
+def test_selftest_write(api):
+    r = api.post("/api/selftest/write", json={"calendar": "ya/home"}).json()
+    assert r["ok"], r
+    assert [x["name"] for x in r["steps"]][:3] == ["Создать событие", "Прочитать его с сервера", "Перенести и переименовать"]
+    assert api.fake.store == {}            # за собой убрал всё
+    api.fake.update = lambda rid, href, ics: (_ for _ in ()).throw(RuntimeError("403 Forbidden"))
+    r = api.post("/api/selftest/write", json={"calendar": "ya/home"}).json()
+    assert not r["ok"] and "не разрешил запись" in str([x.get("error") for x in r["steps"]])
+    assert api.fake.store == {}

@@ -30,6 +30,9 @@ def api(tmp_path, monkeypatch):
         def update(self, rid, href, ics):
             self.store[href] = ics
 
+        def read(self, rid, href):
+            return self.store.get(href)
+
         def delete(self, rid, href):
             del self.store[href]
 

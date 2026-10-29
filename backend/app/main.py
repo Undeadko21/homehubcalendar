@@ -1,6 +1,7 @@
 """HTTP API и раздача веб-интерфейса."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -15,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -25,7 +26,7 @@ from .db import Database
 from .events import UNASSIGNED, EventService
 from .freetime import find_free
 from . import birthdays as bd, ops, reminders, school, snapshot, stats, widget, writer, writeq, quick, portable
-from . import conflicts
+from . import conflicts, live
 from .backup import BackupService
 from .perf import SLOW_MS, PerfLog
 from .cloud import CloudError, CloudSync
@@ -98,13 +99,16 @@ perf = PerfLog()
 @app.middleware("http")
 async def timing(request: Request, call_next):
     """Замер времени каждого запроса к API (GET /api/perf)."""
-    if not request.url.path.startswith("/api/"):
+    if not request.url.path.startswith("/api/") or request.url.path == "/api/stream":
         return await call_next(request)
     t0 = perf_counter()
     status = 500
     try:
         resp = await call_next(request)
         status = resp.status_code
+        # Любая успешная запись через API — повод обновить остальные открытые экраны.
+        if request.method != "GET" and status < 400 and request.url.path not in ("/api/client-log", "/api/login"):
+            live.bump()
         return resp
     finally:
         ms = (perf_counter() - t0) * 1000
@@ -356,6 +360,27 @@ def backup_restore(body: dict):
     return res
 
 
+@app.get("/api/stream")
+async def stream(request: Request):
+    """Живое обновление: отдаёт номер изменений, когда он меняется (EventSource в браузере сам переподключается)."""
+    async def gen():
+        last = live.rev
+        yield f"retry: 5000\ndata: {last}\n\n"
+        idle = 0
+        while not await request.is_disconnected():
+            await asyncio.sleep(1)
+            if live.rev != last:
+                last, idle = live.rev, 0
+                yield f"data: {last}\n\n"
+            else:
+                idle += 1
+                if idle >= 20:
+                    idle = 0
+                    yield ": ka\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.get("/api/perf")
 def get_perf():
     return perf.summary()
@@ -581,6 +606,67 @@ def _create_event(calendar: str, title: str, start: datetime, end: datetime | No
         db.set_event_people(uid, people)
     _after_write()
     return uid, sent
+
+
+class SelfTestIn(BaseModel):
+    calendar: str
+
+
+@app.post("/api/selftest/write")
+def selftest_write(body: SelfTestIn):
+    """Проверка записи в живой календарь: создать → перенести → прочитать с сервера → серия с исключением → удалить.
+    Идёт мимо локальной базы и журнала (семья ничего не увидит), тестовые события живут секунды."""
+    target = make_target(body.calendar)
+    rid = _remote_id(body.calendar)
+    steps: list[dict] = []
+    day = datetime.now(tz).date() + timedelta(days=30)
+    s0 = datetime.combine(day, time(3, 0), tz)
+
+    def step(name: str, fn):
+        t0 = perf_counter()
+        try:
+            out = fn()
+            steps.append({"name": name, "ok": True, "ms": round((perf_counter() - t0) * 1000)})
+            return out
+        except Exception as e:  # noqa: BLE001
+            steps.append({"name": name, "ok": False, "error": writer.friendly(e), "ms": round((perf_counter() - t0) * 1000)})
+            raise
+
+    hrefs: list[str] = []
+    try:
+        uid, ics = writer.build_ics("Проверка HomeHub (можно удалить)", s0, s0 + timedelta(minutes=30), False, tz)
+        href = step("Создать событие", lambda: target.create(rid, ics))
+        hrefs.append(href)
+        back = step("Прочитать его с сервера", lambda: target.read(rid, href) or (_ for _ in ()).throw(writer.WriteError("Событие не нашлось")))
+        if "Проверка HomeHub" not in back:
+            raise writer.WriteError("Сервер вернул не то событие")
+        moved = writer.apply_edit(ics, {"title": "Проверка HomeHub — перенос", "start": s0 + timedelta(hours=1),
+                                        "end": s0 + timedelta(hours=1, minutes=30), "all_day": False}, tz)
+        step("Перенести и переименовать", lambda: target.update(rid, href, moved))
+        back = step("Проверить перенос", lambda: target.read(rid, href) or "")
+        if "перенос" not in back or "T040000" not in back:
+            raise writer.WriteError("После переноса на сервере прежнее время или название")
+        uid2, series = writer.build_ics("Проверка серии HomeHub", s0, s0 + timedelta(minutes=30), False, tz,
+                                        repeat={"freq": "weekly", "byday": [writer._DAYS[s0.weekday()]], "count": 4})
+        h2 = step("Создать повторяющееся событие", lambda: target.create(rid, series))
+        hrefs.append(h2)
+        cut = writer.add_exdate(series, s0 + timedelta(days=7), tz)
+        step("Убрать одно вхождение (EXDATE)", lambda: target.update(rid, h2, cut))
+        if "EXDATE" not in (target.read(rid, h2) or ""):
+            raise writer.WriteError("Сервер не сохранил исключение из серии")
+    except Exception as e:  # noqa: BLE001
+        if not steps or steps[-1]["ok"]:
+            steps.append({"name": "Проверка", "ok": False, "error": writer.friendly(e)})
+    finally:
+        for h in hrefs:
+            try:
+                target.delete(rid, h)
+                steps.append({"name": "Удалить тестовое событие", "ok": True})
+            except Exception as e:  # noqa: BLE001
+                steps.append({"name": "Удалить тестовое событие", "ok": False, "error": writer.friendly(e) + f" ({h})"})
+    ok = all(x["ok"] for x in steps)
+    log.info("Самопроверка записи %s: %s", body.calendar, "успешно" if ok else steps)
+    return {"ok": ok, "steps": steps}
 
 
 @app.post("/api/event")

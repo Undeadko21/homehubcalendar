@@ -2,7 +2,7 @@ name: Тесты
 on:
   push:
     branches: [main]
-    paths: ['backend/**', 'frontend/**', 'alice/**', '.github/workflows/backend.yml']
+    paths: ['backend/**', 'frontend/**', 'alice/**', 'deploy/**', '.github/workflows/backend.yml']
   pull_request:
 jobs:
   test:
@@ -11,9 +11,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12', cache: pip, cache-dependency-path: backend/requirements.txt}
-      - run: pip install -r backend/requirements.txt pytest radicale
-      - run: cd backend && python -m pytest -q
-      - run: python -m pytest -q alice/test_handler.py
+      - run: pip install -r backend/requirements.txt pytest radicale playwright
       - uses: actions/setup-node@v4
         with: {node-version: 20, cache: npm, cache-dependency-path: frontend/package-lock.json}
       - run: cd frontend && npm ci && npm run build
+      - run: playwright install --with-deps chromium
+      # backend/tests включает сквозные тесты в браузере (test_e2e.py) и проверку на настоящем CalDAV (Radicale)
+      - run: cd backend && python -m pytest -q
+      - run: python -m pytest -q alice/test_handler.py
+      - run: bash deploy/test-rollback.sh

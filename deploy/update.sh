@@ -22,9 +22,9 @@ if [ "$REMOTE" = "$(cat "$BAD_FILE" 2>/dev/null || true)" ] && [ "${1:-}" != "--
 fi
 
 healthy() {  # ждём до 90 секунд, пока /api/health ответит
-  for _ in $(seq 1 45); do
+  for _ in $(seq 1 "${HEALTH_TRIES:-45}"); do
     if curl -fsS -m 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then return 0; fi
-    sleep 2
+    sleep "${HEALTH_SLEEP:-2}"
   done
   return 1
 }

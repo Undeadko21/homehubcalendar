@@ -104,7 +104,7 @@
 
 <script setup>
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
-import { state, newEvent, writableCalendars, loadConfig, setView, refreshStatus, syncNow, reload, CAL_VIEWS, weekDays } from './lib/store'
+import { state, newEvent, writableCalendars, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays } from './lib/store'
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
 import EventDialog from './components/EventDialog.vue'
 import EventEditor from './components/EventEditor.vue'
@@ -233,6 +233,7 @@ function tickNight() {
 onMounted(async () => {
   await loadConfig()
   await refreshStatus()
+  connectLive()
   tickNight()
   timers.push(setInterval(reload, (state.kiosk ? 5 : 10) * 60000))
   timers.push(setInterval(tickNight, 60000))

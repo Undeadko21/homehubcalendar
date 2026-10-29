@@ -36,6 +36,7 @@ export const api = {
   deleteEvent: (uid, calendar, occurrence) =>
     request('DELETE', `/api/event/${encodeURIComponent(uid)}?${q(occurrence ? { calendar, occurrence } : { calendar })}`),
   importSettings: (blob) => request('POST', '/api/import', blob),
+  selftestWrite: (calendar) => request('POST', '/api/selftest/write', { calendar }),
   createSection: (b) => request('POST', '/api/section', b),
   conflicts: (b) => request('POST', '/api/conflicts', b),
   backupFiles: () => request('GET', '/api/backup/files'),
