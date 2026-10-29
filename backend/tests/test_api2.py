@@ -209,3 +209,15 @@ def test_feeds_add_list_delete(api, monkeypatch):
     assert c.delete("/api/feeds/ics1").status_code == 200
     assert c.get("/api/feeds").json() == []
     assert not any(cal["key"].startswith("ics1/") for cal in c.get("/api/config").json()["calendars"])
+
+
+def test_shared_and_event_colors(api):
+    api.put("/api/people/a", json={"id": "a", "name": "А", "color": "#ff0000"})
+    api.put("/api/people/b", json={"id": "b", "name": "Б", "color": "#00ff00"})
+    assert api.put("/api/settings/shared-color", json={"color": "red"}).status_code == 400
+    assert api.put("/api/settings/shared-color", json={"color": "#5856D6"}).status_code == 200
+    assert api.get("/api/config").json()["shared_color"] == "#5856d6"
+    assert api.post("/api/event-color", json={"uid": "u1", "color": "#123456"}).status_code == 200
+    assert api.post("/api/event-color", json={"uid": "u1", "color": None}).status_code == 200
+    assert api.put("/api/settings/shared-color", json={"color": None}).status_code == 200
+    assert api.get("/api/config").json()["shared_color"] is None

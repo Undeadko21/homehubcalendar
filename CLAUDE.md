@@ -119,6 +119,8 @@
   В роутерах singletons берутся как `core.db` (тесты перезагружают `core`, затем `main`, и подменяют `core.make_target`).
 - **Подписки ICS из интерфейса** (Teams/Outlook, Битрикс24…): `kv ics:feeds` (шифруется, в URL секретный токен), `SyncEngine.sources` = config.yaml + подписки; `GET|PUT /api/feeds`, `DELETE /api/feeds/{id}` (URL наружу не отдаётся, только хост; принимаются только http(s)/webcal),
   UI — «Подключение» → `FeedsSettings.vue`. Ошибки ICS-источника не содержат ссылку. Отменённые встречи («Отменено:», «Canceled:» в начале названия) скрываются в `expand.py` (`is_cancelled_title`).
+- **Цвет общих встреч.** `kv settings:shared_color` (`PUT /api/settings/shared-color`, в `/api/config` — `shared_color`) красит встречи с ≥2 людьми; свой цвет события — `kv event_colors {uid: #hex}` (`POST /api/event-color`, важнее общего, по UID — на все повторы).
+  `EventService._apply_colors` кладёт `color` в событие (до добавления поездок взрослым, у `duty` цвета нет); фронт: `eventColor`, `EventPill`, `DayGrid`, `TimelineView` берут `e.color` первым; `widget.py` отдаёт его в `colors`. UI: `ColorPick.vue`, карточка события и «Люди» → «Общие встречи».
 - Свободное время: `freetime.py` — объединение занятости выбранных людей (+ их поездки).
 - Настройки из UI (`configured=1`) важнее правил из config.yaml и не перетираются синхронизацией.
 

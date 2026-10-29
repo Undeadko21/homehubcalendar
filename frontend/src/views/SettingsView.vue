@@ -71,6 +71,14 @@
 
     <!-- Люди и календари -->
     <template v-if="page === 'people'">
+    <h3 class="group-title">Общие встречи</h3>
+    <div class="group">
+      <div class="row stack">
+        <span class="lbl">Цвет встреч с несколькими участниками</span>
+        <ColorPick :model-value="sharedColor" none-label="Цвет первого участника" label="Цвет общих встреч" @update:model-value="saveShared" />
+      </div>
+    </div>
+    <p class="group-note">Так общие события выделяются в ленте, неделе, «Сегодня» и виджетах. У отдельного события цвет можно поменять в его карточке — он важнее.</p>
     <h3 class="group-title">Люди</h3>
     <div class="group">
       <button v-for="p in editPeople" :key="p.id" class="row person-row" @click="openPerson(p)">
@@ -345,6 +353,7 @@ import BirthdaysEditor from '../components/BirthdaysEditor.vue'
 import RemindersSettings from '../components/RemindersSettings.vue'
 import CloudSettings from '../components/CloudSettings.vue'
 import FeedsSettings from '../components/FeedsSettings.vue'
+import ColorPick from '../components/ColorPick.vue'
 import EventReminders from '../components/EventReminders.vue'
 import ChangeLog from '../components/ChangeLog.vue'
 import SchoolBreaks from '../components/SchoolBreaks.vue'
@@ -400,6 +409,10 @@ const sources = computed(() => state.status?.sources || [])
 const editPeople = ref([])
 const editCals = ref([])
 const accounts = ref([])
+const sharedColor = computed(() => state.config?.shared_color || null)
+async function saveShared(c) {
+  try { await api.setSharedColor(c || null); await reload() } catch (e) { alert(e.message) }
+}
 const editing = ref(null)
 const escort = reactive({ before_minutes: 30, after_minutes: 30, home_words: 'дома', home_address: '', travel_buffer: 5, places: [] })
 

@@ -45,6 +45,42 @@ def set_event_people(body: EventPeople):
     return {"ok": True}
 
 
+_HEX = __import__("re").compile(r"^#[0-9a-fA-F]{6}$")
+
+
+class EventColor(BaseModel):
+    uid: str
+    color: str | None = None   # None — убрать свой цвет
+
+
+@router.post("/api/event-color")
+def set_event_color(body: EventColor):
+    if body.color is not None and not _HEX.match(body.color):
+        raise HTTPException(400, "Цвет вида #rrggbb")
+    colors, _ = core.db.kv_get("event_colors")
+    colors = dict(colors or {})
+    if body.color is None:
+        colors.pop(body.uid, None)
+    else:
+        colors[body.uid] = body.color.lower()
+    core.db.kv_set("event_colors", colors)
+    core.events.invalidate()
+    return {"ok": True}
+
+
+class SharedColor(BaseModel):
+    color: str | None = None
+
+
+@router.put("/api/settings/shared-color")
+def put_shared_color(body: SharedColor):
+    if body.color is not None and not _HEX.match(body.color):
+        raise HTTPException(400, "Цвет вида #rrggbb")
+    core.db.kv_set("settings:shared_color", body.color.lower() if body.color else None)
+    core.events.invalidate()
+    return {"ok": True, "color": body.color}
+
+
 class RepeatIn(BaseModel):
     freq: str | None = None  # daily | weekly | monthly | yearly
     interval: int = 1

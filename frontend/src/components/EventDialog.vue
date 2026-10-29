@@ -13,6 +13,17 @@
         <span v-if="e.tentative" class="tag">под вопросом</span>
       </p>
 
+      <!-- Цвет -->
+      <div v-if="!e.duty && !e.private" class="group">
+        <div class="row stack">
+          <div class="row-head">
+            <span class="label">Цвет события
+              <span class="faint win">{{ ownColor ? 'свой' : sharedColor && persons.length > 1 ? 'как у общих встреч' : 'по человеку' }}</span></span>
+          </div>
+          <ColorPick :model-value="ownColor" none-label="По умолчанию" label="Цвет события" :disabled="saving" @update:model-value="saveColor" />
+        </div>
+      </div>
+
       <!-- Чьё событие -->
       <div class="group">
         <div class="row stack">
@@ -149,6 +160,7 @@ import { state, personById, eventColor, reload, refreshSelected, editEvent, writ
 import { eventRange, formatEventTime, formatTime, relativeDayName } from '../lib/dates'
 import { api } from '../lib/api'
 import PeoplePicker from './PeoplePicker.vue'
+import ColorPick from './ColorPick.vue'
 import Sheet from './Sheet.vue'
 
 const MODES = [
@@ -163,6 +175,21 @@ const ROLES = [
 ]
 
 const e = computed(() => state.selected)
+// Свой цвет: тот, что отличается от общего цвета встреч (сервер отдаёт один и тот же ключ color).
+const sharedColor = computed(() => state.config?.shared_color || null)
+const ownColor = ref(null)
+watch(e, (v) => { ownColor.value = v?.color && v.color !== sharedColor.value ? v.color : null }, { immediate: true })
+async function saveColor(c) {
+  if (!e.value) return
+  saving.value = true
+  error.value = ''
+  try {
+    await api.setEventColor(e.value.uid, c || null)
+    ownColor.value = c || null
+    await reload()
+    await refreshSelected()
+  } catch (err) { error.value = err.message } finally { saving.value = false }
+}
 const color = computed(() => (e.value ? eventColor(e.value) : '#888'))
 const persons = computed(() =>
   (e.value?.people || []).filter((id) => !id.startsWith('_')).map((id) => personById.value[id]).filter(Boolean),

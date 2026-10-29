@@ -276,7 +276,7 @@ const spans = computed(() =>
     const people = [...new Set([...it.e.people, ...(it.e.duty?.parent?.escort?.children || [])])].filter((p) => colIndex.value.has(p))
     return {
       key: `${it.e.id}|${c0}`, e: it.e, c0, c1, y: top + 1, h: h - 2, people,
-      color: colorOf(it.e.duty ? it.e.people[0] : people[0]),
+      color: it.e.color || colorOf(it.e.duty ? it.e.people[0] : people[0]),
       past: it.r.end <= props.now,
       current: it.r.start <= props.now && it.r.end > props.now,
       time: `${formatTime(it.r.start)}–${formatTime(it.r.end)}`,

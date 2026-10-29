@@ -42,7 +42,7 @@
             <button
               v-for="b in lane.blocks" :key="b.key"
               class="block" :class="[{ allday: b.allDay, past: b.past, private: b.e.private, multi: b.e.people.length > 1, 'duty-style': b.e.duty }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
-              :style="{ left: b.x + 'px', width: b.w + 'px', top: b.y + 'px', height: (b.allDay ? ALLDAY_H : ROW_H) - 4 + 'px' }"
+              :style="{ left: b.x + 'px', width: b.w + 'px', top: b.y + 'px', height: (b.allDay ? ALLDAY_H : ROW_H) - 4 + 'px', ...(b.e.color ? { '--c': b.e.color } : {}) }"
               :title="b.e.title"
               @click="openEvent(b.e)"
               @pointerdown="down($event, b)"

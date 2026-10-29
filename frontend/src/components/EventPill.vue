@@ -31,6 +31,7 @@ const props = defineProps({
 })
 
 const color = computed(() => {
+  if (props.e.color) return props.e.color
   if (props.ownerId) return personById.value[props.ownerId]?.color || eventColor(props.e)
   return eventColor(props.e)
 })

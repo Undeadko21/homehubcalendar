@@ -35,6 +35,7 @@ def get_config():
         "pin_enabled": bool(core.settings.pin),
         "accounts": core.engine.accounts(),
         "escort": core.events.escort_settings(),
+        "shared_color": core.events.shared_color(),
     }
 
 

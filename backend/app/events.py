@@ -64,6 +64,7 @@ class EventService:
                          str(cfg.get("home_address") or "").strip(),
                          templates=self.db.templates(), places=cfg.get("places") or [],
                          travel_buffer=int(cfg.get("travel_buffer") or 0))
+        self._apply_colors(wide)
         # Поездки и «все вместе» — в календари взрослых.
         wide += escorts.add_to_adults(wide, people)
         wide.sort(key=lambda e: (e["start"][:10], not e["all_day"], e["start"], e["title"]))
@@ -73,6 +74,22 @@ class EventService:
                 self._cache.clear()
             self._cache[key] = result
         return result
+
+    def shared_color(self) -> str | None:
+        value, _ = self.db.kv_get("settings:shared_color")
+        return value if isinstance(value, str) and value else None
+
+    def _apply_colors(self, evs: list[dict]) -> None:
+        """Свой цвет события (по UID) важнее цвета общих встреч; общие — встречи с двумя и более людьми."""
+        own, _ = self.db.kv_get("event_colors")
+        own = own or {}
+        shared = self.shared_color()
+        for e in evs:
+            c = own.get(e.get("uid"))
+            if not c and shared and len([p for p in e["people"] if not p.startswith("_")]) > 1:
+                c = shared
+            if c:
+                e["color"] = c
 
     def escort_settings(self) -> dict:
         value, _ = self.db.kv_get("settings:escort")

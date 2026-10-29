@@ -83,7 +83,7 @@ def build(events: list[dict], people: dict[str, dict], tz: ZoneInfo, now: dateti
                 "location": e.get("location", ""),
                 "people": who,
                 "who": ", ".join(people[p]["name"] for p in who),
-                "colors": [people[p]["color"] for p in who],
+                "colors": [e["color"]] if e.get("color") else [people[p]["color"] for p in who],
                 "note": note,
                 "issue": e.get("escort_issue"),
                 "duty": bool(e.get("duty")),

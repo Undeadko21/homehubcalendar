@@ -99,8 +99,9 @@ export function showAll() {
   savePrefs()
 }
 
-// Цвет события: цвет первого видимого участника.
+// Цвет события: свой/общий цвет (если задан), иначе цвет первого видимого участника.
 export function eventColor(e) {
+  if (e.color) return e.color
   const p = e.people.map((id) => personById.value[id]).find(Boolean)
   return p?.color || '#8a94a6'
 }
