@@ -319,7 +319,6 @@ struct WidgetView: View {
             Spacer(minLength: 0)
         }
         .padding(family == .systemSmall ? 12 : 14)
-        .padding(family == .systemSmall ? 12 : 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .containerBackground(Color(.systemBackground).opacity(entry.opacity), for: .widget)
     }
