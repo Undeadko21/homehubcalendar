@@ -76,7 +76,8 @@
   и `#if os(macOS)`). Интерфейс: NavigationStack с WebView сервера (или список из снимка), листы «Ближайшие» и «Настройки», фоновое обновление BGAppRefresh.
   GitHub Actions (`ios.yml`, macos-15) собирает **неподписанный** `.ipa` (AltStore подписывает на телефоне) и кладёт в `ios/release/` (`[skip ci]`).
   Сервер раздаёт `/app-ios.ipa`, `/api/app-ios` и источник для AltStore `/altstore.json` (адрес берётся из запроса; AltStore → Sources → «+»).
-  Виджета нет (App Groups на бесплатном аккаунте ненадёжны). Версия — `ios/version.txt`.
+  **Виджет (iOS 17+, `ios/Widget/Widget.swift`, WidgetKit + AppIntent):** отдельная цель `HomeHubWidget`; общего хранилища с приложением нет (App Groups на бесплатном аккаунте ненадёжны),
+  поэтому у каждого виджета свои настройки (адрес сервера, код `hhc1.`, дни, подробности, размер текста, прозрачность, люди). Дома — `/api/widget`, вне дома — снимок с Диска. Версия — `ios/version.txt`.
 - **Запись событий в Яндекс (v0.8).** `writer.py`: `build_ics` (TZID конфигурационного пояса, весь день — VALUE=DATE с исключающим концом, RRULE daily/weekly/monthly/yearly + interval/count/until),
   `apply_edit` (правка мастер-VEVENT; для серии — сдвиг на разницу от редактируемого вхождения, `occurrence`), `add_exdate` («удалить только это»), `CalDavTarget` (caldav: create/update/delete). API:
   `POST /api/event`, `PUT /api/event/{uid}`, `DELETE /api/event/{uid}?calendar=&occurrence=`; после записи объект кладётся в `objects` (`put_object/delete_object/find_object`), кэш сбрасывается,
