@@ -113,7 +113,10 @@ class YandexDisk:
         return [i for i in items if i.get("name", "").startswith("ops-") and i["name"].endswith(".bin")]
 
     def download(self, name: str) -> bytes:
-        r = self._check(self.c.get(f"{API}/resources/download", params={"path": f"app:/{name}"}, headers=self.h),
+        return self.download_path(f"app:/{name}")
+
+    def download_path(self, path: str) -> bytes:
+        r = self._check(self.c.get(f"{API}/resources/download", params={"path": path}, headers=self.h),
                         "запрос скачивания")
         return self._check(self.c.get(r.json()["href"]), "скачивание файла").content
 

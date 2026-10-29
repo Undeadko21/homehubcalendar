@@ -382,6 +382,9 @@ class Database:
                 [(calendar_key, href, ics) for href, ics in objects.items()],
             )
 
+    def objects_map(self, calendar_key: str) -> dict[str, str]:
+        return {r["href"]: r["ics"] for r in self.query("SELECT href, ics FROM objects WHERE calendar_key=?", (calendar_key,))}
+
     def put_object(self, calendar_key: str, href: str, ics: str) -> None:
         with self.tx() as c:
             c.execute("INSERT INTO objects (calendar_key, href, ics) VALUES (?,?,?) "

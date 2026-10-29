@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 @register("caldav")
 class CalDavSource(Source):
-    def fetch(self) -> list[RemoteCalendar]:
+    def fetch(self, known: dict[str, str] | None = None) -> list[RemoteCalendar]:
         include = [s.lower() for s in self.cfg.get("include", [])]
         exclude = [s.lower() for s in self.cfg.get("exclude", [])]
 
@@ -39,6 +39,12 @@ class CalDavSource(Source):
                     continue
                 if not _supports_events(cal):
                     continue
+                rid = _remote_id(cal)
+                ctag = _ctag(cal)
+                if ctag and known and known.get(rid) == ctag:
+                    # Календарь не менялся с прошлой загрузки — объекты не качаем.
+                    result.append(RemoteCalendar(remote_id=rid, name=name, color=_color(cal), ctag=ctag, unchanged=True))
+                    continue
                 objects: dict[str, str] = {}
                 for ev in _all_events(cal):
                     data = ev.data
@@ -50,9 +56,24 @@ class CalDavSource(Source):
                         name=name,
                         color=_color(cal),
                         objects=objects,
+                        ctag=ctag,
                     )
                 )
             return result
+
+
+def _ctag(cal) -> str | None:
+    """CS:getctag — меняется при любом изменении календаря (поддерживает Яндекс, Nextcloud, Radicale)."""
+    try:
+        from caldav.elements.base import BaseElement
+
+        class GetCTag(BaseElement):
+            tag = "{http://calendarserver.org/ns/}getctag"
+
+        v = cal.get_property(GetCTag())
+        return str(v) if v else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _remote_id(cal) -> str:

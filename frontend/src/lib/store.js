@@ -30,6 +30,7 @@ export const state = reactive({
   selected: null, // открытое в карточке событие
   timelineDays: prefs.timelineDays || 7,
   calView: prefs.calView || 'timeline', // последний календарный вид (вкладка «Календарь» на телефоне)
+  moveWarn: null, // предупреждение о конфликтах при переносе: { e, items, resolve }
   moveAsk: null, // перенос повторяющегося события: ждём «только это / вся серия»
   editor: null, // { event } — правка, {} — новое событие
   peopleSheet: false, // лист «Люди» на телефоне

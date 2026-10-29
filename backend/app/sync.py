@@ -59,6 +59,7 @@ class SyncEngine:
         self.on_change = on_change
         self._lock = threading.Lock()
         self.running = False
+        self._runs = 0
 
     def seed_people(self, people: list[dict]) -> None:
         """Люди из config.yaml добавляются, если их ещё нет. Правки из интерфейса сохраняются."""
@@ -111,11 +112,17 @@ class SyncEngine:
         value["password"] = password if password else current.get("password", "")
         self.db.kv_set(f"auth:{source_id}", value)
 
-    def run(self) -> dict:
+    FULL_EVERY = 12   # раз в N запусков качаем всё, даже если ctag не менялся (страховка)
+
+    def run(self, full: bool = False) -> dict:
         if not self._lock.acquire(blocking=False):
             return {"status": "already_running"}
         self.running = True
         report = {}
+        changed = False
+        self._runs += 1
+        full = full or self._runs % self.FULL_EVERY == 1
+        state = self.db.kv_get("sync:ctags")[0] or {}
         try:
             for scfg in self.sources:
                 sid = scfg.get("id", "?")
@@ -126,7 +133,8 @@ class SyncEngine:
                     if scfg.get("type") == "caldav" and not (scfg.get("username") and scfg.get("password")):
                         raise RuntimeError("не указаны логин и пароль приложения — откройте ⚙ Настройки → Учётные записи")
                     src = build_source(scfg)
-                    calendars = src.fetch()
+                    known = {} if full else {k.split('/', 1)[1]: v for k, v in state.items() if k.startswith(sid + '/')}
+                    calendars = src.fetch(known)
                     total = 0
                     seen = set()
                     for rc in calendars:
@@ -134,23 +142,37 @@ class SyncEngine:
                         seen.add(key)
                         self.db.touch_calendar(key, sid, rc.remote_id, rc.name,
                                                calendar_defaults(scfg, rc.name, rc.color))
-                        self.db.replace_objects(key, rc.objects)
+                        if rc.unchanged:
+                            total += len(self.db.objects_map(key))
+                            continue
+                        if self.db.objects_map(key) != rc.objects:
+                            self.db.replace_objects(key, rc.objects)
+                            changed = True
+                        if rc.ctag:
+                            state[key] = rc.ctag
+                        else:
+                            state.pop(key, None)
                         total += len(rc.objects)
                     # Календари, исчезнувшие из источника, очищаем (настройки остаются).
                     for cal in self.db.list_calendars():
                         if cal["source_id"] == sid and cal["key"] not in seen:
+                            if self.db.objects_map(cal["key"]):
+                                changed = True
                             self.db.replace_objects(cal["key"], {})
+                            state.pop(cal["key"], None)
                     self.db.set_sync_status(sid, ok=True, count=total)
                     report[sid] = {"ok": True, "calendars": len(calendars), "objects": total}
                     log.info("Синхронизирован %s: %d календарей, %d объектов", sid, len(calendars), total)
                 except Exception as e:  # noqa: BLE001
+                    changed = True
                     msg = friendly_error(e)
                     self.db.set_sync_status(sid, ok=False, error=msg[:500])
                     report[sid] = {"ok": False, "error": msg}
                     log.exception("Ошибка синхронизации %s", sid)
         finally:
+            self.db.kv_set("sync:ctags", state)
             self.running = False
             self._lock.release()
-            if self.on_change:
+            if self.on_change and (changed or self._runs == 1):
                 self.on_change()
         return report

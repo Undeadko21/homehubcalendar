@@ -66,6 +66,12 @@
         Это повторяющееся событие: изменения времени и названия применятся ко всей серии.
       </p>
 
+      <div v-if="warns.length" class="group warns">
+        <div v-for="(x, i) in warns" :key="i" class="row wrow" :class="x.level">
+          <span class="wdot"></span><span>{{ x.text }}</span>
+        </div>
+      </div>
+
       <div class="group">
         <div class="row stack">
           <span class="label">Чьё событие</span>
@@ -118,6 +124,26 @@ const quickNote = ref('')
 const f = reactive({ title: '', location: '', description: '', allDay: false, startDate: '', startTime: '', endDate: '',
   endTime: '', repeat: '', until: '', calendar: '', people: [] })
 let origPeople = []
+const warns = ref([])
+
+// Проверка конфликтов по мере ввода (с паузой, чтобы не спрашивать сервер на каждую цифру).
+let wt = 0
+let wseq = 0
+watch(() => [ed.value, f.startDate, f.startTime, f.endDate, f.endTime, f.allDay, f.calendar, f.title, JSON.stringify(f.people)], () => {
+  clearTimeout(wt)
+  warns.value = []
+  if (!ed.value || f.allDay || !f.calendar || !f.startDate || !f.startTime || !f.endTime) return
+  wt = setTimeout(async () => {
+    const p = payload()
+    if (new Date(p.end) <= new Date(p.start)) return
+    const my = ++wseq
+    try {
+      const r = await api.conflicts({ calendar: f.calendar, title: f.title, start: p.start, end: p.end, all_day: false,
+        location: f.location, people: f.people.length ? f.people : null, uid: ed.value.event?.uid || null })
+      if (my === wseq) warns.value = r.items || []
+    } catch { /* предупреждения — подсказка, не обязательное условие */ }
+  }, 450)
+})
 
 const pad = (n) => String(n).padStart(2, '0')
 const hm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
@@ -252,6 +278,10 @@ async function remove(onlyThis) {
 .chk { width: 22px; height: 22px; accent-color: var(--red, #ff3b30); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .danger { color: var(--red, #ff3b30); }
+.warns .wrow { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.wdot { width: 8px; height: 8px; border-radius: 50%; flex: none; margin-top: 6px; background: var(--red, #ff3b30); }
+.wrow.info .wdot { background: var(--orange, #ff9500); }
+.wrow.info { color: var(--muted, #8a8a8e); }
 .conflict { color: var(--red, #ff3b30); font-size: 14px; }
 .small { font-size: 13px; }
 </style>

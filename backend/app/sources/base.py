@@ -30,6 +30,8 @@ class RemoteCalendar:
     color: str | None = None
     # href -> текст iCalendar (VCALENDAR). Каждый объект разворачивается отдельно.
     objects: dict[str, str] = field(default_factory=dict)
+    ctag: str | None = None      # метка версии календаря на сервере (если сервер отдаёт)
+    unchanged: bool = False      # ctag совпал с известным — объекты не загружались
 
 
 class Source:
@@ -39,7 +41,8 @@ class Source:
         self.cfg = cfg
         self.id: str = cfg["id"]
 
-    def fetch(self) -> list[RemoteCalendar]:  # pragma: no cover - интерфейс
+    def fetch(self, known: dict[str, str] | None = None) -> list[RemoteCalendar]:  # pragma: no cover - интерфейс
+        """known: remote_id -> ctag, который мы уже загрузили (можно не качать повторно)."""
         raise NotImplementedError
 
 

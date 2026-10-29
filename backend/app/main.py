@@ -6,6 +6,7 @@ import hmac
 import logging
 import os
 import threading
+from time import perf_counter
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -23,7 +24,9 @@ from .db import Database
 from .events import UNASSIGNED, EventService
 from .freetime import find_free
 from . import birthdays as bd, ops, reminders, school, snapshot, stats, widget, writer, writeq, quick, portable
+from . import conflicts
 from .backup import BackupService
+from .perf import SLOW_MS, PerfLog
 from .cloud import CloudError, CloudSync
 from .holidays import HolidayService
 from .sync import SyncEngine
@@ -86,6 +89,28 @@ app = FastAPI(title="HomeHub Calendar", version=__version__, lifespan=lifespan)
 # ---------- простая защита PIN-кодом (включается переменной HOMECAL_PIN) ----------
 def _token() -> str:
     return hmac.new(settings.pin.encode(), b"homecal", hashlib.sha256).hexdigest()
+
+
+perf = PerfLog()
+
+
+@app.middleware("http")
+async def timing(request: Request, call_next):
+    """Замер времени каждого запроса к API (GET /api/perf)."""
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    t0 = perf_counter()
+    status = 500
+    try:
+        resp = await call_next(request)
+        status = resp.status_code
+        return resp
+    finally:
+        ms = (perf_counter() - t0) * 1000
+        route = getattr(request.scope.get("route"), "path", None) or request.url.path
+        perf.record(request.method, route, ms, status, request.url.query)
+        if ms >= SLOW_MS:
+            log.warning("Медленный запрос %s %s: %d мс", request.method, request.url.path, ms)
 
 
 @app.middleware("http")
@@ -280,6 +305,35 @@ def run_backup():
     return backup.run()
 
 
+@app.get("/api/backup/files")
+def backup_files():
+    try:
+        return {"files": backup.files(), "status": backup.status()}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/backup/verify")
+def backup_verify(body: dict | None = None):
+    return backup.verify((body or {}).get("name"))
+
+
+@app.post("/api/backup/restore")
+def backup_restore(body: dict):
+    try:
+        res = backup.restore(str(body.get("name", "")))
+    except Exception as e:  # noqa: BLE001
+        log.exception("Восстановление")
+        raise HTTPException(400, str(e))
+    _synced()
+    return res
+
+
+@app.get("/api/perf")
+def get_perf():
+    return perf.summary()
+
+
 @app.get("/api/system")
 def get_system():
     """Всё, что нужно для страницы «Состояние»: версии, синхронизация, облако, копии, ошибки клиентов."""
@@ -320,7 +374,7 @@ def get_system():
                    "objects": count("SELECT COUNT(*) n FROM objects"), "birthdays": count("SELECT COUNT(*) n FROM birthdays")},
         "sources": sources, "sync_interval": settings.sync.interval_minutes, "syncing": engine.running,
         "cloud": {k: cl[k] for k in ("configured", "last_ok", "last_error", "ops_error")},
-        "backup": bk, "jobs": jobs, "client_errors": len(CLIENT_LOG),
+        "backup": bk, "jobs": jobs, "client_errors": len(CLIENT_LOG), "slow_requests": perf.slow_count(),
         "last_client_error": CLIENT_LOG[-1] if CLIENT_LOG else None, "problems": problems,
     }
 
@@ -333,7 +387,7 @@ def get_status():
 
 @app.post("/api/sync")
 def trigger_sync():
-    return engine.run()
+    return engine.run(full=True)
 
 
 class AccountIn(BaseModel):
@@ -347,7 +401,7 @@ def put_account(source_id: str, body: AccountIn):
         engine.set_credentials(source_id, body.username, body.password)
     except KeyError:
         raise HTTPException(404, "Источник не найден")
-    return engine.run().get(source_id, {"ok": False, "error": "источник выключен"})
+    return engine.run(full=True).get(source_id, {"ok": False, "error": "источник выключен"})
 
 
 class PersonIn(BaseModel):
@@ -456,6 +510,29 @@ def _check_people(people):
     bad = [p for p in people or [] if p not in known]
     if bad:
         raise HTTPException(400, f"Неизвестные люди: {', '.join(bad)}")
+
+
+class ConflictIn(BaseModel):
+    calendar: str
+    title: str = ""
+    start: str
+    end: str | None = None
+    all_day: bool = False
+    location: str = ""
+    people: list[str] | None = None
+    uid: str | None = None
+
+
+@app.post("/api/conflicts")
+def check_conflicts(body: ConflictIn):
+    """Что не сходится, если поставить событие сюда (для предупреждения в форме и при переносе)."""
+    try:
+        items = conflicts.check(events, calendar=body.calendar, title=body.title, start=_parse_dt(body.start),
+                                end=_parse_dt(body.end) if body.end else None, all_day=body.all_day,
+                                people=body.people, uid=body.uid, location=body.location)
+    except ValueError:
+        raise HTTPException(400, "Неверная дата")
+    return {"items": items}
 
 
 @app.post("/api/event")

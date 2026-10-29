@@ -800,6 +800,7 @@ def test_event_write_api_with_fake_target(tmp_path, monkeypatch):
     r = c.post("/api/event", json={"calendar": "ya/home", "title": "Врач", "start": "2026-11-03T10:00:00",
                                    "end": "2026-11-03T11:00:00", "people": ["anna"]})
     assert r.status_code == 200, r.text
+    assert any(x["route"] == "POST /api/event" for x in c.get("/api/perf").json()["routes"])
     uid = r.json()["uid"]
     assert "SUMMARY:Врач" in fake.store["/e1.ics"]
     evs = c.get("/api/events", params={"start": "2026-11-01T00:00:00", "end": "2026-11-10T00:00:00"}).json()
@@ -961,3 +962,118 @@ def test_split_occurrence_moves_only_one():
     assert [o.start for o in _occ(series)] == ["2026-11-02T18:00:00+05:00", "2026-11-16T18:00:00+05:00"]
     o = _occ(one)
     assert len(o) == 1 and o[0].title == "Йога" and o[0].start == "2026-11-10T09:00:00+05:00" and o[0].location == "Зал"
+
+
+def test_incremental_sync_skips_unchanged(db):
+    from app.sources.base import REGISTRY, RemoteCalendar, Source, register
+
+    calls = {"fetch": [], "tag": "t1", "ics": "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:1\nEND:VEVENT\nEND:VCALENDAR"}
+
+    @register("fakectag")
+    class Fake(Source):
+        def fetch(self, known=None):
+            calls["fetch"].append(dict(known or {}))
+            if known and known.get("c") == calls["tag"]:
+                return [RemoteCalendar("c", "C", ctag=calls["tag"], unchanged=True)]
+            return [RemoteCalendar("c", "C", objects={"h": calls["ics"]}, ctag=calls["tag"])]
+
+    try:
+        hits = []
+        engine = SyncEngine(db, [{"id": "f", "type": "fakectag"}], on_change=lambda: hits.append(1))
+        engine.run()                       # первая — полная
+        assert len(hits) == 1 and db.objects_map("f/c")
+        engine.run()                       # ctag тот же — объекты не трогаем, кэш не сбрасываем
+        assert calls["fetch"][1] == {"c": "t1"} and len(hits) == 1
+        assert db.objects_map("f/c")       # данные на месте
+        calls["tag"], calls["ics"] = "t2", calls["ics"].replace("UID:1", "UID:2")
+        engine.run()
+        assert "UID:2" in db.objects_map("f/c")["h"] and len(hits) == 2
+        engine.run(full=True)              # принудительно — известные метки не передаются
+        assert calls["fetch"][-1] == {}
+    finally:
+        REGISTRY.pop("fakectag", None)
+
+
+def test_backup_verify_and_restore(tmp_path):
+    from app import backup as bk
+    from app.cloud import CloudSync
+
+    db = Database(tmp_path / "t.sqlite3")
+    db.kv_set("marker", {"x": 1})
+    db.upsert_person({"id": "a", "name": "Аня", "color": "#000"})
+
+    class FakeDisk:
+        files: dict = {}
+
+        def __init__(self, token):
+            pass
+
+        def mkdir(self, p):
+            pass
+
+        def upload(self, data, path):
+            FakeDisk.files[path.rsplit("/", 1)[1]] = data
+
+        def ls(self, p):
+            return [{"name": n, "size": len(b)} for n, b in FakeDisk.files.items()]
+
+        def rm(self, path):
+            FakeDisk.files.pop(path.rsplit("/", 1)[1], None)
+
+        def download_path(self, path):
+            return FakeDisk.files[path.rsplit("/", 1)[1]]
+
+    c = CloudSync(db, lambda: {}, FakeDisk)
+    c.set_token("y0_testtoken_0123456789abcdef")
+    svc = bk.BackupService(db, c, TZ, FakeDisk)
+    svc.run()
+    name = svc.files()[0]["name"]
+    v = svc.verify()
+    assert v["ok"] and v["name"] == name and v["people"] == 1
+    assert svc.status()["verified"]["ok"]
+    db.kv_set("marker", {"x": 2})
+    db.delete_person("a") if hasattr(db, "delete_person") else None
+    res = svc.restore(name)
+    assert res["ok"] and db.kv_get("marker")[0] == {"x": 1}
+    assert (tmp_path / "before-restore.db.gz").exists()
+    # битая и чужая копии не принимаются
+    FakeDisk.files["homehub-29990101-0000" + bk.SUFFIX] = b"junk"
+    assert not svc.verify("homehub-29990101-0000" + bk.SUFFIX)["ok"]
+    try:
+        svc.restore("../x")
+        assert False
+    except Exception as e:  # noqa: BLE001
+        assert "имя" in str(e)
+
+
+def test_perf_log():
+    from app.perf import PerfLog
+    p = PerfLog()
+    p.record("GET", "/api/events", 120, 200)
+    p.record("GET", "/api/events", 2000, 200, "start=1")
+    s = p.summary()
+    assert s["routes"][0]["n"] == 2 and s["slow"][0]["ms"] == 2000
+
+
+def test_conflicts_on_create(db):
+    from datetime import datetime
+    from app import conflicts
+    _setup(db, {"mom": ("mom", [ev("yoga@t", "Йога", "20261028T180000", "20261028T190000")]),
+                "dad": ("dad", [ev("work@t", "Совещание", "20261028T160000", "20261028T170000")])})
+    db.upsert_person({"id": "mark", "name": "Марк", "needs_escort": True})
+    svc = EventService(db, TZ)
+    t = lambda h, m=0: datetime(2026, 10, 28, h, m, tzinfo=TZ)  # noqa: E731
+    # Мама на йоге — предупреждение о занятости
+    r = conflicts.check(svc, calendar="mom", title="Врач", start=t(18, 30), end=t(19, 30), all_day=False, people=["mom"])
+    assert any(x["kind"] == "event" and "Йога" in x["text"] for x in r)
+    # Свободное время — тишина
+    assert conflicts.check(svc, calendar="mom", title="Врач", start=t(12), end=t(13), all_day=False, people=["mom"]) == []
+    # Правка самого события не конфликтует с ним же
+    assert conflicts.check(svc, calendar="mom", title="Йога", start=t(18, 15), end=t(19), all_day=False,
+                           people=["mom"], uid="yoga@t") == []
+    # Ребёнок: родители заняты и до, и после — нужно сказать, что некому
+    r = conflicts.check(svc, calendar="mom", title="Секция", start=t(16, 30), end=t(17), all_day=False, people=["mark"])
+    texts = " ".join(x["text"] for x in r)
+    assert "Марка" in texts, texts
+    # Весь день — не проверяем
+    assert conflicts.check(svc, calendar="mom", title="x", start=t(0), end=None, all_day=True, people=["mom"]) == []
