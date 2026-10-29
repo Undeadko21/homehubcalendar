@@ -1100,3 +1100,12 @@ def test_split_following_weekly_and_count():
     assert nuid != uid and "SUMMARY:Ушу (новое время)" in new
     # первое вхождение — вся серия
     assert writer.split_following(ics, start, {"start": start, "all_day": False}, TZ) is None
+
+
+def test_cancelled_titles_hidden():
+    from app.expand import is_cancelled_title
+    assert is_cancelled_title("Отменено: планёрка")
+    assert is_cancelled_title("Canceled: Weekly sync")
+    assert is_cancelled_title("  Отменена - встреча")
+    assert not is_cancelled_title("Планёрка отменена на завтра")
+    assert not is_cancelled_title("Отмена прививки")

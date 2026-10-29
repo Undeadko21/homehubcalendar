@@ -8,6 +8,7 @@ recurring-ical-events — это самая коварная часть кале
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import timezone, date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -95,6 +96,14 @@ def _bounds(cal) -> tuple[datetime, datetime | None]:
     return lo - _MARGIN, (None if open_end else hi + _MARGIN)
 
 
+# Отменённые встречи: Teams/Outlook пишут «Canceled: …», Битрикс24 и русские клиенты — «Отменено: …».
+_CANCELLED_RE = re.compile(r"^\s*(?:canceled|cancelled|отменено|отменена|отменен|отменён)\b\s*[:\-–—]", re.I)
+
+
+def is_cancelled_title(title: str) -> bool:
+    return bool(_CANCELLED_RE.match(title or ""))
+
+
 def expand_ics(ics_text: str, range_start: datetime, range_end: datetime, tz: ZoneInfo) -> list[Occurrence]:
     key = (len(ics_text), hash(ics_text))
     b = _BOUNDS.get(key)
@@ -131,7 +140,7 @@ def expand_ics(ics_text: str, range_start: datetime, range_end: datetime, tz: Zo
 
     out: list[Occurrence] = []
     for comp in components:
-        if _text(comp, "STATUS").upper() == "CANCELLED":
+        if _text(comp, "STATUS").upper() == "CANCELLED" or is_cancelled_title(_text(comp, "SUMMARY")):
             continue
         dtstart = comp.get("DTSTART")
         if dtstart is None:
