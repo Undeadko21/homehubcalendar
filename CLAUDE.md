@@ -100,6 +100,22 @@
   *Скорость:* `perf.py` + middleware `timing` (по шаблону маршрута, медленные ≥700 мс в лог и в `GET /api/perf`, число — `slow_requests` в `/api/system`; секция «Скорость» в UI).
   *Конфликты:* `conflicts.check` примеряет событие к ленте ±1 день (копии, ничего не пишет): занятость участников (включая их поездки), поездки ребёнка (не сможет/некому/нужно назначить), поездки других детей, которые это событие ломает.
   `POST /api/conflicts {calendar,title,start,end,people,uid}` → `items[{level warn|info,text}]`; `EventEditor` показывает их по мере ввода, перетаскивание (`moveEvent.confirmConflicts`, `MoveWarn.vue`) спрашивает «Всё равно перенести» только при `warn`. События на весь день и повторы (кроме первого вхождения) не проверяются.
+- **v0.10.** *«Это и следующие»:* `writer.split_following` (старая серия обрывается `UNTIL` в UTC, с вхождения — новая серия с новым UID, BYDAY сдвигается на разницу дней; COUNT пересчитывается), `scope=following` в `PUT /api/event/{uid}`
+  (участники и назначения «на всю серию» переходят в новую); первое вхождение = вся серия. `UNTIL` у событий со временем пишется RFC-правильно (UTC-дата-время). `repeat.byday` — несколько дней недели в одной серии.
+  *Напоминания на весь день:* `kv settings:event_reminders.allday = {people, time}` (`reminders.load_allday/save_allday`), вечером накануне, `kind: event`, дни рождения не дублируются (`AUTO_RE`); UI — «Напоминания → События на весь день».
+  *События вне дома:* команды `event_add` (готовые поля) и `event_quick` (фраза, разбирает сервер `quick.parse`) в `ops.py`, обработчик `core._ops_event` (календарь — первый пишущий, где владелец один из участников); отклонённые — `kv ops:rejected`
+  и красная точка в «Состоянии». Android офлайн-экран: поле «Быстро» → `event_quick`. **Алиса:** «добавь на завтра в 18:00 врача Марку» (`HOMEHUB_TOKEN` — токен записи Диска, необязательный) кладёт `ops-alice-<id>.bin`
+  (по файлу на команду, без гонок), сервер подхватывает за ≤1 мин и удаляет файл. `alice/function.zip` пересобирать после правок handler.py.
+  *Мастер секций:* `POST /api/section` (дни недели × время × водители × минуты в пути → недельные серии с `BYDAY`; дни с одинаковыми параметрами — одна серия; назначения — `escorts` scope `*`), `SectionWizard.vue` (из формы «+»).
+  *sync-token:* `CalDavSource` при смене ctag берёт дельту (`get_objects_by_sync_token(..., disable_fallback=True)`), токен запрашивается ДО полной загрузки; любая неудача/усечение → полная загрузка. Состояние `kv sync:ctags` = `{key: {ctag, token}}`;
+  `SyncEngine._apply_delta` сопоставляет адреса по пути. Проверено на Radicale (`tests/test_caldav_radicale.py`), на Яндексе — нет (если он sync-collection не умеет, работает по ctag).
+  *Безопасность:* секреты `kv` (`auth:*`, `cloud:token`, `cloud:key`) шифруются ключом `data/secret.key` (0600, создаётся сам; `Database.encrypt_secrets` при запуске). В копии на Диске секреты открыты (копия целиком зашифрована ключом облака),
+  после восстановления шифруются заново; **резервировать `data/secret.key` не нужно, но без него секреты базы не прочитать — после потери ключа вводить пароль Яндекса и токен Диска заново**. `/api/login`: 5 ошибок → блокировка по IP на 1 мин, дальше ×2 (до часа).
+  *Живое обновление:* `live.bump()` при `events.invalidate()` и любой успешной записи через API (middleware `timing`); `GET /api/stream` (SSE) отдаёт номер, `store.connectLive()` перезагружает данные. Один процесс uvicorn — счётчик в памяти.
+  *Самопроверка:* `POST /api/selftest/write` (создать → прочитать → перенести → серия с EXDATE → удалить, мимо локальной базы), кнопка в «Состояние и копии». `deploy/test-rollback.sh` проверяет откат `update.sh` на подставных docker/curl.
+  *Тесты:* `backend/tests/conftest.py` (фикстура `api`), `test_api2.py`, `test_caldav_radicale.py` (настоящий CalDAV — ctag, дельты, запись), `test_e2e.py` (Playwright против собранного фронта + Radicale; пропускается без dist/playwright). CI — `.github/workflows/backend.yml`.
+  *Структура бэкенда:* `main.py` (app, middleware, PIN, подключение роутеров, SPA), `core.py` (настройки, singletons `db/events/engine/cloud/backup/ws…`, `make_target`, `_create_event`, `_ops_event`), `api/{system,apps,cloud_api,lists,planning,writing}.py`.
+  В роутерах singletons берутся как `core.db` (тесты перезагружают `core`, затем `main`, и подменяют `core.make_target`).
 - Свободное время: `freetime.py` — объединение занятости выбранных людей (+ их поездки).
 - Настройки из UI (`configured=1`) важнее правил из config.yaml и не перетираются синхронизацией.
 
@@ -119,7 +135,8 @@
 | `birthdays.py` | ближайшие дни рождения, обратный отсчёт |
 | `snapshot.py`, `cloud.py` | снимок для телефона и выгрузка на Яндекс.Диск |
 | `reminders.py` | что и когда напомнить телефону |
-| `main.py` | API, PIN-защита, раздача SPA |
+| `main.py`, `core.py`, `api/*.py` | приложение и middleware / общие объекты / маршруты по темам |
+| `conflicts.py`, `perf.py`, `live.py` | предупреждения о конфликтах, замер запросов, счётчик изменений для SSE |
 
 API: `GET /api/config`, `GET /api/events?start&end`, `GET /api/holidays?start&end`,
 `GET /api/status`, `POST /api/sync`, `PUT|DELETE /api/people/{id}`, `PATCH /api/calendars/{key}`,

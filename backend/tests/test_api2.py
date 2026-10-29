@@ -49,7 +49,7 @@ def test_ops_event_quick_and_add(api):
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
     from app import ops
-    c, m = api, api.main
+    c, m = api, api.core
     h = {"event_add": m._ops_event, "event_quick": m._ops_event}
     day = (datetime.now(ZoneInfo("Asia/Yekaterinburg")) + timedelta(days=1)).date()
     done = ops.apply(m.db, [
@@ -68,8 +68,8 @@ def test_ops_event_quick_and_add(api):
 
 def test_section_wizard(api):
     c = api
-    c.main.db.upsert_person({"id": "mark", "name": "Марк", "needs_escort": True})
-    c.main.db.upsert_person({"id": "dad", "name": "Папа"})
+    c.core.db.upsert_person({"id": "mark", "name": "Марк", "needs_escort": True})
+    c.core.db.upsert_person({"id": "dad", "name": "Папа"})
     r = c.post("/api/section", json={
         "calendar": "ya/home", "title": "Ушу", "people": ["mark"], "from_date": "2026-11-02", "until": "2026-11-30",
         "rows": [{"day": 1, "start": "17:40", "end": "18:40", "dropoff": "anna", "pickup": "dad", "travel": 15},
@@ -162,7 +162,7 @@ def test_secrets_encrypted_and_backup_plain(tmp_path):
 
 def test_login_rate_limit(api, monkeypatch):
     m = api.main
-    monkeypatch.setattr(m.settings, "pin", "1234", raising=False)
+    monkeypatch.setattr(api.core.settings, "pin", "1234", raising=False)
     codes = [api.post("/api/login", json={"pin": "0000"}).status_code for _ in range(6)]
     assert codes[:5] == [401] * 5 and codes[5] == 429
     assert api.post("/api/login", json={"pin": "1234"}).status_code == 429   # даже верный PIN, пока блокировка

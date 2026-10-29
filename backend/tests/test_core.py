@@ -784,7 +784,8 @@ def test_event_write_api_with_fake_target(tmp_path, monkeypatch):
 
     from fastapi.testclient import TestClient
 
-    from app import main
+    from app import core, main
+    importlib.reload(core)
     importlib.reload(main)
 
     class Fake:
@@ -794,8 +795,8 @@ def test_event_write_api_with_fake_target(tmp_path, monkeypatch):
         def delete(self, rid, href): del self.store[href]
 
     fake = Fake()
-    monkeypatch.setattr(main, "make_target", lambda key: fake)
-    main.db.touch_calendar("ya/home", "ya", "home", "Дом", {"people": ["anna"]})
+    monkeypatch.setattr(core, "make_target", lambda key: fake)
+    core.db.touch_calendar("ya/home", "ya", "home", "Дом", {"people": ["anna"]})
     c = TestClient(main.app)
     r = c.post("/api/event", json={"calendar": "ya/home", "title": "Врач", "start": "2026-11-03T10:00:00",
                                    "end": "2026-11-03T11:00:00", "people": ["anna"]})
@@ -861,7 +862,8 @@ def test_write_queue_retry_journal_undo(tmp_path, monkeypatch):
 
     from fastapi.testclient import TestClient
 
-    from app import main
+    from app import core, main
+    importlib.reload(core)
     importlib.reload(main)
 
     class Fake:
@@ -874,8 +876,8 @@ def test_write_queue_retry_journal_undo(tmp_path, monkeypatch):
         def delete(self, rid, href): self._chk(); del self.store[href]
 
     fake = Fake()
-    monkeypatch.setattr(main, "make_target", lambda key: fake)
-    main.db.touch_calendar("ya/home", "ya", "home", "Дом", {"people": ["anna"]})
+    monkeypatch.setattr(core, "make_target", lambda key: fake)
+    core.db.touch_calendar("ya/home", "ya", "home", "Дом", {"people": ["anna"]})
     c = TestClient(main.app)
     rng = {"start": "2026-11-01T00:00:00", "end": "2026-11-10T00:00:00"}
 
@@ -886,17 +888,17 @@ def test_write_queue_retry_journal_undo(tmp_path, monkeypatch):
     uid = r["uid"]
     # правка до отправки сливается с созданием
     c.put(f"/api/event/{uid}", json={"calendar": "ya/home", "title": "Врач 2"})
-    assert main.ws.pending_count() == 1
+    assert core.ws.pending_count() == 1
     # синхронизация не должна стирать неотправленное
-    main.db.replace_objects("ya/home", {})
-    main.ws.reapply()
+    core.db.replace_objects("ya/home", {})
+    core.ws.reapply()
     assert [e["title"] for e in c.get("/api/events", params=rng).json()] == ["Врач 2"]
     assert c.get("/api/status").status_code == 200
 
     fake.down = False
-    assert main.ws.flush() == {"done": 1, "failed": 0, "left": 0}
+    assert core.ws.flush() == {"done": 1, "failed": 0, "left": 0}
     assert list(fake.store) == ["/e1.ics"] and "SUMMARY:Врач 2" in fake.store["/e1.ics"]
-    found = main.db.find_object(uid)
+    found = core.db.find_object(uid)
     assert found[1] == "/e1.ics"
 
     # журнал и отмена

@@ -13,7 +13,8 @@ def api(tmp_path, monkeypatch):
     monkeypatch.setenv("HOMECAL_DATA_DIR", str(tmp_path))
     from fastapi.testclient import TestClient
 
-    from app import main
+    from app import core, main
+    importlib.reload(core)
     importlib.reload(main)
 
     class Fake:
@@ -37,8 +38,8 @@ def api(tmp_path, monkeypatch):
             del self.store[href]
 
     fake = Fake()
-    monkeypatch.setattr(main, "make_target", lambda key: fake)
-    main.db.touch_calendar("ya/home", "ya", "home", "Дом", {"people": ["anna"]})
+    monkeypatch.setattr(core, "make_target", lambda key: fake)
+    core.db.touch_calendar("ya/home", "ya", "home", "Дом", {"people": ["anna"]})
     client = TestClient(main.app)
-    client.fake, client.main = fake, main
+    client.fake, client.main, client.core = fake, main, core
     return client
