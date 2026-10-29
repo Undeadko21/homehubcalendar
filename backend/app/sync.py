@@ -38,6 +38,16 @@ def calendar_defaults(source_cfg: dict, name: str, remote_color: str | None) -> 
     return d
 
 
+def _norm_href(h: str) -> str:
+    from urllib.parse import unquote, urlparse
+    return unquote(urlparse(h).path).rstrip("/")
+
+
+def _as_state(v) -> dict:
+    """Раньше хранилась одна строка ctag, теперь {ctag, token}."""
+    return v if isinstance(v, dict) else {"ctag": v, "token": None}
+
+
 def friendly_error(e: Exception) -> str:
     """Понятное описание ошибки для интерфейса."""
     name = type(e).__name__
@@ -60,6 +70,24 @@ class SyncEngine:
         self._lock = threading.Lock()
         self.running = False
         self._runs = 0
+
+    def _apply_delta(self, key: str, rc) -> bool:
+        """Накладывает изменения sync-collection. Адреса сравниваем по пути: сервер отдаёт то полный URL, то путь."""
+        norm = _norm_href
+        existing = self.db.objects_map(key)
+        by_path = {norm(h): h for h in existing}
+        changed = False
+        for href, ics in rc.objects.items():
+            old = by_path.get(norm(href), href)
+            if existing.get(old) != ics:
+                self.db.put_object(key, old, ics)
+                changed = True
+        for href in rc.deleted:
+            old = by_path.get(norm(href))
+            if old is not None:
+                self.db.delete_object(key, old)
+                changed = True
+        return changed
 
     def seed_people(self, people: list[dict]) -> None:
         """Люди из config.yaml добавляются, если их ещё нет. Правки из интерфейса сохраняются."""
@@ -133,7 +161,7 @@ class SyncEngine:
                     if scfg.get("type") == "caldav" and not (scfg.get("username") and scfg.get("password")):
                         raise RuntimeError("не указаны логин и пароль приложения — откройте ⚙ Настройки → Учётные записи")
                     src = build_source(scfg)
-                    known = {} if full else {k.split('/', 1)[1]: v for k, v in state.items() if k.startswith(sid + '/')}
+                    known = {} if full else {k.split('/', 1)[1]: _as_state(v) for k, v in state.items() if k.startswith(sid + '/')}
                     calendars = src.fetch(known)
                     total = 0
                     seen = set()
@@ -145,14 +173,19 @@ class SyncEngine:
                         if rc.unchanged:
                             total += len(self.db.objects_map(key))
                             continue
-                        if self.db.objects_map(key) != rc.objects:
-                            self.db.replace_objects(key, rc.objects)
-                            changed = True
-                        if rc.ctag:
-                            state[key] = rc.ctag
+                        if rc.delta:
+                            if self._apply_delta(key, rc):
+                                changed = True
+                            total += len(self.db.objects_map(key))
+                        else:
+                            if self.db.objects_map(key) != rc.objects:
+                                self.db.replace_objects(key, rc.objects)
+                                changed = True
+                            total += len(rc.objects)
+                        if rc.ctag or rc.token:
+                            state[key] = {"ctag": rc.ctag, "token": rc.token}
                         else:
                             state.pop(key, None)
-                        total += len(rc.objects)
                     # Календари, исчезнувшие из источника, очищаем (настройки остаются).
                     for cal in self.db.list_calendars():
                         if cal["source_id"] == sid and cal["key"] not in seen:

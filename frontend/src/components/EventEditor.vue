@@ -14,6 +14,7 @@
           <button type="button" class="btn link" :disabled="busy || !quick.trim()" @click="fillQuick">Разобрать</button>
         </div>
         <p v-if="quickNote" class="faint small qn">{{ quickNote }}</p>
+        <div class="row"><button type="button" class="btn link" @click="openWizard">Секция или кружок по дням недели…</button></div>
       </div>
 
       <div class="group">
@@ -62,9 +63,16 @@
           </select>
         </div>
       </div>
-      <p v-if="!isNew && ed.event?.recurring" class="faint small">
-        Это повторяющееся событие: изменения времени и названия применятся ко всей серии.
-      </p>
+      <div v-if="!isNew && ed.event?.recurring" class="group">
+        <div class="row between">
+          <label for="ee-scope">Изменить</label>
+          <select id="ee-scope" v-model="f.scope">
+            <option value="series">Всю серию</option>
+            <option value="following">Это и следующие</option>
+            <option value="once">Только это</option>
+          </select>
+        </div>
+      </div>
 
       <div v-if="warns.length" class="group warns">
         <div v-for="(x, i) in warns" :key="i" class="row wrow" :class="x.level">
@@ -122,7 +130,7 @@ const confirmDel = ref(false)
 const quick = ref('')
 const quickNote = ref('')
 const f = reactive({ title: '', location: '', description: '', allDay: false, startDate: '', startTime: '', endDate: '',
-  endTime: '', repeat: '', until: '', calendar: '', people: [] })
+  endTime: '', repeat: '', until: '', calendar: '', people: [], scope: 'series' })
 let origPeople = []
 const warns = ref([])
 
@@ -159,7 +167,7 @@ watch(ed, (v) => {
     const e = v.event
     const r = eventRange(e)
     Object.assign(f, { title: e.title, location: e.location || '', description: e.description || '', allDay: !!e.all_day,
-      repeat: e.recurring ? 'keep' : '', until: '' })
+      repeat: e.recurring ? 'keep' : '', until: '', scope: 'series' })
     f.startDate = isoDate(r.start)
     f.endDate = isoDate(e.all_day ? addDays(r.end, -1) : r.end)
     f.startTime = e.all_day ? '09:00' : hm(r.start)
@@ -196,6 +204,7 @@ watch(() => [f.startDate, f.startTime], ([d, t], old) => {
 function syncEnd() {}
 
 function close() { state.editor = null }
+function openWizard() { state.editor = null; state.wizard = true }
 
 async function fillQuick() {
   if (!quick.value.trim()) return
@@ -237,8 +246,8 @@ async function save() {
     } else {
       const e = ed.value.event
       const body = { calendar: f.calendar, title: f.title.trim(), ...p, location: f.location, description: f.description }
-      if (e.recurring) body.occurrence = e.start
-      if (f.repeat !== 'keep') { body.repeat_set = true; body.repeat = repeat }
+      if (e.recurring) { body.occurrence = e.start; if (f.scope !== 'series') body.scope = f.scope }
+      if (f.repeat !== 'keep' && f.scope !== 'once') { body.repeat_set = true; body.repeat = repeat }
       if (JSON.stringify(f.people) !== JSON.stringify(origPeople)) { body.people_set = true; body.people = f.people.length ? f.people : null }
       await api.updateEvent(e.uid, body)
     }

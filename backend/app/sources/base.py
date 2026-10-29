@@ -32,6 +32,9 @@ class RemoteCalendar:
     objects: dict[str, str] = field(default_factory=dict)
     ctag: str | None = None      # метка версии календаря на сервере (если сервер отдаёт)
     unchanged: bool = False      # ctag совпал с известным — объекты не загружались
+    token: str | None = None     # sync-token (RFC 6578) на момент загрузки
+    delta: bool = False          # объекты — только изменённые с прошлого токена, удалённые — в `deleted`
+    deleted: set = field(default_factory=set)
 
 
 class Source:
@@ -41,8 +44,8 @@ class Source:
         self.cfg = cfg
         self.id: str = cfg["id"]
 
-    def fetch(self, known: dict[str, str] | None = None) -> list[RemoteCalendar]:  # pragma: no cover - интерфейс
-        """known: remote_id -> ctag, который мы уже загрузили (можно не качать повторно)."""
+    def fetch(self, known: dict[str, dict] | None = None) -> list[RemoteCalendar]:  # pragma: no cover - интерфейс
+        """known: remote_id -> {"ctag", "token"} того, что уже загружено (можно не качать повторно / качать только изменения)."""
         raise NotImplementedError
 
 

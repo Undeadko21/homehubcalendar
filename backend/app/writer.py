@@ -31,11 +31,21 @@ def _rrule(repeat: dict | None) -> dict | None:
     r: dict = {"FREQ": [freq]}
     if int(repeat.get("interval") or 1) > 1:
         r["INTERVAL"] = [int(repeat["interval"])]
+    byday = [d for d in (repeat.get("byday") or []) if d in _DAYS]
+    if byday and freq == "WEEKLY":
+        r["BYDAY"] = byday
     if repeat.get("count"):
         r["COUNT"] = [int(repeat["count"])]
     elif repeat.get("until"):
         r["UNTIL"] = [date.fromisoformat(str(repeat["until"])[:10])]
     return r
+
+
+def _until_utc(rr: dict | None, all_day: bool, tz: ZoneInfo) -> None:
+    """RFC 5545: у события со временем UNTIL — дата-время в UTC (конец выбранного дня по местному времени)."""
+    if rr and not all_day and rr.get("UNTIL") and isinstance(rr["UNTIL"][0], date) and not isinstance(rr["UNTIL"][0], datetime):
+        d = rr["UNTIL"][0]
+        rr["UNTIL"] = [datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=tz).astimezone(ZoneInfo("UTC"))]
 
 
 def _apply_times(ev: Event, start: datetime, end: datetime | None, all_day: bool, tz: ZoneInfo) -> None:
@@ -86,6 +96,7 @@ def build_ics(title: str, start: datetime, end: datetime | None, all_day: bool, 
     if description.strip():
         ev.add("DESCRIPTION", description.strip())
     rr = _rrule(repeat)
+    _until_utc(rr, all_day, tz)
     if rr:
         ev.add("RRULE", rr)
     ev.add("SEQUENCE", 0)
@@ -136,6 +147,7 @@ def apply_edit(ics: str, fields: dict, tz: ZoneInfo) -> str:
         if "RRULE" in ev:
             del ev["RRULE"]
         rr = _rrule(fields["repeat"])
+        _until_utc(rr, not isinstance(ev.decoded("DTSTART"), datetime), tz)
         if rr:
             ev.add("RRULE", rr)
         # переопределения отдельных вхождений теряют смысл при смене правила
@@ -193,6 +205,94 @@ def split_occurrence(ics: str, occurrence: datetime, start: datetime, end: datet
     uid, new = build_ics(str(m.get("SUMMARY") or "Без названия"), start, end, all_day, tz,
                          str(m.get("LOCATION") or ""), str(m.get("DESCRIPTION") or ""))
     return series, uid, new
+
+
+_DAYS = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+
+
+def split_following(ics: str, occurrence: datetime, fields: dict, tz: ZoneInfo) -> tuple[str, str, str] | None:
+    """«Это и следующие»: старая серия обрывается перед вхождением, с него начинается новая серия (новый UID)
+    с новым временем/названием. fields — как в apply_edit (start/end/all_day обязательны; title, location,
+    description, repeat — по желанию). None — если это первое вхождение (тогда правится вся серия).
+    Возвращает (ics старой серии, uid новой, ics новой)."""
+    import recurring_ical_events
+
+    cal = Calendar.from_ical(ics)
+    ev = _master(cal)
+    if "RRULE" not in ev or "DTSTART" not in ev:
+        raise WriteError("Событие не повторяется")
+    dtstart = ev.decoded("DTSTART")
+    timed = isinstance(dtstart, datetime)
+    occ = occurrence if (occurrence.tzinfo or not timed) else occurrence.replace(tzinfo=tz)
+    first = dtstart.astimezone(tz) if timed else dtstart
+    occ_cmp = occ.astimezone(tz) if timed else (occ.date() if isinstance(occ, datetime) else occ)
+    if occ_cmp <= first:
+        return None
+    # Сколько вхождений было до выбранного (нужно, если у серии задан COUNT).
+    lo = first if timed else datetime.combine(first, datetime.min.time())
+    hi = occ_cmp if timed else datetime.combine(occ_cmp, datetime.min.time())
+    before = [c for c in recurring_ical_events.of(cal).between(lo - timedelta(days=1), hi)
+              if (c.decoded("DTSTART").astimezone(tz) if isinstance(c.decoded("DTSTART"), datetime)
+                  else c.decoded("DTSTART")) < occ_cmp]
+    n_before = len(before)
+
+    # --- новая серия: копия исходной с новым UID и временем ---
+    new_cal = Calendar.from_ical(ics)
+    new_cal.subcomponents = [c for c in new_cal.subcomponents if not (c.name == "VEVENT" and "RECURRENCE-ID" in c)]
+    nev = _master(new_cal)
+    uid = f"{uuid.uuid4()}@homehub"
+    nev["UID"] = uid
+    for k in ("EXDATE", "RDATE", "SEQUENCE", "LAST-MODIFIED"):
+        if k in nev:
+            del nev[k]
+    start, end = fields["start"], fields.get("end")
+    _apply_times(nev, start, end, bool(fields.get("all_day")), tz)
+    rr = dict(nev["RRULE"])
+    if rr.get("COUNT"):
+        left = int(rr["COUNT"][0]) - n_before
+        if left < 1:
+            return None
+        rr["COUNT"] = [left]
+    delta = (start.date() - occ_cmp.date()).days if hasattr(occ_cmp, "date") else (start.date() - occ_cmp).days
+    if rr.get("FREQ") == ["WEEKLY"] and rr.get("BYDAY") and delta:
+        try:
+            rr["BYDAY"] = [_DAYS[(_DAYS.index(d) + delta) % 7] for d in rr["BYDAY"]]
+        except ValueError:
+            pass
+    del nev["RRULE"]
+    nev.add("RRULE", rr)
+    nev.add("SEQUENCE", 0)
+    nev.add("DTSTAMP", datetime.now(ZoneInfo("UTC")))
+    new_ics = _finish(new_cal)
+    extra = {k: v for k, v in fields.items() if k in ("title", "location", "description", "repeat")}
+    if extra:
+        new_ics = apply_edit(new_ics, extra, tz)
+
+    # --- старая серия: обрываем перед вхождением ---
+    old = _master(cal)
+    r_old = dict(old["RRULE"])
+    r_old.pop("COUNT", None)
+    r_old.pop("UNTIL", None)
+    if timed:
+        r_old["UNTIL"] = [(occ_cmp - timedelta(seconds=1)).astimezone(ZoneInfo("UTC"))]
+    else:
+        r_old["UNTIL"] = [occ_cmp - timedelta(days=1)]
+    del old["RRULE"]
+    old.add("RRULE", r_old)
+    cal.subcomponents = [c for c in cal.subcomponents
+                         if not (c.name == "VEVENT" and "RECURRENCE-ID" in c
+                                 and _rid_cmp(c.decoded("RECURRENCE-ID"), tz) >= occ_cmp)]
+    seq = int(old.get("SEQUENCE", 0) or 0) + 1
+    for k in ("SEQUENCE", "DTSTAMP"):
+        if k in old:
+            del old[k]
+    old.add("SEQUENCE", seq)
+    old.add("DTSTAMP", datetime.now(ZoneInfo("UTC")))
+    return _finish(cal), uid, new_ics
+
+
+def _rid_cmp(rid, tz: ZoneInfo):
+    return rid.astimezone(tz) if isinstance(rid, datetime) else rid
 
 
 def title_of(ics: str) -> str:

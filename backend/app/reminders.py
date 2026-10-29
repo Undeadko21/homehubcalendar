@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from .birthdays import upcoming
+from .birthdays import AUTO_RE, upcoming
 from .db import Database
 
 EVENT_KEY = "settings:event_reminders"
@@ -36,8 +36,31 @@ def save_rules(db: Database, people: dict, known: set[str]) -> dict[str, list[in
         vals = sorted({int(x) for x in leads or [] if 1 <= int(x) <= 10080}, reverse=True)[:4]
         if vals:
             clean[pid] = vals
-    db.kv_set(EVENT_KEY, {"people": clean})
+    cur = db.kv_get(EVENT_KEY)[0] or {}
+    cur["people"] = clean
+    db.kv_set(EVENT_KEY, cur)
     return clean
+
+
+def load_allday(db: Database) -> dict:
+    """События на весь день: {people: [id…], time: "HH:MM"} — вечером накануне напомнить выбранным людям."""
+    v = (db.kv_get(EVENT_KEY)[0] or {}).get("allday") or {}
+    t = v.get("time") or "19:00"
+    return {"people": list(v.get("people") or []), "time": t}
+
+
+def save_allday(db: Database, people: list, time_: str, known: set[str]) -> dict:
+    try:
+        h, m = (int(x) for x in str(time_ or "19:00").split(":"))
+        assert 0 <= h < 24 and 0 <= m < 60
+    except (ValueError, AssertionError):
+        time_ = "19:00"
+    else:
+        time_ = f"{h:02d}:{m:02d}"
+    cur = db.kv_get(EVENT_KEY)[0] or {}
+    cur["allday"] = {"people": [p for p in dict.fromkeys(people or []) if p in known], "time": time_}
+    db.kv_set(EVENT_KEY, cur)
+    return load_allday(db)
 
 
 def _lead_text(m: int) -> str:
@@ -52,7 +75,8 @@ def _lead_text(m: int) -> str:
 
 def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: ZoneInfo,
           people: set[str] | None, lead: int | None = 30, horizon_days: int = 2,
-          event_rules: dict[str, list[int]] | None = None) -> list[dict]:
+          event_rules: dict[str, list[int]] | None = None,
+          allday: dict | None = None) -> list[dict]:
     now = now.astimezone(tz)
     today = now.date()
     out: list[dict] = []
@@ -100,6 +124,26 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
                 out.append({"id": f"event:{e['id']}:{e['start']}:{m}", "kind": "event", "at": at.isoformat(timespec="seconds"),
                             "start": e["start"], "people": who,
                             "title": f"{e['title']} — {_lead_text(m)}", "text": text})
+
+    # События на весь день: накануне вечером (дни рождения напоминает блок bday ниже).
+    if allday and allday.get("people"):
+        wanted_ad = set(allday["people"])
+        hh, mm = (int(x) for x in (allday.get("time") or "19:00").split(":"))
+        for e in events:
+            if not e["all_day"] or e.get("duty") or e.get("private") or AUTO_RE.search(e["title"]):
+                continue
+            who = [p for p in e["people"] if p in wanted_ad]
+            if not who or (people is not None and not (set(who) & people)):
+                continue
+            day = datetime.fromisoformat(e["start"]).date()
+            if day <= today:
+                continue
+            at = datetime.combine(day - timedelta(days=1), time(hh, mm), tz)
+            if at < now - timedelta(hours=3):
+                continue
+            out.append({"id": f"allday:{e['id']}:{e['start']}", "kind": "event", "at": at.isoformat(timespec="seconds"),
+                        "start": e["start"], "people": who, "title": f"Завтра: {e['title']}",
+                        "text": e.get("location") or "на весь день"})
 
     # Дайджест проблем с поездками: накануне в 20:00 для каждого из ближайших дней.
     for d in range(1, max(1, horizon_days) + 1):

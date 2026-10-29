@@ -95,6 +95,7 @@
       </Sheet>
       <EventDialog />
       <EventEditor />
+      <SectionWizard />
       <MoveScope />
       <MoveWarn />
     </template>
@@ -107,6 +108,7 @@ import { state, newEvent, writableCalendars, loadConfig, setView, refreshStatus,
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
 import EventDialog from './components/EventDialog.vue'
 import EventEditor from './components/EventEditor.vue'
+import SectionWizard from './components/SectionWizard.vue'
 import MoveScope from './components/MoveScope.vue'
 import MoveWarn from './components/MoveWarn.vue'
 import LoginScreen from './components/LoginScreen.vue'

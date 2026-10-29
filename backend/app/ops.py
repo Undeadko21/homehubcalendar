@@ -9,6 +9,8 @@
   {"id", "t", "type": "item_add", "list_id", "text", "person_id"?}
   {"id", "t", "type": "item_done", "item_id", "done"}
   {"id", "t", "type": "item_delete", "item_id"}
+  {"id", "t", "type": "event_add", "title", "date": "YYYY-MM-DD", "start"?: "HH:MM", "end"?, "all_day"?, "people"?: [id], "calendar"?, "location"?}
+  {"id", "t", "type": "event_quick", "text": "Врач завтра в 18:00 Марку"}   — фраза разбирается на сервере (quick.parse); так шлёт Алиса
 Самые поздние применяются последними — побеждает последнее изменение.
 """
 from __future__ import annotations
@@ -40,7 +42,16 @@ def _valid_escort(db: Database, op: dict) -> bool:
     return person == "-" or person in {p["id"] for p in db.list_people()}
 
 
-def apply(db: Database, ops: list[dict]) -> list[str]:
+def _reject(db: Database, op: dict, why: str) -> None:
+    """Запоминаем отклонённые команды: их видно в «Состоянии» (красная точка), иначе голосовая просьба пропадёт молча."""
+    from datetime import datetime
+    cur = (db.kv_get("ops:rejected")[0] or {}).get("items", [])
+    cur.append({"at": datetime.now().isoformat(timespec="seconds"), "type": op.get("type"), "why": why[:200],
+                "text": str(op.get("text") or op.get("title") or "")[:100]})
+    db.kv_set("ops:rejected", {"items": cur[-10:]})
+
+
+def apply(db: Database, ops: list[dict], handlers: dict | None = None) -> list[str]:
     """Применяет новые команды, возвращает id применённых (в том числе отклонённых как некорректные)."""
     done = applied_ids(db)
     seen = set(done)
@@ -60,10 +71,14 @@ def apply(db: Database, ops: list[dict]) -> list[str]:
                 db.update_item(int(op["item_id"]), {"done": bool(op.get("done"))})
             elif kind == "item_delete":
                 db.delete_item(int(op["item_id"]))
+            elif handlers and kind in handlers:
+                handlers[kind](op)
             else:
                 log.warning("Команда из облака отклонена: %s", {k: op.get(k) for k in ("id", "type")})
         except Exception as e:  # битая команда не должна блокировать остальные
             log.warning("Команда из облака не применена (%s): %s", oid, e)
+            if op.get("type") in ("event_add", "event_quick"):
+                _reject(db, op, str(getattr(e, "detail", None) or e))
         seen.add(oid)
         new.append(oid)
     if new:

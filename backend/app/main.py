@@ -6,6 +6,7 @@ import hmac
 import logging
 import os
 import threading
+import time as time_module
 from time import perf_counter
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta
@@ -60,7 +61,7 @@ STATIC_DIR = Path(os.environ.get("HOMECAL_STATIC", Path(__file__).resolve().pare
 
 def poll_cloud() -> None:
     """Команды, которые телефоны оставили в облаке, применяем и сразу обновляем снимок."""
-    if cloud.poll_ops(lambda items: ops.apply(db, items)):
+    if cloud.poll_ops(lambda items: ops.apply(db, items, {"event_add": _ops_event, "event_quick": _ops_event})):
         events.invalidate()
         cloud.tick(force=True)
 
@@ -126,12 +127,30 @@ class Login(BaseModel):
     pin: str
 
 
+_FAILS: dict[str, list] = {}   # ip -> [число неудач, до какого момента заблокирован]
+
+
+def _login_wait(ip: str) -> int:
+    f = _FAILS.get(ip)
+    return max(0, int(f[1] - time_module.time())) if f else 0
+
+
 @app.post("/api/login")
-def login(body: Login, response: Response):
+def login(body: Login, request: Request, response: Response):
     if not settings.pin:
         return {"ok": True}
+    ip = request.client.host if request.client else "?"
+    wait = _login_wait(ip)
+    if wait:
+        raise HTTPException(429, f"Слишком много попыток. Подождите {wait // 60 + 1} мин.")
     if not hmac.compare_digest(body.pin, settings.pin):
+        n = (_FAILS.get(ip) or [0, 0])[0] + 1
+        # 5 ошибок подряд — блокировка на 1 минуту, дальше вдвое дольше (до часа)
+        _FAILS[ip] = [n, time_module.time() + (min(3600, 60 * 2 ** (n - 5)) if n >= 5 else 0)]
+        if len(_FAILS) > 500:
+            _FAILS.clear()
         raise HTTPException(401, "Неверный PIN")
+    _FAILS.pop(ip, None)
     response.set_cookie("homecal_auth", _token(), max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax")
     return {"ok": True}
 
@@ -272,18 +291,26 @@ def put_school(body: SchoolIn):
 
 class EventRemindersIn(BaseModel):
     people: dict[str, list[int]] = {}
+    allday_people: list[str] | None = None
+    allday_time: str | None = None
 
 
 @app.get("/api/settings/event-reminders")
 def get_event_reminders():
-    return {"people": reminders.load_rules(db), "choices": list(reminders.LEAD_CHOICES)}
+    return {"people": reminders.load_rules(db), "choices": list(reminders.LEAD_CHOICES),
+            "allday": reminders.load_allday(db)}
 
 
 @app.put("/api/settings/event-reminders")
 def put_event_reminders(body: EventRemindersIn):
-    out = reminders.save_rules(db, body.people, {p["id"] for p in db.list_people()})
+    known = {p["id"] for p in db.list_people()}
+    out = reminders.save_rules(db, body.people, known)
+    if body.allday_people is not None or body.allday_time is not None:
+        cur = reminders.load_allday(db)
+        reminders.save_allday(db, cur["people"] if body.allday_people is None else body.allday_people,
+                              body.allday_time or cur["time"], known)
     cloud.tick(force=True)
-    return {"people": out, "choices": list(reminders.LEAD_CHOICES)}
+    return {"people": out, "choices": list(reminders.LEAD_CHOICES), "allday": reminders.load_allday(db)}
 
 
 @app.get("/api/stats")
@@ -352,6 +379,10 @@ def get_system():
             age = now - datetime.fromisoformat(s["last_ok"]).astimezone(tz)
             if age > timedelta(minutes=max(30, settings.sync.interval_minutes * 4)):
                 problems.append(f"Календарь {s['source_id']} давно не обновлялся ({int(age.total_seconds() // 60)} мин)")
+    rej = (db.kv_get("ops:rejected")[0] or {}).get("items", [])
+    for r in rej[-3:]:
+        if datetime.fromisoformat(r["at"]) > datetime.now() - timedelta(days=2):
+            problems.append(f"Команда с телефона не выполнена: «{r['text']}» — {r['why']}")
     if cl["configured"]:
         if cl.get("last_error"):
             problems.append("Облако: " + cl["last_error"])
@@ -475,6 +506,7 @@ class RepeatIn(BaseModel):
     interval: int = 1
     count: int | None = None
     until: str | None = None
+    byday: list[str] | None = None   # для weekly: MO, TU, … — несколько дней недели
 
 
 class EventIn(BaseModel):
@@ -502,7 +534,7 @@ class EventEdit(BaseModel):
     people: list[str] | None = None
     people_set: bool = False
     occurrence: str | None = None  # начало редактируемого вхождения (для серий)
-    scope: str | None = None       # series (по умолчанию) | once — только это вхождение
+    scope: str | None = None       # series (по умолчанию) | once — только это вхождение | following — это и следующие
 
 
 def _check_people(people):
@@ -535,22 +567,141 @@ def check_conflicts(body: ConflictIn):
     return {"items": items}
 
 
-@app.post("/api/event")
-def create_event(body: EventIn):
-    make_target(body.calendar)  # заранее проверяем, что в календарь можно писать
-    _check_people(body.people)
+def _create_event(calendar: str, title: str, start: datetime, end: datetime | None, all_day: bool, location: str,
+                  description: str, repeat: dict | None, people: list[str] | None) -> tuple[str, bool]:
+    make_target(calendar)  # заранее проверяем, что в календарь можно писать
+    _check_people(people)
 
     def go():
-        uid, ics = writer.build_ics(
-            body.title, _parse_dt(body.start), _parse_dt(body.end) if body.end else None, body.all_day, tz,
-            body.location, body.description, body.repeat.model_dump() if body.repeat else None)
-        sent = ws.create(body.calendar, ics)
+        uid, ics = writer.build_ics(title, start, end, all_day, tz, location, description, repeat)
+        sent = ws.create(calendar, ics)
         return uid, sent
     uid, sent = _run_write(go)
-    if body.people is not None:
-        db.set_event_people(uid, body.people)
+    if people is not None:
+        db.set_event_people(uid, people)
     _after_write()
+    return uid, sent
+
+
+@app.post("/api/event")
+def create_event(body: EventIn):
+    uid, sent = _create_event(body.calendar, body.title, _parse_dt(body.start), _parse_dt(body.end) if body.end else None,
+                              body.all_day, body.location, body.description,
+                              body.repeat.model_dump() if body.repeat else None, body.people)
     return {"ok": True, "uid": uid, "pending": not sent}
+
+
+class SectionRow(BaseModel):
+    day: int                      # 0 — понедельник … 6 — воскресенье
+    start: str                    # HH:MM
+    end: str
+    dropoff: str | None = None    # id взрослого, '-' (не нужно) или пусто (не назначать)
+    pickup: str | None = None
+    travel: int | None = None     # минут в дороге
+
+
+class SectionIn(BaseModel):
+    calendar: str
+    title: str
+    location: str = ""
+    people: list[str] | None = None
+    from_date: str                # с какой даты (YYYY-MM-DD): первое занятие — ближайший подходящий день недели
+    until: str | None = None      # по какую дату включительно
+    count: int | None = None
+    rows: list[SectionRow]
+
+
+@app.post("/api/section")
+def create_section(body: SectionIn):
+    """Мастер секций: «Ушу по вт и чт до мая» — недельные серии (дни с одинаковым временем и водителями — одна серия) + поездки."""
+    if not body.rows:
+        raise HTTPException(400, "Выберите хотя бы один день недели")
+    if not body.title.strip():
+        raise HTTPException(400, "Нужно название")
+    try:
+        d0 = date.fromisoformat(body.from_date)
+        until = date.fromisoformat(body.until) if body.until else None
+    except ValueError:
+        raise HTTPException(400, "Неверная дата")
+    if until and until < d0:
+        raise HTTPException(400, "«До» раньше «С»")
+    if until and (until - d0).days > 800:
+        raise HTTPException(400, "Слишком длинный период")
+    known = {p["id"] for p in db.list_people()}
+    for r in body.rows:
+        for who in (r.dropoff, r.pickup):
+            if who and who != "-" and who not in known:
+                raise HTTPException(400, f"Неизвестный человек: {who}")
+        if not 0 <= r.day <= 6:
+            raise HTTPException(400, "Неверный день недели")
+        if (r.travel or 0) < 0 or (r.travel or 0) > 240:
+            raise HTTPException(400, "Время в пути — от 0 до 240 минут")
+    groups: dict[tuple, list[int]] = {}
+    for r in body.rows:
+        groups.setdefault((r.start, r.end, r.dropoff, r.pickup, r.travel), []).append(r.day)
+    created, pending = [], False
+    for (st, en, drop, pick, travel), days in groups.items():
+        days = sorted(set(days))
+        first = min(d0 + timedelta(days=(wd - d0.weekday()) % 7) for wd in days)
+        try:
+            s_ = datetime.combine(first, time.fromisoformat(st), tz)
+            e_ = datetime.combine(first, time.fromisoformat(en), tz)
+        except ValueError:
+            raise HTTPException(400, "Неверное время")
+        if e_ <= s_:
+            raise HTTPException(400, "Конец занятия должен быть позже начала")
+        rep = {"freq": "weekly", "byday": [writer._DAYS[d] for d in days],
+               "until": until.isoformat() if until else None, "count": None if until else body.count}
+        uid, sent = _create_event(body.calendar, body.title.strip(), s_, e_, False, body.location, "", rep, body.people)
+        pending = pending or not sent
+        for role, who in (("dropoff", drop), ("pickup", pick)):
+            if who:
+                db.set_escort(uid, "*", role, who)
+        if travel:
+            db.set_escort(uid, "*", "travel", str(travel))
+        created.append({"uid": uid, "days": days, "start": st, "end": en})
+    _after_write()
+    return {"ok": True, "created": created, "pending": pending}
+
+
+def _pick_calendar(people: list[str] | None) -> str:
+    """Куда класть событие, пришедшее без календаря (голос, телефон вне дома): календарь одного из участников, иначе первый пишущий."""
+    cals = [c for c in db.list_calendars() if not c["hidden"] and _writable(c["key"])]
+    if not cals:
+        raise HTTPException(400, "Нет календаря, в который можно писать")
+    for c in cals:
+        if set(c["people"]) & set(people or []):
+            return c["key"]
+    return cals[0]["key"]
+
+
+def _ops_event(op: dict) -> None:
+    """Команды с телефона/Алисы: event_add (готовые поля) и event_quick (фраза, разбираем здесь тем же парсером)."""
+    now = datetime.now(tz)
+    if op.get("type") == "event_quick":
+        q = quick.parse(str(op.get("text", ""))[:300], now.replace(tzinfo=None), db.list_people())
+        if not q["title"] or any("дата не указана" in n for n in q["notes"]):
+            raise ValueError("не хватает названия или даты: «%s»" % op.get("text", ""))
+        fields = {"title": q["title"], "date": q["date"], "start": q["start"], "end": q["end"], "all_day": q["all_day"],
+                  "people": q["people"] or [p for p in (op.get("people") or []) if isinstance(p, str)], "repeat": q["repeat"]}
+    else:
+        fields = {k: op.get(k) for k in ("title", "date", "start", "end", "all_day", "people", "repeat", "location")}
+    title = str(fields["title"] or "").strip()[:200]
+    d = date.fromisoformat(str(fields["date"]))
+    if not (now.date() - timedelta(days=1) <= d <= now.date() + timedelta(days=500)):
+        raise ValueError("дата вне разумных пределов")
+    all_day = bool(fields.get("all_day")) or not fields.get("start")
+    if all_day:
+        s, e = datetime.combine(d, time(0), tz), datetime.combine(d + timedelta(days=1), time(0), tz)
+    else:
+        s = datetime.combine(d, time.fromisoformat(fields["start"]), tz)
+        e = datetime.combine(d, time.fromisoformat(fields["end"]), tz) if fields.get("end") else s + timedelta(hours=1)
+        if e <= s:
+            e = s + timedelta(hours=1)
+    people = [p for p in (fields.get("people") or []) if isinstance(p, str)] or None
+    cal = op.get("calendar") if op.get("calendar") and _writable(str(op.get("calendar"))) else _pick_calendar(people)
+    rep = fields.get("repeat") if isinstance(fields.get("repeat"), dict) and fields["repeat"].get("freq") else None
+    _create_event(cal, title, s, e, all_day, str(fields.get("location") or "")[:200], "", rep, people)
 
 
 @app.put("/api/event/{uid}")
@@ -573,6 +724,33 @@ def update_event(uid: str, body: EventEdit):
         fields["description"] = body.description
     if body.repeat_set:
         fields["repeat"] = body.repeat.model_dump() if body.repeat else None
+    if body.scope == "following":
+        if not (body.occurrence and body.start):
+            raise HTTPException(400, "Не указано, с какого вхождения менять")
+
+        def split_following():
+            res = writer.split_following(
+                ics, _parse_dt(body.occurrence),
+                {**fields, "start": _parse_dt(body.start), "end": _parse_dt(body.end) if body.end else None,
+                 "all_day": body.all_day}, tz)
+            if res is None:   # первое вхождение — это вся серия
+                return None
+            old_ics, new_uid, new_ics = res
+            ok1 = ws.update(cal_key, href, ics, old_ics)
+            ok2 = ws.create(cal_key, new_ics)
+            ppl = body.people if body.people_set else db.event_people().get(uid)
+            if ppl is not None:
+                db.set_event_people(new_uid, ppl)
+            for (u, occ_, role), person in db.escorts().items():   # назначения «на всю серию» переходят в новую серию
+                if u == uid and occ_ == "*":
+                    db.set_escort(new_uid, "*", role, person)
+            return ok1 and ok2
+        sent = _run_write(split_following)
+        if sent is not None:
+            _after_write()
+            return {"ok": True, "pending": not sent}
+        body.scope = None   # первое вхождение: падаем в обычную правку серии
+        fields.pop("occurrence", None)
     if body.scope == "once":
         if not (body.occurrence and body.start):
             raise HTTPException(400, "Не указано, какое вхождение переносить")
@@ -910,7 +1088,7 @@ def get_reminders(hours: int = 36, lead: int = 30, people: str | None = None):
     evs = events.events(start, start + timedelta(days=4))
     wanted = {p for p in (people or "").split(",") if p} or None
     items = reminders.build(evs, db.birthdays(), now, tz, wanted, max(0, min(lead, 240)), 2,
-                            reminders.load_rules(db))
+                            reminders.load_rules(db), reminders.load_allday(db))
     lo, hi = now - timedelta(hours=3), now + timedelta(hours=max(1, min(hours, 72)))
     return {"now": now.isoformat(timespec="seconds"),
             "items": [r for r in items if lo <= datetime.fromisoformat(r["at"]) <= hi]}

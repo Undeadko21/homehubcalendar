@@ -36,6 +36,7 @@ export const api = {
   deleteEvent: (uid, calendar, occurrence) =>
     request('DELETE', `/api/event/${encodeURIComponent(uid)}?${q(occurrence ? { calendar, occurrence } : { calendar })}`),
   importSettings: (blob) => request('POST', '/api/import', blob),
+  createSection: (b) => request('POST', '/api/section', b),
   conflicts: (b) => request('POST', '/api/conflicts', b),
   backupFiles: () => request('GET', '/api/backup/files'),
   backupVerify: (name) => request('POST', '/api/backup/verify', { name: name || null }),
@@ -69,7 +70,7 @@ export const api = {
   saveCloud: (token) => request('PUT', '/api/cloud', { token }),
   pushCloud: () => request('POST', '/api/cloud/push'),
   eventReminders: () => request('GET', '/api/settings/event-reminders'),
-  saveEventReminders: (people) => request('PUT', '/api/settings/event-reminders', { people }),
+  saveEventReminders: (people, extra) => request('PUT', '/api/settings/event-reminders', { people, ...(extra || {}) }),
   school: () => request('GET', '/api/school'),
   saveSchool: (breaks) => request('PUT', '/api/school', { breaks }),
   stats: (start, end) => request('GET', `/api/stats?${q({ start, end })}`),

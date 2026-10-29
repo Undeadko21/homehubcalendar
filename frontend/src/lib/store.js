@@ -32,6 +32,7 @@ export const state = reactive({
   calView: prefs.calView || 'timeline', // последний календарный вид (вкладка «Календарь» на телефоне)
   moveWarn: null, // предупреждение о конфликтах при переносе: { e, items, resolve }
   moveAsk: null, // перенос повторяющегося события: ждём «только это / вся серия»
+  wizard: false, // мастер секции
   editor: null, // { event } — правка, {} — новое событие
   peopleSheet: false, // лист «Люди» на телефоне
 })

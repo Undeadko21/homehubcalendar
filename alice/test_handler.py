@@ -118,3 +118,17 @@ def test_full_and_double_names():
     assert h.find_person(snap, ["толи"])["id"] == "papa"
     assert h.find_person(snap, ["анатолия"])["id"] == "papa"
     assert h.genitive("Ольга Иванова") == "Ольги Ивановой"
+
+
+def test_add_command(monkeypatch):
+    sent = []
+    monkeypatch.setenv("HOMEHUB_TOKEN", "t" * 30)
+    req = {"request": {"command": "добавь на завтра в 18 00 врача мне"}, "state": {"user": {"person": "mark"}}}
+    out = h.answer_add(req, send=sent.append)
+    assert sent[0]["type"] == "event_quick" and sent[0]["text"] == "на завтра в 18:00 врача мне" and sent[0]["people"] == ["mark"]
+    assert "Записала" in out["response"]["text"]
+    out = h.answer_add({"request": {"command": "добавь врача"}}, send=sent.append)   # без дня — переспрашиваем
+    assert len(sent) == 1 and out["response"]["end_session"] is False
+    monkeypatch.delenv("HOMEHUB_TOKEN")
+    assert "токен" in h.answer_add(req, send=sent.append)["response"]["text"]
+    assert h.is_add("Добавь что-нибудь") and not h.is_add("когда следующая встреча")

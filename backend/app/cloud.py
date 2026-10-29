@@ -174,8 +174,9 @@ class CloudSync:
         st = self._state()
         return {"configured": bool(self._token()), "last_ok": st.get("last_ok"), "last_error": st.get("last_error"),
                 "ops_error": st.get("ops_error"), "code": self.code(),
-                # для навыка Алисы: читает снимок, писать в папку ему не нужно (токена здесь нет)
-                "alice": {"url": st.get("public_url"), "key": _b64(self.key())} if st.get("public_url") else None}
+                # для навыка Алисы: url и ключ — чтение снимка; token — только если хотите голосовое «добавь…» (запись в папку)
+                "alice": {"url": st.get("public_url"), "key": _b64(self.key()),
+                          "token": self._token() if token_ok(self._token()) else None} if st.get("public_url") else None}
 
     # --- команды с телефонов ---
     def poll_ops(self, apply: Callable[[list[dict]], list[str]]) -> bool:
@@ -198,6 +199,12 @@ class CloudSync:
                 if isinstance(ops, list) and apply(ops):
                     changed = True
                 seen[f["name"]] = f.get("md5")
+                if f["name"].startswith("ops-alice-"):   # одноразовые файлы Алисы: применили — убираем
+                    try:
+                        disk.rm(f"app:/{f['name']}")
+                        seen.pop(f["name"], None)
+                    except CloudError:
+                        pass
             st["ops_md5"] = seen
             st["ops_error"] = None
         except CloudError as e:

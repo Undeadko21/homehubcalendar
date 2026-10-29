@@ -10,7 +10,9 @@
 """
 from __future__ import annotations
 
+import base64
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -137,6 +139,7 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._migrate()
+        self.encrypt_secrets()
 
     def _migrate(self) -> None:
         with self._lock:
@@ -428,16 +431,63 @@ class Database:
         return self.query("SELECT * FROM sync_status ORDER BY source_id")
 
     # ---------- произвольный кэш ----------
+    # Секреты (пароли приложений, токен и ключ облака) лежат в базе зашифрованными ключом из файла secret.key
+    # рядом с базой (создаётся при первом запуске, права 0600). Так утекшая копия самой базы секретов не раскрывает.
+    # В резервной копии на Диске секреты открыты — она целиком зашифрована ключом облака (см. backup.snapshot_db),
+    # а после восстановления при запуске шифруются заново.
+    SECRET_KEYS = ("auth:", "cloud:token", "cloud:key")
+
+    def _is_secret(self, key: str) -> bool:
+        return key.startswith(self.SECRET_KEYS)
+
+    def _box(self):
+        if getattr(self, "_aes", None) is None:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            path = Path(self.path).with_name("secret.key")
+            if path.exists():
+                key = path.read_bytes()
+            else:
+                key = os.urandom(32)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as f:
+                    f.write(key)
+            self._aes = AESGCM(key)
+        return self._aes
+
+    def _seal(self, text: str) -> str:
+        nonce = os.urandom(12)
+        return "enc1:" + base64.b64encode(nonce + self._box().encrypt(nonce, text.encode(), b"homehub-kv")).decode()
+
+    def _unseal(self, text: str) -> str:
+        raw = base64.b64decode(text[5:])
+        return self._box().decrypt(raw[:12], raw[12:], b"homehub-kv").decode()
+
+    def encrypt_secrets(self) -> int:
+        """Шифрует секреты, лежащие открытым текстом (после обновления или восстановления из копии)."""
+        n = 0
+        for r in self.query("SELECT key, value FROM kv"):
+            if self._is_secret(r["key"]) and not r["value"].startswith('"enc1:'):
+                with self.tx() as c:
+                    c.execute("UPDATE kv SET value=? WHERE key=?", (json.dumps(self._seal(r["value"])), r["key"]))
+                n += 1
+        return n
+
     def kv_get(self, key: str):
         rows = self.query("SELECT value, updated FROM kv WHERE key=?", (key,))
         if not rows:
             return None, None
-        return json.loads(rows[0]["value"]), rows[0]["updated"]
+        value = json.loads(rows[0]["value"])
+        if isinstance(value, str) and value.startswith("enc1:") and self._is_secret(key):
+            value = json.loads(self._unseal(value))
+        return value, rows[0]["updated"]
 
     def kv_set(self, key: str, value) -> None:
+        text = json.dumps(value, ensure_ascii=False)
+        if self._is_secret(key):
+            text = json.dumps(self._seal(text))
         with self.tx() as c:
             c.execute(
                 "INSERT INTO kv (key, value, updated) VALUES (?,?,?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated=excluded.updated",
-                (key, json.dumps(value, ensure_ascii=False), now_iso()),
+                (key, text, now_iso()),
             )

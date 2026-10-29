@@ -18,7 +18,7 @@ class IcsSource(Source):
     url может быть и путём к локальному файлу (удобно для тестов).
     """
 
-    def fetch(self, known: dict[str, str] | None = None) -> list[RemoteCalendar]:
+    def fetch(self, known: dict[str, dict] | None = None) -> list[RemoteCalendar]:
         url: str = self.cfg["url"]
         if url.startswith(("http://", "https://", "webcal://")):
             url = url.replace("webcal://", "https://", 1)

@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 @register("caldav")
 class CalDavSource(Source):
-    def fetch(self, known: dict[str, str] | None = None) -> list[RemoteCalendar]:
+    def fetch(self, known: dict[str, dict] | None = None) -> list[RemoteCalendar]:
         include = [s.lower() for s in self.cfg.get("include", [])]
         exclude = [s.lower() for s in self.cfg.get("exclude", [])]
 
@@ -41,10 +41,21 @@ class CalDavSource(Source):
                     continue
                 rid = _remote_id(cal)
                 ctag = _ctag(cal)
-                if ctag and known and known.get(rid) == ctag:
+                k = (known or {}).get(rid) or {}
+                if ctag and k.get("ctag") == ctag:
                     # Календарь не менялся с прошлой загрузки — объекты не качаем.
-                    result.append(RemoteCalendar(remote_id=rid, name=name, color=_color(cal), ctag=ctag, unchanged=True))
+                    result.append(RemoteCalendar(remote_id=rid, name=name, color=_color(cal), ctag=ctag, token=k.get("token"),
+                                                 unchanged=True))
                     continue
+                if k.get("token"):
+                    delta = _delta(cal, k["token"])
+                    if delta is not None:
+                        changed, deleted, token = delta
+                        result.append(RemoteCalendar(remote_id=rid, name=name, color=_color(cal), ctag=ctag, token=token,
+                                                     delta=True, objects=changed, deleted=deleted))
+                        continue
+                # Полная загрузка. Токен берём ДО неё: всё, что изменится после, придёт в следующей дельте.
+                token = _initial_token(cal)
                 objects: dict[str, str] = {}
                 for ev in _all_events(cal):
                     data = ev.data
@@ -57,9 +68,44 @@ class CalDavSource(Source):
                         color=_color(cal),
                         objects=objects,
                         ctag=ctag,
+                        token=token,
                     )
                 )
             return result
+
+
+def _initial_token(cal) -> str | None:
+    """sync-token на сейчас (без загрузки данных). None — сервер не поддерживает sync-collection."""
+    try:
+        res = cal.get_objects_by_sync_token(sync_token=None, load_objects=False, disable_fallback=True)
+        if getattr(res, "truncated", False):
+            return None
+        return str(res.sync_token) if res.sync_token else None
+    except Exception as e:  # noqa: BLE001 — не поддерживается: работаем по ctag
+        log.debug("sync-token недоступен: %s", e)
+        return None
+
+
+def _delta(cal, token: str):
+    """Изменения с прошлого токена: (изменённые {href: ics}, удалённые {href}, новый токен). None — нужна полная загрузка."""
+    try:
+        res = cal.get_objects_by_sync_token(sync_token=token, load_objects=True, disable_fallback=True)
+        if getattr(res, "truncated", False) or not res.sync_token:
+            return None
+        deleted = {str(u) for u in res.deleted_urls}
+        changed: dict[str, str] = {}
+        for obj in res:
+            href = str(obj.url)
+            if str(obj.url.canonical()) in deleted:
+                continue
+            data = obj.data
+            if not data or "BEGIN:VEVENT" not in data:
+                return None    # не смогли прочитать объект — надёжнее скачать всё
+            changed[href] = data
+        return changed, deleted, str(res.sync_token)
+    except Exception as e:  # noqa: BLE001 — токен устарел или сервер не умеет: полная загрузка
+        log.info("Дельта по sync-token не получилась (%s), загружаю всё", e)
+        return None
 
 
 def _ctag(cal) -> str | None:

@@ -973,7 +973,7 @@ def test_incremental_sync_skips_unchanged(db):
     class Fake(Source):
         def fetch(self, known=None):
             calls["fetch"].append(dict(known or {}))
-            if known and known.get("c") == calls["tag"]:
+            if known and (known.get("c") or {}).get("ctag") == calls["tag"]:
                 return [RemoteCalendar("c", "C", ctag=calls["tag"], unchanged=True)]
             return [RemoteCalendar("c", "C", objects={"h": calls["ics"]}, ctag=calls["tag"])]
 
@@ -983,7 +983,7 @@ def test_incremental_sync_skips_unchanged(db):
         engine.run()                       # первая — полная
         assert len(hits) == 1 and db.objects_map("f/c")
         engine.run()                       # ctag тот же — объекты не трогаем, кэш не сбрасываем
-        assert calls["fetch"][1] == {"c": "t1"} and len(hits) == 1
+        assert calls["fetch"][1] == {"c": {"ctag": "t1", "token": None}} and len(hits) == 1
         assert db.objects_map("f/c")       # данные на месте
         calls["tag"], calls["ics"] = "t2", calls["ics"].replace("UID:1", "UID:2")
         engine.run()
@@ -1077,3 +1077,24 @@ def test_conflicts_on_create(db):
     assert "Марка" in texts, texts
     # Весь день — не проверяем
     assert conflicts.check(svc, calendar="mom", title="x", start=t(0), end=None, all_day=True, people=["mom"]) == []
+
+
+def test_split_following_weekly_and_count():
+    from datetime import datetime
+    from app import writer
+    from app.expand import expand_ics
+    start = datetime(2026, 11, 3, 17, 40, tzinfo=TZ)   # вторник
+    uid, ics = writer.build_ics("Ушу", start, start.replace(hour=18, minute=40), False, TZ,
+                                repeat={"freq": "weekly", "count": 6})
+    occ = datetime(2026, 11, 17, 17, 40, tzinfo=TZ)     # третье вхождение
+    new_start = datetime(2026, 11, 18, 18, 0, tzinfo=TZ)  # теперь среда, 18:00
+    old, nuid, new = writer.split_following(ics, occ, {"start": new_start, "end": new_start.replace(hour=19),
+                                                       "all_day": False, "title": "Ушу (новое время)"}, TZ)
+    rng_ = (datetime(2026, 10, 1, tzinfo=TZ), datetime(2026, 12, 31, tzinfo=TZ))
+    o = [x.start for x in expand_ics(old, *rng_, TZ)]
+    n = [x.start for x in expand_ics(new, *rng_, TZ)]
+    assert len(o) == 2 and o[-1].startswith("2026-11-10")      # старая: 3 и 10 ноября
+    assert len(n) == 4 and n[0].startswith("2026-11-18T18:00") and n[1].startswith("2026-11-25T18:00")
+    assert nuid != uid and "SUMMARY:Ушу (новое время)" in new
+    # первое вхождение — вся серия
+    assert writer.split_following(ics, start, {"start": start, "all_day": False}, TZ) is None

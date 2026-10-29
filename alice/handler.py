@@ -6,13 +6,19 @@
 Переменные окружения функции:
   HOMEHUB_URL  — публичная ссылка на снимок (поле «u» из кода подключения, без «hhc1.»-обёртки: см. README)
   HOMEHUB_KEY  — ключ шифрования (поле «k» из кода подключения), base64url
+  HOMEHUB_TOKEN — (необязательно) токен записи Яндекс.Диска (поле «t» из кода подключения): нужен, чтобы
+                  говорить «добавь на завтра в 18:00 врача Марку». Без него навык только отвечает на вопросы.
+Команда «добавь…» кладёт в папку приложения на Диске маленький зашифрованный файл ops-alice-<id>.bin; сервер дома
+подхватывает его в течение минуты, разбирает фразу и создаёт событие (см. backend/app/ops.py, quick.py).
 """
 from __future__ import annotations
 
 import base64
 import json
 import os
+import re
 import time
+import uuid
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
@@ -271,10 +277,69 @@ def answer_escort(snap, person, now, whose_gen):
                     f"{e['title']} {whose_gen}, {tts}. " + ". ".join(bits) + ".")
     return _ans(f"Поездок {whose_gen} в ближайшие дни нет.")
 
+# --------------------------------------------------------------------------- добавление событий
+
+ADD_WORDS = ("добавь", "запиши", "создай", "поставь", "внеси", "запланируй", "добавить", "записать")
+_DAY_RE = re.compile(r"(?<!\w)(сегодня|завтра|послезавтра|понедельник\w*|вторник\w*|сред[уаы]|четверг\w*|пятниц\w*|суббот\w*|"
+                     r"воскресень\w*|через\s+\S+|\d{1,2}\.\d{1,2}|\d{1,2}\s+(?:январ|феврал|март|апрел|ма[яй]|июн|июл|август|сентябр|октябр|ноябр|декабр)\w*)")
+
+
+def normalize_speech(text: str) -> str:
+    """Алиса отдаёт время как «в 18 00» — приводим к «в 18:00» для разбора на сервере."""
+    return re.sub(r"(?<![\d:])(в|к|с)\s+(\d{1,2})\s+(\d{2})(?!\d)", r"\1 \2:\3", text)
+
+
+def _encrypt(key: bytes, data: bytes) -> bytes:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    nonce = os.urandom(12)
+    return nonce + AESGCM(key).encrypt(nonce, data, b"homehub-v1")
+
+
+def send_command(op: dict) -> None:
+    """Кладёт команду на Диск (один файл на команду: гонок между запусками функции нет)."""
+    token, key = os.environ["HOMEHUB_TOKEN"], _b64(os.environ["HOMEHUB_KEY"])
+    name = f"ops-alice-{op['id']}.bin"
+    hdr = {"Authorization": f"OAuth {token}"}
+    q = urllib.parse.urlencode({"path": f"app:/{name}", "overwrite": "true"})
+    req = urllib.request.Request("https://cloud-api.yandex.net/v1/disk/resources/upload?" + q, headers=hdr)
+    with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as r:
+        href = json.loads(r.read())["href"]
+    put = urllib.request.Request(href, data=_encrypt(key, json.dumps([op], ensure_ascii=False).encode()), method="PUT")
+    urllib.request.urlopen(put, timeout=FETCH_TIMEOUT).read()
+
+
+def is_add(command: str) -> bool:
+    w = command.lower().split()
+    return bool(w) and w[0] in ADD_WORDS
+
+
+def answer_add(req: dict, send=send_command) -> dict:
+    command = (req.get("request", {}).get("command") or "").strip()
+    state = (req.get("state") or {}).get("user") or {}
+    text = normalize_speech(command.split(None, 1)[1] if " " in command else "")
+    text = re.sub(r"^(?:в\s+)?(?:календарь|расписание)\s+", "", text, flags=re.I).strip()
+    if not os.environ.get("HOMEHUB_TOKEN"):
+        return _reply("Чтобы я добавляла события, в настройках навыка нужен токен записи. Пока могу только рассказывать расписание.")
+    if not text:
+        return _reply("Что добавить? Например: добавь на завтра в 18:00 врача Марку.", end=False)
+    if not _DAY_RE.search(text.lower()):
+        return _reply("На какой день? Скажите всё вместе: добавь на завтра в 18:00 врача Марку.", end=False)
+    op = {"id": uuid.uuid4().hex[:12], "t": int(time.time() * 1000), "type": "event_quick", "text": text}
+    if re.search(r"(?<!\w)(мне|мой|моя|моё)(?!\w)", text.lower()) and state.get("person"):
+        op["people"] = [state["person"]]
+    try:
+        send(op)
+    except Exception as e:  # noqa: BLE001
+        print("send error:", repr(e))
+        return _reply("Не получилось отправить в календарь. Попробуйте ещё раз чуть позже.")
+    return _reply(f"Записала: {text}. В календаре появится через минуту-две.")
+
+
 # --------------------------------------------------------------------------- Алиса
 
 HELP = ("Я знаю расписание семьи. Спросите: когда следующая встреча Оли, что завтра у Маши, "
-        "кто отвозит Машу. Скажите «я Оля», и я запомню, что «мои» встречи — ваши.")
+        "кто отвозит Машу. Скажите «я Оля», и я запомню, что «мои» встречи — ваши. "
+        "А ещё могу записать: «добавь на завтра в 18:00 врача Марку».")
 
 
 def _reply(text, tts=None, end=True, user_state=None):
@@ -331,7 +396,10 @@ def handler(event, context=None):
     """Точка входа Yandex Cloud Functions."""
     req = event if "request" in event else json.loads(event.get("body") or "{}")
     try:
-        out = respond(req, load_snapshot())
+        if is_add((req.get("request", {}).get("command") or "")):
+            out = answer_add(req)   # снимок календаря для записи не нужен
+        else:
+            out = respond(req, load_snapshot())
     except Exception as e:  # навык не должен молчать
         out = _reply("Календарь ещё просыпается. Повторите вопрос через несколько секунд.")
         print("error:", repr(e))

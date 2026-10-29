@@ -116,6 +116,17 @@
   function daysView(s) {
     var root = h('div')
     root.appendChild(h('h1', { text: 'События' }))
+    var qin = h('input', { placeholder: 'Быстро: Врач завтра в 18:00 Марку', 'aria-label': 'Новое событие', autocomplete: 'off' })
+    root.appendChild(h('form', { class: 'add', onsubmit: function (ev) {
+      ev.preventDefault()
+      var t = qin.value.trim()
+      if (!t) return
+      queue({ type: 'event_quick', text: t })
+    } }, [qin, h('button', { text: 'Добавить' })]))
+    var queued = live().filter(function (o) { return o.type === 'event_quick' })
+    if (queued.length) root.appendChild(h('div', { class: 'group', style: 'margin-bottom:8px' }, queued.map(function (o) {
+      return h('div', { class: 'row' }, [h('span', { class: 'main s', text: o.text }), h('span', { class: 'tag pend', text: 'отправляется' })])
+    })))
     var chips = h('div', { class: 'chips', style: 'margin:6px 12px' }, [
       h('button', { class: 'chip' + (!person ? ' on' : ''), text: 'Все', onclick: function () { person = null; render() } })
     ].concat((s.people || []).map(function (p) {
@@ -145,7 +156,7 @@
         ])
       })))
     })
-    root.appendChild(h('p', { class: 'note', text: 'Это снимок из облака, события добавляются и меняются только дома. Назначения поездок и списки можно менять — изменения дойдут до дома в течение минуты.' }))
+    root.appendChild(h('p', { class: 'note', text: 'Это снимок из облака, новые события появятся в календаре через минуту-две после отправки, а менять и удалять их можно только дома. Назначения поездок и списки можно менять — изменения дойдут до дома в течение минуты.' }))
     return root
   }
 

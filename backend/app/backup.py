@@ -29,14 +29,22 @@ KEEP = 14
 AAD = b"homehub-backup-v1"
 
 
-def snapshot_db(path: Path) -> bytes:
-    """Согласованная копия SQLite (во время работы сервера) — через backup API, затем gzip."""
+def snapshot_db(path: Path, db: Database | None = None) -> bytes:
+    """Согласованная копия SQLite (во время работы сервера) — через backup API, затем gzip.
+    Если передан db, секреты в копии расшифровываются: локальный ключ secret.key в копию не попадает,
+    а сама копия зашифрована ключом облака; после восстановления секреты шифруются заново."""
     with tempfile.TemporaryDirectory() as d:
         out = Path(d) / "copy.db"
         src = sqlite3.connect(str(path))
         dst = sqlite3.connect(str(out))
         try:
             src.backup(dst)
+            if db is not None:
+                import json
+                for key, value in dst.execute("SELECT key, value FROM kv").fetchall():
+                    if db._is_secret(key) and value.startswith('"enc1:'):
+                        dst.execute("UPDATE kv SET value=? WHERE key=?", (db._unseal(json.loads(value)), key))
+                dst.commit()
         finally:
             dst.close()
             src.close()
@@ -93,7 +101,7 @@ class BackupService:
             return self.status()
         st = self.db.kv_get("backup:state")[0] or {}
         try:
-            raw = snapshot_db(Path(self.db.path))
+            raw = snapshot_db(Path(self.db.path), self.db)
             blob = seal(self.cloud.key(), raw)
             check_db(unseal(self.cloud.key(), blob))   # копия должна расшифровываться и открываться
             name = f"{PREFIX}{datetime.now(self.tz):%Y%m%d-%H%M}{SUFFIX}"
@@ -173,6 +181,7 @@ class BackupService:
                     src.backup(self.db._conn)
                     self.db._conn.commit()
                     self.db._migrate()
+                    self.db.encrypt_secrets()
             finally:
                 src.close()
         log.warning("База восстановлена из %s", name)

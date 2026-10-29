@@ -29,6 +29,12 @@
           <small class="muted block">Значения для переменных функции HOMEHUB_URL и HOMEHUB_KEY (инструкция в папке alice/).</small>
           <div class="code"><code>{{ st.alice.url }}</code><button class="btn" @click="copyText(st.alice.url)">Копировать</button></div>
           <div class="code"><code>{{ st.alice.key }}</code><button class="btn" @click="copyText(st.alice.key)">Копировать</button></div>
+          <template v-if="st.alice.token">
+            <small class="muted block">Необязательно: переменная HOMEHUB_TOKEN. С ней Алиса сможет и записывать: «добавь на завтра в 18:00 врача Марку». Токен даёт доступ к папке приложения на Диске — не показывайте его.</small>
+            <div class="code"><code>{{ tokenShown ? st.alice.token : '••••••••••••' }}</code>
+              <button class="btn" @click="tokenShown = !tokenShown">{{ tokenShown ? 'Скрыть' : 'Показать' }}</button>
+              <button class="btn" @click="copyText(st.alice.token)">Копировать</button></div>
+          </template>
         </details>
         <div class="row">
           <button class="btn" :disabled="busy" @click="push">Обновить снимок сейчас</button>
@@ -56,6 +62,7 @@ const busy = ref(false)
 const msg = ref('')
 const isErr = ref(false)
 const copied = ref(false)
+const tokenShown = ref(false)
 const inApp = typeof window !== 'undefined' && !!window.HomeHubApp?.setCloud
 const connected = ref(false)
 const copyText = (t) => { try { navigator.clipboard.writeText(t) } catch { /* без буфера */ } }
