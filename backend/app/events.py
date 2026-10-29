@@ -17,7 +17,14 @@ ESCORT_DEFAULTS = {"before_minutes": 30, "after_minutes": 30, "home_words": "д�
 UNASSIGNED = "_unassigned"
 
 
+# Приставки, которые почта и календари добавляют при пересылке и ответах на приглашения («Fwd: Планёрка»).
+_PREFIX_RE = re.compile(
+    r"^\s*(?:(?:fwd?|re|пересл\w*|приглашение|обновлённое приглашение|обновленное приглашение|invitation|updated invitation|"
+    r"updated|обновлено|accepted|принято|tentative|предварительно|declined|отклонено)\s*[:\-–—]\s*)+", re.I)
+
+
 def _norm_title(t: str) -> str:
+    t = _PREFIX_RE.sub("", t or "")
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", t.lower())).strip()
 
 
@@ -151,6 +158,8 @@ class EventService:
                 sig = (_norm_title(m["title"]), m["start"], m["end"])
                 if sig in by_sig and not set(merged[by_sig[sig]]["calendars"]) & set(m["calendars"]):
                     target = merged[by_sig[sig]]
+                    if _PREFIX_RE.match(target["title"]) and not _PREFIX_RE.match(m["title"]):
+                        target["title"] = m["title"]   # показываем название без «Fwd:» и т.п.
                     for f in ("owners", "calendars", "uids", "_priv"):
                         target[f] += m[f]
                     del merged[k]

@@ -221,3 +221,16 @@ def test_shared_and_event_colors(api):
     assert api.post("/api/event-color", json={"uid": "u1", "color": None}).status_code == 200
     assert api.put("/api/settings/shared-color", json={"color": None}).status_code == 200
     assert api.get("/api/config").json()["shared_color"] is None
+
+
+def test_list_items_assignee_and_due(api):
+    lid = api.get("/api/lists").json()[1]["id"]
+    api.put("/api/people/papa", json={"id": "papa", "name": "Папа", "color": "#007aff"})
+    assert api.post(f"/api/lists/{lid}/items", json={"text": "Подарок", "due": "31.10"}).status_code == 400
+    r = api.post(f"/api/lists/{lid}/items", json={"text": "Подарок", "person_id": "papa", "due": "2030-01-05"})
+    assert r.status_code == 200
+    item = [i for l in api.get("/api/lists").json() for i in l["items"] if i["text"] == "Подарок"][0]
+    assert item["person_id"] == "papa" and item["due"] == "2030-01-05"
+    api.patch(f"/api/items/{item['id']}", json={"due": None})
+    item = [i for l in api.get("/api/lists").json() for i in l["items"] if i["id"] == item["id"]][0]
+    assert item["due"] is None

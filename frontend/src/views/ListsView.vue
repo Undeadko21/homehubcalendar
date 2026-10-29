@@ -23,6 +23,14 @@
                  aria-label="Новая запись" autocomplete="off" enterkeyhint="done" />
           <button class="btn filled" :disabled="!text.trim()">Добавить</button>
         </div>
+        <div v-if="extra" class="row extra">
+          <select v-model="newPerson" class="sel" aria-label="Кому">
+            <option value="">Кому: всем</option>
+            <option v-for="p in people" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+          <input v-model="newDue" class="sel" type="date" aria-label="Срок" />
+        </div>
+        <div class="row"><button type="button" class="btn link" @click="extra = !extra">{{ extra ? 'Скрыть' : 'Кому и до какого числа' }}</button></div>
       </form>
 
       <p v-if="!current.items.length" class="empty">Список пуст.</p>
@@ -31,8 +39,21 @@
           <button class="check" :aria-label="i.done ? 'Вернуть в список' : 'Отметить выполненным'" :aria-pressed="i.done" @click="toggle(i)">
             <svg v-if="i.done" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9" /></svg>
           </button>
-          <span class="txt" @click="toggle(i)">{{ i.text }}</span>
+          <span class="txt" @click="toggle(i)">{{ i.text }}
+            <small v-if="i.person_id || i.due" class="meta">
+              <span v-if="i.person_id" class="who" :style="{ '--c': colorOf(i.person_id) }"><i></i>{{ nameOf(i.person_id) }}</span>
+              <span v-if="i.due" :class="{ late: !i.done && i.due < today }">до {{ dueText(i.due) }}</span>
+            </small>
+          </span>
+          <button class="x" aria-label="Кому и когда" title="Кому и когда" @click="editId = editId === i.id ? null : i.id">⋯</button>
           <button class="x" aria-label="Удалить" @click="remove(i)">×</button>
+          <div v-if="editId === i.id" class="edit">
+            <select :value="i.person_id || ''" class="sel" aria-label="Кому" @change="setPerson(i, $event.target.value)">
+              <option value="">Кому: всем</option>
+              <option v-for="p in people" :key="p.id" :value="p.id">{{ p.name }}</option>
+            </select>
+            <input :value="i.due || ''" class="sel" type="date" aria-label="Срок" @change="setDue(i, $event.target.value)" />
+          </div>
         </div>
       </div>
 
@@ -49,7 +70,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../lib/api'
-import { state } from '../lib/store'
+import { state, people as allPeople, personById } from '../lib/store'
 
 const lists = ref([])
 const currentId = ref(null)
@@ -58,6 +79,23 @@ const adding = ref(false)
 const newList = ref('')
 const error = ref('')
 const current = computed(() => lists.value.find((l) => l.id === currentId.value) || null)
+const extra = ref(false)
+const newPerson = ref('')
+const newDue = ref('')
+const editId = ref(null)
+const people = computed(() => allPeople.value.filter((p) => !p.id.startsWith('_')))
+const nameOf = (id) => personById.value[id]?.name || id
+const colorOf = (id) => personById.value[id]?.color || '#8a94a6'
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const today = computed(() => iso(new Date()))
+function dueText(d) {
+  const t = new Date(); const tm = new Date(t.getTime() + 864e5)
+  if (d === iso(t)) return 'сегодня'
+  if (d === iso(tm)) return 'завтра'
+  return new Date(d + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+}
+const setPerson = (i, v) => guard(() => api.patchItem(i.id, { person_id: v || null }))
+const setDue = (i, v) => guard(() => api.patchItem(i.id, { due: v || null }))
 const open = (l) => l.items.filter((i) => !i.done).length || ''
 
 // Список общий для всей семьи — подтягиваем чужие изменения.
@@ -81,7 +119,9 @@ function addItem() {
   const t = text.value.trim()
   if (!t) return
   text.value = ''
-  return guard(() => api.addItem(current.value.id, t))
+  const p = newPerson.value || null; const d = newDue.value || null
+  newPerson.value = ''; newDue.value = ''
+  return guard(() => api.addItem(current.value.id, t, p, d))
 }
 function toggle(i) {
   i.done = !i.done
@@ -125,6 +165,14 @@ async function createList() {
 .item.done .txt { color: var(--ink-3); text-decoration: line-through; }
 .x { border: 0; background: none; color: var(--ink-3); font-size: 22px; line-height: 1; padding: 4px 8px; }
 .x:hover { color: var(--red); }
+.extra { gap: 8px; flex-wrap: wrap; }
+.sel { font: inherit; padding: 6px 8px; border-radius: 8px; border: .5px solid var(--line); background: var(--surface); color: var(--ink); }
+.meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+.who { display: inline-flex; align-items: center; gap: 4px; }
+.who i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); display: block; }
+.late { color: var(--red); font-weight: 600; }
+.item { flex-wrap: wrap; }
+.edit { flex-basis: 100%; display: flex; gap: 8px; flex-wrap: wrap; padding-left: 36px; }
 .manage { display: flex; gap: 4px; flex-wrap: wrap; }
 .danger { color: var(--red); }
 .err { color: var(--red); font-size: 14px; }

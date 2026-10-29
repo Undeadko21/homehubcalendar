@@ -1109,3 +1109,51 @@ def test_cancelled_titles_hidden():
     assert is_cancelled_title("  Отменена - встреча")
     assert not is_cancelled_title("Планёрка отменена на завтра")
     assert not is_cancelled_title("Отмена прививки")
+
+
+def test_norm_title_ignores_forward_prefixes():
+    from app.events import _norm_title
+    assert _norm_title("Fwd: Планёрка") == _norm_title("Планёрка")
+    assert _norm_title("Приглашение: Re: Планёрка!") == _norm_title("Планёрка")
+    assert _norm_title("Accepted: Weekly sync") == _norm_title("weekly sync")
+    assert _norm_title("Релиз") != _norm_title("Fwd релиз план")
+
+
+def test_suggest_templates():
+    from app.escorts import suggest_templates
+    def ev(day, person, scope="once"):
+        return {"id": f"e{day}", "uid": f"u{day}", "title": "Танцы", "start": f"2026-10-{day:02d}T16:00:00+05:00",
+                "all_day": False, "escort": {"mode": "escort", "children": ["masha"],
+                "dropoff": {"person": person, "scope": scope}, "pickup": {"person": None, "scope": None}}}
+    evs = [ev(6, "papa"), ev(13, "papa"), ev(20, "papa")]   # три вторника подряд
+    out = suggest_templates(evs, [])
+    assert len(out) == 1 and out[0]["dropoff"] == "papa" and out[0]["weekday"] == 1 and out[0]["count"] == 3
+    assert suggest_templates(evs[:2], []) == []
+    assert suggest_templates(evs, [{"child_id": "masha", "weekday": 1, "match": "", "dropoff": "papa", "pickup": ""}]) == []
+    series = [ev(6, "papa", "series"), ev(13, "papa", "series"), ev(20, "papa", "series")]
+    for s in series:
+        s["uid"] = "same"
+    assert suggest_templates(series, []) == []   # серия — одно правило, а не три повтора
+
+
+def test_todo_and_stale_sync_reminders():
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from app import reminders
+    tz = ZoneInfo("Asia/Yekaterinburg")
+    now = datetime(2026, 10, 29, 12, 0, tzinfo=tz)
+    todos = [{"id": 1, "text": "Купить подарок", "done": False, "due": "2026-10-30", "person_id": "papa"},
+             {"id": 2, "text": "Оплатить", "done": False, "due": "2026-10-29", "person_id": None},
+             {"id": 3, "text": "Сделано", "done": True, "due": "2026-10-30", "person_id": None},
+             {"id": 4, "text": "Без срока", "done": False, "due": None, "person_id": None}]
+    last_ok = (now - timedelta(hours=25)).isoformat()
+    out = reminders.build([], [], now, tz, None, None, 2, None, None, todos, [{"source_id": "yandex", "last_ok": last_ok}])
+    by = {r["id"]: r for r in out}
+    assert by["todo:1:2026-10-30:0"]["kind"] == "event" and by["todo:1:2026-10-30:0"]["people"] == ["papa"]
+    assert by["todo:1:2026-10-30:1"]["title"].startswith("Завтра срок")
+    assert by["todo:2:2026-10-29:0"]["kind"] == "todo"
+    assert not any(k.startswith(("todo:3", "todo:4")) for k in by)
+    alert = [r for r in out if r["kind"] == "alert"]
+    assert len(alert) == 1 and "yandex" in alert[0]["text"]
+    fresh = reminders.build([], [], now, tz, None, None, 2, None, None, None, [{"source_id": "yandex", "last_ok": now.isoformat()}])
+    assert not [r for r in fresh if r["kind"] == "alert"]

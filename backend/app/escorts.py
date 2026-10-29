@@ -306,3 +306,51 @@ def add_to_adults(events: list[dict], people: dict[str, dict]) -> list[dict]:
                 "escort_issue": "conflict" if r["conflicts"] else None,
             })
     return duties
+
+
+def suggest_templates(events: list[dict], templates: list[dict], min_count: int = 3) -> list[dict]:
+    """Подсказки «сделать правилом»: один и тот же человек, назначенный вручную на похожие события
+    ребёнка в один день недели не меньше min_count раз, а шаблона для этого ещё нет.
+    Назначение «на всю серию» считается один раз (это уже правило для события, а не повтор вручную)."""
+    groups: dict[tuple, dict[str, dict[tuple, str]]] = {}
+    for e in events:
+        esc = e.get("escort")
+        if not esc or e.get("all_day") or e.get("duty") or esc.get("mode") != "escort":
+            continue
+        try:
+            weekday = datetime.fromisoformat(e["start"]).weekday()
+        except (ValueError, KeyError):
+            continue
+        title = " ".join(re.sub(r"[^\w\s]", " ", e.get("title", "").lower()).split())
+        if not title:
+            continue
+        for kid in esc.get("children", []):
+            key = (kid, weekday, title)
+            for role in ROLES:
+                r = esc.get(role) or {}
+                if r.get("scope") not in ("once", "series") or not r.get("person"):
+                    continue
+                unit = ("once", e["start"]) if r["scope"] == "once" else ("series", e["uid"])
+                groups.setdefault(key, {}).setdefault(role, {})[unit] = r["person"]
+    out = []
+    for (kid, weekday, title), roles in groups.items():
+        chosen = {}
+        for role, units in roles.items():
+            counts: dict[str, int] = {}
+            for person in units.values():
+                counts[person] = counts.get(person, 0) + 1
+            person, n = max(counts.items(), key=lambda kv: kv[1])
+            if n >= min_count and n >= 0.75 * len(units):
+                chosen[role] = (person, n)
+        if not chosen:
+            continue
+        fake = {"title": title}
+        # Если шаблон с этим значением уже есть — подсказывать нечего.
+        chosen = {r: v for r, v in chosen.items() if _template_value(templates, [kid], fake, weekday, r) != v[0]}
+        if not chosen:
+            continue
+        out.append({"child_id": kid, "weekday": weekday, "match": title,
+                    "dropoff": chosen.get("dropoff", ("", 0))[0], "pickup": chosen.get("pickup", ("", 0))[0],
+                    "count": max(n for _, n in chosen.values())})
+    out.sort(key=lambda x: -x["count"])
+    return out[:5]

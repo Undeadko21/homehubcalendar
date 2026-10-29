@@ -76,10 +76,39 @@ def _lead_text(m: int) -> str:
 def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: ZoneInfo,
           people: set[str] | None, lead: int | None = 30, horizon_days: int = 2,
           event_rules: dict[str, list[int]] | None = None,
-          allday: dict | None = None) -> list[dict]:
+          allday: dict | None = None, todos: list[dict] | None = None,
+          sync_statuses: list[dict] | None = None) -> list[dict]:
     now = now.astimezone(tz)
     today = now.date()
     out: list[dict] = []
+
+    # Дела со сроком: утром в день срока и накануне вечером. С исполнителем — как напоминание о встрече (фильтр по людям
+    # на устройстве), без исполнителя — всем.
+    for it in todos or []:
+        if it.get("done") or not it.get("due"):
+            continue
+        try:
+            due = datetime.fromisoformat(it["due"][:10]).date()
+        except ValueError:
+            continue
+        who = [it["person_id"]] if it.get("person_id") else []
+        if who and people is not None and not (set(who) & people):
+            continue
+        kind = "event" if who else "todo"
+        base = {"kind": kind, "people": who, "start": datetime.combine(due, time(9, 0), tz).isoformat(timespec="seconds")}
+        if due >= today:
+            out.append({**base, "id": f"todo:{it['id']}:{due.isoformat()}:0",
+                        "at": max(datetime.combine(due, time(9, 0), tz), now).isoformat(timespec="seconds") if due == today
+                        else datetime.combine(due, time(9, 0), tz).isoformat(timespec="seconds"),
+                        "title": f"Дело на сегодня: {it['text']}", "text": ""})
+        if due > today:
+            out.append({**base, "id": f"todo:{it['id']}:{due.isoformat()}:1",
+                        "at": datetime.combine(due - timedelta(days=1), time(19, 0), tz).isoformat(timespec="seconds"),
+                        "title": f"Завтра срок: {it['text']}", "text": ""})
+
+    # Синхронизация молчит больше суток: одно напоминание на каждую «остановку» (время считаем от последнего успеха,
+    # поэтому снимок не меняется между пересборками).
+    out += sync_alerts(sync_statuses or [], now, tz)
 
     for e in events:
         duty = e.get("duty")
@@ -175,6 +204,31 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
                         "title": f"Завтра день рождения: {b['name']}{age}", "text": ""})
     out.sort(key=lambda r: r.get("at") or r["start"])
     return out
+
+
+STALE_HOURS = 24
+
+
+def sync_alerts(statuses: list[dict], now: datetime, tz: ZoneInfo) -> list[dict]:
+    items = []
+    for st in statuses:
+        ok = st.get("last_ok")
+        if not ok:
+            continue
+        try:
+            last = datetime.fromisoformat(ok)
+        except ValueError:
+            continue
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=tz)
+        at = last + timedelta(hours=STALE_HOURS)
+        if at > now or now - at > timedelta(hours=36):
+            continue
+        items.append({"id": f"alert:sync:{st.get('source_id')}:{last.isoformat(timespec='minutes')}", "kind": "alert",
+                      "at": at.astimezone(tz).isoformat(timespec="seconds"),
+                      "title": "Календарь давно не обновлялся",
+                      "text": f"Источник «{st.get('source_id')}» не отвечает с {last.astimezone(tz).strftime('%d.%m %H:%M')}"})
+    return items
 
 
 def date_of(b: dict):

@@ -2,6 +2,22 @@
   <div>
     <p v-if="!kids.length" class="group-note">Отметьте ребёнка в карточке человека — тогда здесь можно задать, кто его обычно возит.</p>
     <template v-else>
+      <template v-if="suggestions.length">
+        <h3 class="group-title">Похоже на правило</h3>
+        <div class="group">
+          <div v-for="(sg, i) in suggestions" :key="i" class="row stack">
+            <span class="lbl">{{ kidName(sg.child_id) }}, {{ DAYS[sg.weekday].toLowerCase() }}: «{{ sg.match }}»
+              <small class="muted block">
+                {{ sg.dropoff ? 'отвозит ' + name(sg.dropoff) : '' }}{{ sg.dropoff && sg.pickup ? ', ' : '' }}{{ sg.pickup ? 'забирает ' + name(sg.pickup) : '' }}
+                — вы назначали так {{ sg.count }} раза
+              </small></span>
+            <div class="line">
+              <button class="btn filled" @click="accept(sg)">Сделать правилом</button>
+              <button class="btn" @click="suggestions.splice(i, 1)">Не нужно</button>
+            </div>
+          </div>
+        </div>
+      </template>
       <div v-if="rows.length" class="group">
         <div v-for="t in rows" :key="t.id" class="row stack tpl">
           <div class="line">
@@ -55,8 +71,18 @@ const people = computed(() => (state.config?.people || []).filter((p) => !p.id.s
 const kids = computed(() => people.value.filter((p) => p.needs_escort))
 const adults = computed(() => people.value.filter((p) => !p.needs_escort))
 
+const suggestions = ref([])
+const name = (id) => people.value.find((p) => p.id === id)?.name || id
+const kidName = (id) => name(id)
+async function accept(sg) {
+  await api.saveTemplate({ child_id: sg.child_id, weekday: sg.weekday, match: sg.match, dropoff: sg.dropoff || '', pickup: sg.pickup || '' })
+  suggestions.value = suggestions.value.filter((x) => x !== sg)
+  await load()
+  reload()
+}
+const loadSuggestions = () => api.templateSuggestions().then((r) => (suggestions.value = r)).catch(() => {})
 const load = () => api.templates().then((r) => (rows.value = r)).catch(() => {})
-watch(() => state.config?.people, load, { immediate: true })
+watch(() => state.config?.people, () => { load(); loadSuggestions() }, { immediate: true })
 
 async function save(t) {
   await api.saveTemplate({ id: t.id, child_id: t.child_id, weekday: t.weekday, match: t.match || '', dropoff: t.dropoff || '', pickup: t.pickup || '' })
@@ -81,4 +107,5 @@ async function remove(t) {
 .x { border: 0; background: none; color: var(--ink-3); font-size: 22px; line-height: 1; padding: 4px 8px; }
 .x:hover { color: var(--red); }
 .add { margin-top: 10px; }
+.block { display: block; }
 </style>

@@ -124,6 +124,10 @@ MIGRATIONS: list[str] = [
     );
     INSERT INTO lists (name, sort) VALUES ('Покупки', 0), ('Дела', 1);
     """,
+    # срок дела (YYYY-MM-DD); исполнитель уже есть — person_id
+    """
+    ALTER TABLE list_items ADD COLUMN due TEXT;
+    """,
 ]
 
 
@@ -335,10 +339,10 @@ class Database:
             c.execute("DELETE FROM list_items WHERE list_id=?", (lid,))
             c.execute("DELETE FROM lists WHERE id=?", (lid,))
 
-    def add_item(self, lid: int, text: str, person_id: str | None = None) -> int:
+    def add_item(self, lid: int, text: str, person_id: str | None = None, due: str | None = None) -> int:
         with self.tx() as c:
-            return int(c.execute("INSERT INTO list_items (list_id, text, person_id, created) VALUES (?,?,?,?)",
-                                 (lid, text.strip(), person_id, now_iso())).lastrowid)
+            return int(c.execute("INSERT INTO list_items (list_id, text, person_id, due, created) VALUES (?,?,?,?,?)",
+                                 (lid, text.strip(), person_id or None, due or None, now_iso())).lastrowid)
 
     def update_item(self, iid: int, fields: dict) -> None:
         sets, vals = [], []
@@ -346,6 +350,8 @@ class Database:
             sets.append("text=?"); vals.append(fields["text"].strip())
         if "person_id" in fields:
             sets.append("person_id=?"); vals.append(fields["person_id"] or None)
+        if "due" in fields:
+            sets.append("due=?"); vals.append(fields["due"] or None)
         if "done" in fields:
             sets += ["done=?", "done_at=?"]; vals += [int(bool(fields["done"])), now_iso() if fields["done"] else None]
         if sets:

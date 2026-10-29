@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from .. import __version__
 from ..events import UNASSIGNED
 from ..freetime import find_free
-from .. import birthdays as bd, school, stats, widget
+from .. import birthdays as bd, escorts, school, stats, widget
 from fastapi import APIRouter
 
 from .. import core
@@ -209,6 +209,15 @@ class TemplateIn(BaseModel):
 @router.get("/api/templates")
 def list_templates():
     return core.db.templates()
+
+
+@router.get("/api/templates/suggestions")
+def template_suggestions():
+    """Что похоже на правило: одного и того же водителя назначали вручную 3+ раза."""
+    now = datetime.now(core.tz)
+    start = datetime.combine(now.date(), time(0), core.tz) - timedelta(days=56)
+    evs = core.events.events(start, start + timedelta(days=70))
+    return escorts.suggest_templates(evs, core.db.templates())
 
 
 @router.put("/api/templates")

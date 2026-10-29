@@ -104,7 +104,8 @@ def get_reminders(hours: int = 36, lead: int = 30, people: str | None = None):
     evs = core.events.events(start, start + timedelta(days=4))
     wanted = {p for p in (people or "").split(",") if p} or None
     items = reminders.build(evs, core.db.birthdays(), now, core.tz, wanted, max(0, min(lead, 240)), 2,
-                            reminders.load_rules(core.db), reminders.load_allday(core.db))
+                            reminders.load_rules(core.db), reminders.load_allday(core.db),
+                            [i for l in core.db.lists() for i in l["items"]], core.db.sync_status())
     lo, hi = now - timedelta(hours=3), now + timedelta(hours=max(1, min(hours, 72)))
     return {"now": now.isoformat(timespec="seconds"),
             "items": [r for r in items if lo <= datetime.fromisoformat(r["at"]) <= hi]}
