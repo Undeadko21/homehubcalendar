@@ -30,6 +30,12 @@ struct HomeHubMacApp: App {
         Window("Домашний календарь", id: "main") {
             MainView(model: model)
         }
+        Window("Виджет", id: "widget") {
+            DesktopWidgetView(model: model)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 340, height: 250)
+
         Window("Настройки", id: "settings") {
             SettingsView(model: model).frame(width: 520)
         }

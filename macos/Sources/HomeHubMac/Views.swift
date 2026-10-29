@@ -7,6 +7,7 @@ import HomeHubCore
 
 struct MenuLabel: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
     var body: some View {
         Group {
             if model.menuTitle.isEmpty {
@@ -16,6 +17,10 @@ struct MenuLabel: View {
             }
         }
         .task { await Updater.shared.loop(model) }
+        .task {
+            // Виджет на рабочем столе открывается при запуске, если он был включён.
+            if UserDefaults.standard.bool(forKey: "widget.on") { openWindow(id: "widget") }
+        }
     }
 }
 
@@ -44,6 +49,7 @@ struct MenuView: View {
             HStack {
                 Button("Открыть календарь") { show("main") }
                 Button("Настройки…") { show("settings") }.keyboardShortcut(",")
+                Button("Виджет") { UserDefaults.standard.set(true, forKey: "widget.on"); openWindow(id: "widget") }
                 Spacer()
                 Button("Обновить") { Task { await model.refresh(); model.reloadToken += 1 } }
             }
@@ -187,6 +193,12 @@ struct SettingsForm: View {
     let compact: Bool
     @State private var login = (SMAppService.mainApp.status == .enabled)
     @ObservedObject private var updater = Updater.shared
+    @Environment(\.openWindow) private var openWindow
+    @AppStorage("widget.on") private var widgetOn = false
+    @AppStorage("widget.scale") private var widgetScale = 1.0
+    @AppStorage("widget.opacity") private var widgetOpacity = 0.85
+    @AppStorage("widget.details") private var widgetDetails = true
+    @State private var widgetSize = ""
 
     var body: some View {
         Form {
@@ -224,6 +236,22 @@ struct SettingsForm: View {
                             Toggle("Напоминать: \(label(p))", isOn: binding(for: p.id, in: \.tripPeople))
                         }
                     }
+                }
+                Section("Виджет на рабочем столе") {
+                    Toggle("Показывать при запуске", isOn: $widgetOn)
+                    Picker("Размер", selection: $widgetSize) {
+                        Text("—").tag("")
+                        ForEach(WidgetSize.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                    .onChange(of: widgetSize) { v in
+                        if let s = WidgetSize(rawValue: v) { NotificationCenter.default.post(name: .widgetResize, object: s) }
+                    }
+                    HStack { Text("Текст"); Slider(value: $widgetScale, in: 0.8...1.5) }
+                    HStack { Text("Фон"); Slider(value: $widgetOpacity, in: 0...1) }
+                    Toggle("Подробности (кто и где)", isOn: $widgetDetails)
+                    Text("Виджет можно двигать и растягивать за край. Двойной щелчок открывает календарь.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Открыть виджет") { widgetOn = true; openWindow(id: "widget") }
                 }
                 Section("Обновление приложения") {
                     Text(updater.statusText).font(.caption)

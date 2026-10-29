@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import androidx.work.Constraints
@@ -77,8 +78,30 @@ object Widgets {
         val rv = RemoteViews(context.packageName, R.layout.widget)
         val now = Date()
         val ru = Locale("ru")
+        val cfg = WidgetPrefs(context).get(id)
+        val sc = cfg.scale / 100f
+        val opt = AppWidgetManager.getInstance(context).getAppWidgetOptions(id)
+        val wDp = opt.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
+        val hDp = opt.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 110)
+        // Шапка подстраивается под размер: в низком виджете остаётся одна строка с датой, в самом низком — только события.
+        val showTop = when (cfg.header) { 1 -> true; 2 -> false; else -> hDp >= 70 }
+        val twoLine = hDp >= 110
+        rv.setViewVisibility(R.id.w_top, if (showTop) View.VISIBLE else View.GONE)
+        rv.setViewVisibility(R.id.w_weekday, if (twoLine) View.VISIBLE else View.GONE)
         rv.setTextViewText(R.id.w_weekday, SimpleDateFormat("EEEE", ru).format(now).uppercase(ru))
-        rv.setTextViewText(R.id.w_date, SimpleDateFormat("d MMMM", ru).format(now))
+        rv.setTextViewText(
+            R.id.w_date,
+            if (twoLine) SimpleDateFormat("d MMMM", ru).format(now)
+            else SimpleDateFormat("EEE, d MMM", ru).format(now).replaceFirstChar { it.uppercase(ru) },
+        )
+        rv.setTextViewTextSize(R.id.w_weekday, TypedValue.COMPLEX_UNIT_SP, 12f * sc)
+        rv.setTextViewTextSize(R.id.w_date, TypedValue.COMPLEX_UNIT_SP, (if (twoLine) 20f else 16f) * sc)
+        rv.setTextViewTextSize(R.id.w_status, TypedValue.COMPLEX_UNIT_SP, 11f * sc)
+        rv.setTextViewTextSize(R.id.w_empty, TypedValue.COMPLEX_UNIT_SP, 14f * sc)
+        rv.setInt(R.id.w_bg, "setImageAlpha", (cfg.opacity * 255) / 100)
+        val pad = if (hDp < 70 || wDp < 110) 6 else 12
+        val padPx = (pad * context.resources.displayMetrics.density).toInt()
+        rv.setViewPadding(R.id.w_content, padPx, padPx, padPx, padPx)
 
         val status = when {
             prefs.server == null -> "не подключено"
@@ -89,6 +112,7 @@ object Widgets {
             else -> SimpleDateFormat("HH:mm", ru).format(Date(prefs.lastOk))
         }
         rv.setTextViewText(R.id.w_status, status)
+        rv.setViewVisibility(R.id.w_status, if (wDp >= 200) View.VISIBLE else View.GONE)
 
         // Список событий
         val svc = Intent(context, WidgetService::class.java).apply {
@@ -124,7 +148,7 @@ object Widgets {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         rv.setOnClickPendingIntent(R.id.w_refresh, refresh)
-        rv.setViewVisibility(R.id.w_refresh, if (prefs.server == null) View.GONE else View.VISIBLE)
+        rv.setViewVisibility(R.id.w_refresh, if (prefs.server == null || wDp < 150) View.GONE else View.VISIBLE)
         return rv
     }
 }

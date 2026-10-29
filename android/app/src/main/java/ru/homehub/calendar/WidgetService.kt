@@ -2,7 +2,9 @@ package ru.homehub.calendar
 
 import android.content.Context
 import android.content.Intent
+import android.appwidget.AppWidgetManager
 import android.graphics.Color
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
@@ -10,7 +12,7 @@ import org.json.JSONObject
 import java.time.OffsetDateTime
 
 class WidgetService : RemoteViewsService() {
-    override fun onGetViewFactory(intent: Intent): RemoteViewsFactory = Factory(applicationContext)
+    override fun onGetViewFactory(intent: Intent): RemoteViewsFactory = Factory(applicationContext, intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 0))
 }
 
 /** Строка списка: заголовок дня или событие. */
@@ -19,8 +21,9 @@ private sealed class Row {
     data class Ev(val j: JSONObject) : Row()
 }
 
-private class Factory(private val context: Context) : RemoteViewsService.RemoteViewsFactory {
+private class Factory(private val context: Context, private val widgetId: Int) : RemoteViewsService.RemoteViewsFactory {
     private var rows: List<Row> = emptyList()
+    private var cfg = WidgetCfg()
 
     override fun onCreate() {}
     override fun onDestroy() {}
@@ -31,6 +34,7 @@ private class Factory(private val context: Context) : RemoteViewsService.RemoteV
     override fun hasStableIds() = false
 
     override fun onDataSetChanged() {
+        cfg = WidgetPrefs(context).get(widgetId)
         val json = Prefs(context).widgetJson ?: run { rows = emptyList(); return }
         val out = mutableListOf<Row>()
         val now = OffsetDateTime.now()
@@ -41,7 +45,7 @@ private class Factory(private val context: Context) : RemoteViewsService.RemoteV
                 for (i in 0 until b.length()) out += Row.Day(b.getJSONObject(i).optString("text"))
             }
             val days = root.getJSONArray("days")
-            for (i in 0 until days.length()) {
+            for (i in 0 until minOf(days.length(), cfg.days)) {
                 val d = days.getJSONObject(i)
                 val evs = d.getJSONArray("events")
                 val list = (0 until evs.length()).map { evs.getJSONObject(it) }.filter { e ->
@@ -62,6 +66,7 @@ private class Factory(private val context: Context) : RemoteViewsService.RemoteV
         return when (val row = rows.getOrNull(position)) {
             is Row.Day -> RemoteViews(context.packageName, R.layout.widget_day).apply {
                 setTextViewText(R.id.d_label, row.label)
+                setTextViewTextSize(R.id.d_label, TypedValue.COMPLEX_UNIT_SP, 12f * cfg.scale / 100f)
             }
             is Row.Ev -> eventView(row.j)
             null -> RemoteViews(context.packageName, R.layout.widget_day)
@@ -83,8 +88,15 @@ private class Factory(private val context: Context) : RemoteViewsService.RemoteV
         val color = runCatching { Color.parseColor(colors?.getString(0)) }.getOrDefault(Color.GRAY)
         rv.setInt(R.id.i_bar, "setColorFilter", color)
 
+        val k = cfg.scale / 100f
+        rv.setTextViewTextSize(R.id.i_start, TypedValue.COMPLEX_UNIT_SP, 13f * k)
+        rv.setTextViewTextSize(R.id.i_end, TypedValue.COMPLEX_UNIT_SP, 12f * k)
+        rv.setTextViewTextSize(R.id.i_title, TypedValue.COMPLEX_UNIT_SP, 14f * k)
+        rv.setTextViewTextSize(R.id.i_sub, TypedValue.COMPLEX_UNIT_SP, 12f * k)
+        rv.setTextViewTextSize(R.id.i_note, TypedValue.COMPLEX_UNIT_SP, 12f * k)
         rv.setTextViewText(R.id.i_title, e.optString("title"))
-        val sub = listOf(e.optString("who"), e.optString("location")).filter { it.isNotBlank() }.joinToString(" · ")
+        val sub = if (!cfg.details) "" else
+            listOf(e.optString("who"), e.optString("location")).filter { it.isNotBlank() }.joinToString(" · ")
         rv.setTextViewText(R.id.i_sub, sub)
         rv.setViewVisibility(R.id.i_sub, if (sub.isBlank()) View.GONE else View.VISIBLE)
 

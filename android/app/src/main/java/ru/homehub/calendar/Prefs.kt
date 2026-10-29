@@ -86,6 +86,34 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putInt("dismissed_update", v).apply()
 }
 
+/** Настройки одного виджета на рабочем столе (у каждого свои). */
+data class WidgetCfg(
+    val scale: Int = 100,       // размер текста, %
+    val opacity: Int = 100,     // непрозрачность фона, %
+    val days: Int = 2,          // сколько дней показывать (1–3)
+    val details: Boolean = true, // кто и где под названием
+    val header: Int = 0,        // 0 — по размеру виджета, 1 — всегда, 2 — скрыть
+)
+
+class WidgetPrefs(context: Context) {
+    private val sp = context.getSharedPreferences("widgets", Context.MODE_PRIVATE)
+
+    fun get(id: Int) = WidgetCfg(
+        scale = sp.getInt("$id.scale", 100), opacity = sp.getInt("$id.opacity", 100),
+        days = sp.getInt("$id.days", 2), details = sp.getBoolean("$id.details", true),
+        header = sp.getInt("$id.header", 0),
+    )
+
+    fun put(id: Int, c: WidgetCfg) {
+        sp.edit().putInt("$id.scale", c.scale).putInt("$id.opacity", c.opacity).putInt("$id.days", c.days)
+            .putBoolean("$id.details", c.details).putInt("$id.header", c.header).apply()
+    }
+
+    fun remove(id: Int) {
+        sp.edit().apply { listOf("scale", "opacity", "days", "details", "header").forEach { remove("$id.$it") } }.apply()
+    }
+}
+
 /** Приводит ввод пользователя к адресу: «192.168.0.188» → «http://192.168.0.188:8080». */
 fun normalizeServer(input: String): String? {
     var s = input.trim().trimEnd('/')
