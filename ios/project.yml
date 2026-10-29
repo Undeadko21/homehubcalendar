@@ -31,9 +31,33 @@ targets:
           NSAllowsArbitraryLoads: true
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [ru.homehub.calendar.refresh]
+    dependencies:
+      - target: HomeHubWidget
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ru.homehub.calendar.ios
         PRODUCT_NAME: HomeHubCalendar
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1,2"
+  HomeHubWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Widget
+      - path: ../macos/Sources/HomeHubCore
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: HomeHub Calendar
+        CFBundleName: HomeHub Widget
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ru.homehub.calendar.ios.widget
+        PRODUCT_NAME: HomeHubWidget
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
