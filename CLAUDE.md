@@ -116,6 +116,8 @@
   *Тесты:* `backend/tests/conftest.py` (фикстура `api`), `test_api2.py`, `test_caldav_radicale.py` (настоящий CalDAV — ctag, дельты, запись), `test_e2e.py` (Playwright против собранного фронта + Radicale; пропускается без dist/playwright). CI — `.github/workflows/backend.yml`.
   *Структура бэкенда:* `main.py` (app, middleware, PIN, подключение роутеров, SPA), `core.py` (настройки, singletons `db/events/engine/cloud/backup/ws…`, `make_target`, `_create_event`, `_ops_event`), `api/{system,apps,cloud_api,lists,planning,writing}.py`.
   В роутерах singletons берутся как `core.db` (тесты перезагружают `core`, затем `main`, и подменяют `core.make_target`).
+- **Подписки ICS из интерфейса** (Teams/Outlook, Битрикс24…): `kv ics:feeds` (шифруется, в URL секретный токен), `SyncEngine.sources` = config.yaml + подписки; `GET|PUT /api/feeds`, `DELETE /api/feeds/{id}` (URL наружу не отдаётся, только хост; принимаются только http(s)/webcal),
+  UI — «Подключение» → `FeedsSettings.vue`. Ошибки ICS-источника не содержат ссылку. Отменённые встречи («Отменено:», «Canceled:» в начале названия) скрываются в `expand.py` (`is_cancelled_title`).
 - Свободное время: `freetime.py` — объединение занятости выбранных людей (+ их поездки).
 - Настройки из UI (`configured=1`) важнее правил из config.yaml и не перетираются синхронизацией.
 

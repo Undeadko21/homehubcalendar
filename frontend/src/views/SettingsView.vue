@@ -50,6 +50,8 @@
       </p>
     </template>
 
+    <FeedsSettings />
+
     <!-- Синхронизация -->
     <h3 class="group-title">Синхронизация</h3>
     <div class="group">
@@ -342,6 +344,7 @@ import TemplatesEditor from '../components/TemplatesEditor.vue'
 import BirthdaysEditor from '../components/BirthdaysEditor.vue'
 import RemindersSettings from '../components/RemindersSettings.vue'
 import CloudSettings from '../components/CloudSettings.vue'
+import FeedsSettings from '../components/FeedsSettings.vue'
 import EventReminders from '../components/EventReminders.vue'
 import ChangeLog from '../components/ChangeLog.vue'
 import SchoolBreaks from '../components/SchoolBreaks.vue'

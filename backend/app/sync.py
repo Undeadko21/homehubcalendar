@@ -65,11 +65,28 @@ def friendly_error(e: Exception) -> str:
 class SyncEngine:
     def __init__(self, db: Database, sources: list[dict], on_change: Callable[[], None] | None = None):
         self.db = db
-        self.sources = sources
+        self._base = sources
         self.on_change = on_change
         self._lock = threading.Lock()
         self.running = False
         self._runs = 0
+
+    @property
+    def sources(self) -> list[dict]:
+        """Источники из config.yaml и подписки ICS, добавленные из интерфейса."""
+        return [*self._base, *self.feed_sources()]
+
+    @sources.setter
+    def sources(self, value: list[dict]) -> None:
+        self._base = value
+
+    def feeds(self) -> list[dict]:
+        value, _ = self.db.kv_get("ics:feeds")
+        return value if isinstance(value, list) else []
+
+    def feed_sources(self) -> list[dict]:
+        return [{"id": f["id"], "type": "ics", "url": f["url"], "name": f.get("name") or f["id"],
+                 "people": f.get("people") or []} for f in self.feeds()]
 
     def _apply_delta(self, key: str, rc) -> bool:
         """Накладывает изменения sync-collection. Адреса сравниваем по пути: сервер отдаёт то полный URL, то путь."""

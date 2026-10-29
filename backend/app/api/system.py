@@ -140,3 +140,52 @@ def post_client_log(body: ClientLog, request: Request):
 @router.get("/api/client-log")
 def get_client_log():
     return list(reversed(core.CLIENT_LOG))
+
+
+# ---------- подписки ICS (Teams/Outlook, Битрикс24 и др.), добавляются из интерфейса ----------
+class FeedIn(BaseModel):
+    id: str | None = None
+    name: str = ""
+    url: str = ""
+    people: list[str] = []
+
+
+def _feed_public(f: dict) -> dict:
+    from urllib.parse import urlsplit
+    host = urlsplit(f["url"].replace("webcal://", "https://", 1)).hostname or ""
+    return {"id": f["id"], "name": f.get("name") or "", "host": host, "people": f.get("people") or []}
+
+
+@router.get("/api/feeds")
+def list_feeds():
+    return [_feed_public(f) for f in core.engine.feeds()]
+
+
+@router.put("/api/feeds")
+def put_feed(body: FeedIn):
+    url = body.url.strip()
+    if url and not url.lower().startswith(("https://", "http://", "webcal://")):
+        raise HTTPException(400, "Нужна ссылка вида https://… (ICS-подписка)")
+    feeds = core.engine.feeds()
+    cur = next((f for f in feeds if f["id"] == body.id), None) if body.id else None
+    if cur is None and not url:
+        raise HTTPException(400, "Вставьте ссылку на календарь")
+    ids = {f["id"] for f in feeds}
+    fid = cur["id"] if cur else next(f"ics{n}" for n in range(1, 1000) if f"ics{n}" not in ids)
+    known = {p["id"] for p in core.db.list_people()}
+    feed = {"id": fid, "name": body.name.strip()[:80], "url": url or cur["url"],
+            "people": [p for p in body.people if p in known]}
+    core.db.kv_set("ics:feeds", [feed if f["id"] == fid else f for f in feeds] if cur else [*feeds, feed])
+    report = core.engine.run(full=True).get(fid, {"ok": False, "error": "не удалось проверить"})
+    return {"feed": _feed_public(feed), "result": report}
+
+
+@router.delete("/api/feeds/{feed_id}")
+def delete_feed(feed_id: str):
+    feeds = core.engine.feeds()
+    if feed_id not in {f["id"] for f in feeds}:
+        raise HTTPException(404, "Подписка не найдена")
+    core.db.kv_set("ics:feeds", [f for f in feeds if f["id"] != feed_id])
+    core.db.remove_source(feed_id)
+    core.events.invalidate()
+    return {"ok": True}

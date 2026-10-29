@@ -376,6 +376,16 @@ class Database:
                     (uid, json.dumps(list(dict.fromkeys(people)), ensure_ascii=False), now_iso()),
                 )
 
+    def remove_source(self, source_id: str) -> None:
+        """Убирает календари источника вместе с их событиями (для подписок, которые пользователь удалил)."""
+        with self.tx() as c:
+            keys = [r["key"] for r in c.execute("SELECT key FROM calendars WHERE source_id=?", (source_id,)).fetchall()]
+            for k in keys:
+                c.execute("DELETE FROM objects WHERE calendar_key=?", (k,))
+                c.execute("DELETE FROM calendar_people WHERE calendar_key=?", (k,))
+            c.execute("DELETE FROM calendars WHERE source_id=?", (source_id,))
+            c.execute("DELETE FROM sync_status WHERE source_id=?", (source_id,))
+
     # ---------- объекты ----------
     def replace_objects(self, calendar_key: str, objects: dict[str, str]) -> None:
         with self.tx() as c:
@@ -435,7 +445,7 @@ class Database:
     # рядом с базой (создаётся при первом запуске, права 0600). Так утекшая копия самой базы секретов не раскрывает.
     # В резервной копии на Диске секреты открыты — она целиком зашифрована ключом облака (см. backup.snapshot_db),
     # а после восстановления при запуске шифруются заново.
-    SECRET_KEYS = ("auth:", "cloud:token", "cloud:key")
+    SECRET_KEYS = ("auth:", "cloud:token", "cloud:key", "ics:feeds")
 
     def _is_secret(self, key: str) -> bool:
         return key.startswith(self.SECRET_KEYS)

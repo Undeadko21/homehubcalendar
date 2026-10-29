@@ -191,3 +191,21 @@ def test_selftest_write(api):
     r = api.post("/api/selftest/write", json={"calendar": "ya/home"}).json()
     assert not r["ok"] and "не разрешил запись" in str([x.get("error") for x in r["steps"]])
     assert api.fake.store == {}
+
+
+def test_feeds_add_list_delete(api, monkeypatch):
+    import httpx
+    ics = ("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nX-WR-CALNAME:Teams\r\nBEGIN:VEVENT\r\nUID:t1\r\nSUMMARY:Планёрка\r\n"
+           "DTSTART:20301001T080000Z\r\nDTEND:20301001T090000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+    monkeypatch.setattr(httpx, "get", lambda url, **kw: httpx.Response(200, text=ics, request=httpx.Request("GET", url)))
+    c = api
+    bad = c.put("/api/feeds", json={"url": "file:///etc/passwd"})
+    assert bad.status_code == 400
+    r = c.put("/api/feeds", json={"name": "Работа", "url": "https://outlook.example.com/x/calendar.ics"})
+    assert r.status_code == 200 and r.json()["result"]["ok"], r.text
+    feeds = c.get("/api/feeds").json()
+    assert feeds[0]["host"] == "outlook.example.com" and "url" not in feeds[0]
+    assert any(cal["key"].startswith("ics1/") for cal in c.get("/api/config").json()["calendars"])
+    assert c.delete("/api/feeds/ics1").status_code == 200
+    assert c.get("/api/feeds").json() == []
+    assert not any(cal["key"].startswith("ics1/") for cal in c.get("/api/config").json()["calendars"])
