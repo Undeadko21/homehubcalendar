@@ -21,7 +21,8 @@ targets:
     info:
       path: Info.plist
       properties:
-        CFBundleDisplayName: Домашний календарь
+        CFBundleDisplayName: HomeHub Calendar
+        CFBundleName: HomeHub Calendar
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
