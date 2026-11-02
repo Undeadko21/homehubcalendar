@@ -101,8 +101,8 @@ ws = writeq.WriteService(db, lambda k: make_target(k), _ws_changed)
 def _warm() -> None:
     """Прогрев: разобрать события заранее, чтобы первое открытие календаря не ждало."""
     try:
-        s = datetime.combine(date.today(), time(0), tz)
-        events.events(s - timedelta(days=7), s + timedelta(days=14))
+        s = datetime.combine(datetime.now(tz).date(), time(0), tz)
+        events.events(s - timedelta(days=1), s + timedelta(days=2))   # строит и кладёт в кэш всю ленту окна
     except Exception:  # noqa: BLE001
         log.exception("Прогрев")
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import re
 import threading
-from datetime import datetime, timedelta
+from datetime import date, datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import escorts, live
@@ -51,19 +51,60 @@ class EventService:
         self.fuzzy_dedup = fuzzy_dedup
         self._cache: dict[tuple, list[dict]] = {}
         self._lock = threading.Lock()
+        self._wide: tuple[date, list[dict]] | None = None   # лента на большое окно вокруг сегодняшнего дня
+        self._wide_lock = threading.Lock()
+        self._cache_gen = 0
 
     def invalidate(self) -> None:
         with self._lock:
             self._cache.clear()
+            self._wide = None
+            self._cache_gen += 1
         live.bump()
+
+    WIDE_BACK, WIDE_FWD = 45, 120   # дней назад и вперёд: покрывает неделю, месяц, ленту и ближайшие планы
+
+    def _in_wide(self, start: datetime, end: datetime) -> bool:
+        today = datetime.combine(datetime.now(self.tz).date(), dtime(0), self.tz)
+        return start >= today - timedelta(days=self.WIDE_BACK) and end <= today + timedelta(days=self.WIDE_FWD)
+
+    def _wide_events(self) -> list[dict]:
+        """Одна готовая лента на всё окно: любой обычный запрос диапазона берёт срез, а не разбирает календари заново."""
+        today = datetime.now(self.tz).date()
+        with self._lock:
+            if self._wide and self._wide[0] == today:
+                return self._wide[1]
+        with self._wide_lock:                       # параллельные запросы ждут одну сборку
+            with self._lock:
+                if self._wide and self._wide[0] == today:
+                    return self._wide[1]
+                gen = self._cache_gen
+            t0 = datetime.combine(today, dtime(0), self.tz)
+            evs = self._compose(t0 - timedelta(days=self.WIDE_BACK + 1), t0 + timedelta(days=self.WIDE_FWD + 1))
+            with self._lock:
+                if gen == self._cache_gen:          # пока собирали, данные могли измениться
+                    self._wide = (today, evs)
+            return evs
 
     def events(self, start: datetime, end: datetime) -> list[dict]:
         key = (start.isoformat(), end.isoformat())
         with self._lock:
             if key in self._cache:
                 return self._cache[key]
-        # Строим с запасом в сутки: конфликты поездок зависят от соседних событий.
-        wide = self._build(start - timedelta(days=1), end + timedelta(days=1))
+        if self._in_wide(start, end):
+            result = [e for e in self._wide_events() if _in_range(e, start, end)]
+        else:
+            # Строим с запасом в сутки: конфликты поездок зависят от соседних событий.
+            wide = self._compose(start - timedelta(days=1), end + timedelta(days=1))
+            result = [e for e in wide if _in_range(e, start, end)]
+        with self._lock:
+            if len(self._cache) > 64:
+                self._cache.clear()
+            self._cache[key] = result
+        return result
+
+    def _compose(self, start: datetime, end: datetime) -> list[dict]:
+        wide = self._build(start, end)
         people = {p["id"]: p for p in self.db.list_people()}
         cfg = self.escort_settings()
         escorts.annotate(wide, people, self.db.escorts(), cfg["before_minutes"], cfg["after_minutes"],
@@ -75,12 +116,7 @@ class EventService:
         # Поездки и «все вместе» — в календари взрослых.
         wide += escorts.add_to_adults(wide, people)
         wide.sort(key=lambda e: (e["start"][:10], not e["all_day"], e["start"], e["title"]))
-        result = [e for e in wide if _in_range(e, start, end)]
-        with self._lock:
-            if len(self._cache) > 64:
-                self._cache.clear()
-            self._cache[key] = result
-        return result
+        return wide
 
     def shared_color(self) -> str | None:
         value, _ = self.db.kv_get("settings:shared_color")

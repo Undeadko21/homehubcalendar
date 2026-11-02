@@ -1157,3 +1157,26 @@ def test_todo_and_stale_sync_reminders():
     assert len(alert) == 1 and "yandex" in alert[0]["text"]
     fresh = reminders.build([], [], now, tz, None, None, 2, None, None, None, [{"source_id": "yandex", "last_ok": now.isoformat()}])
     assert not [r for r in fresh if r["kind"] == "alert"]
+
+
+def test_split_feed_keeps_series_together_and_results_equal():
+    """Подписка режется по UID; серия и её перенесённое вхождение остаются вместе, результат тот же."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from app.expand import expand_ics
+    from app.sources.ics_source import split_feed
+    tz = ZoneInfo("Asia/Yekaterinburg")
+    ics = ("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nX-WR-CALNAME:Работа\r\n"
+           "BEGIN:VEVENT\r\nUID:a\r\nDTSTART;TZID=Asia/Yekaterinburg:20261026T100000\r\nDTEND;TZID=Asia/Yekaterinburg:20261026T110000\r\n"
+           "RRULE:FREQ=DAILY;COUNT=4\r\nSUMMARY:Планёрка\r\nEND:VEVENT\r\n"
+           "BEGIN:VEVENT\r\nUID:a\r\nRECURRENCE-ID;TZID=Asia/Yekaterinburg:20261027T100000\r\n"
+           "DTSTART;TZID=Asia/Yekaterinburg:20261027T150000\r\nDTEND;TZID=Asia/Yekaterinburg:20261027T160000\r\nSUMMARY:Планёрка\r\nEND:VEVENT\r\n"
+           "BEGIN:VEVENT\r\nUID:b\r\nDTSTART;TZID=Asia/Yekaterinburg:20261028T120000\r\nDTEND;TZID=Asia/Yekaterinburg:20261028T130000\r\nSUMMARY:Обед\r\nEND:VEVENT\r\n"
+           "END:VCALENDAR\r\n")
+    parts = split_feed(ics)
+    assert len(parts) == 2
+    a, b = datetime(2026, 10, 26, tzinfo=tz), datetime(2026, 11, 2, tzinfo=tz)
+    whole = sorted((o.uid, o.start) for o in expand_ics(ics, a, b, tz))
+    split = sorted((o.uid, o.start) for p in parts.values() for o in expand_ics(p, a, b, tz))
+    assert whole == split and len(whole) == 5
+    assert split_feed("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n") == {"feed.ics": "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"}
