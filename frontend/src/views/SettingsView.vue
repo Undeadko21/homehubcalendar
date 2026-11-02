@@ -345,6 +345,7 @@
 </template>
 
 <script setup>
+import { copyToClipboard } from '../lib/clipboard'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from '../lib/api'
 import { state, reload, syncNow } from '../lib/store'
@@ -439,13 +440,7 @@ api.appInfo().then((v) => (appInfo.value = v)).catch(() => (appInfo.value = { av
 const iosInfo = ref(null)
 fetch('/api/app-ios').then((r) => r.json()).then((v) => (iosInfo.value = v)).catch(() => (iosInfo.value = { available: false }))
 const origin = location.origin
-function copyText(t) {
-  try {
-    const a = document.createElement('textarea')
-    a.value = t; a.style.position = 'fixed'; a.style.opacity = '0'
-    document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove()
-  } catch { /* не критично */ }
-}
+const copyText = copyToClipboard
 const macInfo = ref(null)
 fetch('/api/app-mac').then((r) => r.json()).then((v) => (macInfo.value = v)).catch(() => (macInfo.value = { available: false }))
 const canUpdate = inApp && !!window.HomeHubApp.updateApp  // в приложении 1.6+

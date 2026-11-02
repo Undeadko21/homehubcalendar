@@ -53,6 +53,7 @@
 </template>
 
 <script setup>
+import { copyToClipboard } from '../lib/clipboard'
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../lib/api'
 
@@ -65,7 +66,11 @@ const copied = ref(false)
 const tokenShown = ref(false)
 const inApp = typeof window !== 'undefined' && !!window.HomeHubApp?.setCloud
 const connected = ref(false)
-const copyText = (t) => { try { navigator.clipboard.writeText(t) } catch { /* без буфера */ } }
+async function copyText(t) {
+  const ok = await copyToClipboard(t)
+  msg.value = ok ? 'Скопировано.' : 'Не удалось скопировать автоматически: нажмите на значение, чтобы выделить, и скопируйте вручную.'
+  isErr.value = !ok
+}
 const fmt = (s) => new Date(s).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 const appState = computed(() => (connected.value ? 'подключено: вне дома читает снимок из облака' : 'не подключено'))
@@ -102,7 +107,11 @@ function connectApp() {
   setTimeout(readApp, 800)
 }
 async function copy() {
-  try { await navigator.clipboard.writeText(st.value.code); copied.value = true; setTimeout(() => (copied.value = false), 2000) } catch {}
+  const ok = await copyToClipboard(st.value.code)
+  copied.value = ok
+  msg.value = ok ? '' : 'Не удалось скопировать автоматически: нажмите на код, чтобы выделить его, и скопируйте вручную.'
+  isErr.value = !ok
+  if (ok) setTimeout(() => (copied.value = false), 2000)
 }
 </script>
 
@@ -110,7 +119,7 @@ async function copy() {
 .err { color: var(--red); }
 .block { display: block; }
 .code { display: flex; gap: 8px; align-items: center; }
-.code code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; background: var(--fill); padding: 6px 8px; border-radius: 8px; }
+.code code { user-select: all; -webkit-user-select: all; cursor: text; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; background: var(--fill); padding: 6px 8px; border-radius: 8px; }
 .danger { color: var(--red); }
 .val { text-align: right; font-size: 14px; overflow-wrap: anywhere; max-width: 60%; }
 </style>
