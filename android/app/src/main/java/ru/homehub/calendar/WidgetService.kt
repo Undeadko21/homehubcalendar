@@ -53,7 +53,9 @@ private class Factory(private val context: Context, private val widgetId: Int) :
                     e.optBoolean("all_day") || runCatching { OffsetDateTime.parse(e.getString("end")).isAfter(now) }.getOrDefault(true)
                 }
                 if (list.isEmpty()) continue
-                out += Row.Day(d.getString("label"))
+                // Заголовок дня как у Apple: «ЗАВТРА», «ВТОРНИК»; сегодняшний не нужен — дата стоит в шапке.
+                val head = d.getString("label").substringBefore(",").trim().uppercase(java.util.Locale("ru"))
+                if (head != "СЕГОДНЯ") out += Row.Day(head)
                 list.forEach { out += Row.Ev(it) }
             }
         } catch (_: Exception) {
@@ -66,7 +68,7 @@ private class Factory(private val context: Context, private val widgetId: Int) :
         return when (val row = rows.getOrNull(position)) {
             is Row.Day -> RemoteViews(context.packageName, R.layout.widget_day).apply {
                 setTextViewText(R.id.d_label, row.label)
-                setTextViewTextSize(R.id.d_label, TypedValue.COMPLEX_UNIT_SP, 12f * cfg.scale / 100f)
+                setTextViewTextSize(R.id.d_label, TypedValue.COMPLEX_UNIT_SP, 11f * cfg.scale / 100f)
             }
             is Row.Ev -> eventView(row.j)
             null -> RemoteViews(context.packageName, R.layout.widget_day)
@@ -76,43 +78,44 @@ private class Factory(private val context: Context, private val widgetId: Int) :
     private fun eventView(e: JSONObject): RemoteViews {
         val rv = RemoteViews(context.packageName, R.layout.widget_item)
         val allDay = e.optBoolean("all_day")
-        val time = e.optString("time")
-        if (allDay) {
-            rv.setTextViewText(R.id.i_start, "весь")
-            rv.setTextViewText(R.id.i_end, "день")
-        } else {
-            rv.setTextViewText(R.id.i_start, time.substringBefore("–"))
-            rv.setTextViewText(R.id.i_end, time.substringAfter("–", ""))
-        }
-        val colors = e.optJSONArray("colors")
-        val color = runCatching { Color.parseColor(colors?.getString(0)) }.getOrDefault(Color.GRAY)
-        rv.setInt(R.id.i_bar, "setColorFilter", color)
-
         val k = cfg.scale / 100f
-        rv.setTextViewTextSize(R.id.i_start, TypedValue.COMPLEX_UNIT_SP, 13f * k)
-        rv.setTextViewTextSize(R.id.i_end, TypedValue.COMPLEX_UNIT_SP, 12f * k)
-        rv.setTextViewTextSize(R.id.i_title, TypedValue.COMPLEX_UNIT_SP, 14f * k)
-        rv.setTextViewTextSize(R.id.i_sub, TypedValue.COMPLEX_UNIT_SP, 12f * k)
-        rv.setTextViewTextSize(R.id.i_note, TypedValue.COMPLEX_UNIT_SP, 12f * k)
+        val colors = e.optJSONArray("colors")
+        val chip = ChipStyle.colors(context, colors?.optString(0), strong = e.optBoolean("now"))
+
+        rv.setInt(R.id.i_fill, "setColorFilter", chip.bar)
+        rv.setInt(R.id.i_fill, "setImageAlpha", chip.fillAlpha)
+        rv.setInt(R.id.i_bar, "setColorFilter", chip.bar)
+
         rv.setTextViewText(R.id.i_title, e.optString("title"))
+        rv.setTextColor(R.id.i_title, chip.text)
+        rv.setTextViewTextSize(R.id.i_title, TypedValue.COMPLEX_UNIT_SP, 14f * k)
+
+        val time = if (allDay) "" else ChipStyle.timeText(e.optString("time"))
+        rv.setTextViewText(R.id.i_time, time)
+        rv.setTextColor(R.id.i_time, chip.time)
+        rv.setTextViewTextSize(R.id.i_time, TypedValue.COMPLEX_UNIT_SP, 12f * k)
+        rv.setViewVisibility(R.id.i_time, if (time.isBlank()) View.GONE else View.VISIBLE)
+
         val sub = if (!cfg.details) "" else
             listOf(e.optString("who"), e.optString("location")).filter { it.isNotBlank() }.joinToString(" · ")
         rv.setTextViewText(R.id.i_sub, sub)
+        rv.setTextColor(R.id.i_sub, chip.sub)
+        rv.setTextViewTextSize(R.id.i_sub, TypedValue.COMPLEX_UNIT_SP, 11f * k)
         rv.setViewVisibility(R.id.i_sub, if (sub.isBlank()) View.GONE else View.VISIBLE)
 
         val note = e.optString("note")
         val issue = e.optString("issue").takeIf { it.isNotBlank() && it != "null" }
-        rv.setTextViewText(R.id.i_note, if (e.optBoolean("now")) listOf("сейчас", note).filter { it.isNotBlank() }.joinToString("  ") else note)
-        rv.setViewVisibility(R.id.i_note, if (note.isBlank() && !e.optBoolean("now")) View.GONE else View.VISIBLE)
+        val now = e.optBoolean("now")
+        rv.setTextViewText(R.id.i_note, if (now) listOf("сейчас", note).filter { it.isNotBlank() }.joinToString("  ") else note)
+        rv.setTextViewTextSize(R.id.i_note, TypedValue.COMPLEX_UNIT_SP, 11f * k)
+        rv.setViewVisibility(R.id.i_note, if (note.isBlank() && !now) View.GONE else View.VISIBLE)
         rv.setTextColor(
             R.id.i_note,
-            context.getColor(
-                when (issue) {
-                    "conflict" -> R.color.red
-                    "unassigned" -> R.color.warn
-                    else -> if (e.optBoolean("now")) R.color.red else R.color.ink2
-                },
-            ),
+            when (issue) {
+                "conflict" -> context.getColor(R.color.red)
+                "unassigned" -> context.getColor(R.color.warn)
+                else -> if (now) context.getColor(R.color.red) else chip.sub
+            },
         )
         rv.setViewVisibility(R.id.i_badge, if (issue == "conflict") View.VISIBLE else View.GONE)
         rv.setOnClickFillInIntent(R.id.item_root, Intent().putExtra("event", e.optString("id")))

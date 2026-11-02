@@ -89,13 +89,15 @@ object Widgets {
         rv.setViewVisibility(R.id.w_top, if (showTop) View.VISIBLE else View.GONE)
         rv.setViewVisibility(R.id.w_weekday, if (twoLine) View.VISIBLE else View.GONE)
         rv.setTextViewText(R.id.w_weekday, SimpleDateFormat("EEEE", ru).format(now).uppercase(ru))
+        // Как у Apple: «ПОНЕДЕЛЬНИК» красным и крупное число; в низком виджете — одна красная строка.
         rv.setTextViewText(
             R.id.w_date,
-            if (twoLine) SimpleDateFormat("d MMMM", ru).format(now)
-            else SimpleDateFormat("EEE, d MMM", ru).format(now).replaceFirstChar { it.uppercase(ru) },
+            if (twoLine) SimpleDateFormat("d", ru).format(now)
+            else SimpleDateFormat("EEE, d MMMM", ru).format(now).uppercase(ru),
         )
+        rv.setTextColor(R.id.w_date, context.getColor(if (twoLine) R.color.ink else R.color.red))
         rv.setTextViewTextSize(R.id.w_weekday, TypedValue.COMPLEX_UNIT_SP, 12f * sc)
-        rv.setTextViewTextSize(R.id.w_date, TypedValue.COMPLEX_UNIT_SP, (if (twoLine) 20f else 16f) * sc)
+        rv.setTextViewTextSize(R.id.w_date, TypedValue.COMPLEX_UNIT_SP, (if (twoLine) 34f else 14f) * sc)
         rv.setTextViewTextSize(R.id.w_status, TypedValue.COMPLEX_UNIT_SP, 11f * sc)
         rv.setTextViewTextSize(R.id.w_empty, TypedValue.COMPLEX_UNIT_SP, 14f * sc)
         rv.setInt(R.id.w_bg, "setImageAlpha", (cfg.opacity * 255) / 100)

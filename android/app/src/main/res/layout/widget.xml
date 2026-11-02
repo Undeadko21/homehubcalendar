@@ -38,17 +38,19 @@
                 android:id="@+id/w_weekday"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.04"
                 android:textColor="@color/red"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+                android:textSize="12sp" />
 
             <TextView
                 android:id="@+id/w_date"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:fontFamily="sans-serif"
+                android:includeFontPadding="false"
                 android:textColor="@color/ink"
-                android:textSize="20sp"
-                android:textStyle="bold" />
+                android:textSize="34sp" />
         </LinearLayout>
 
         <TextView

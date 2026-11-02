@@ -22,9 +22,10 @@ class WidgetSnapshotTest {
                           val note: String = "", val color: String, val issue: String? = null, val now: Boolean = false)
 
     private fun widget(inflater: LayoutInflater): View {
-        val root = inflater.inflate(R.layout.widget, null) as LinearLayout
+        val frame = inflater.inflate(R.layout.widget, null)
+        val root = frame.findViewById<LinearLayout>(R.id.w_content)
         root.findViewById<TextView>(R.id.w_weekday).text = "ПОНЕДЕЛЬНИК"
-        root.findViewById<TextView>(R.id.w_date).text = "26 октября"
+        root.findViewById<TextView>(R.id.w_date).text = "2"
         root.findViewById<TextView>(R.id.w_status).text = "12:41"
         val list = root.findViewById<View>(R.id.w_list)
         val idx = root.indexOfChild(list)
@@ -32,13 +33,18 @@ class WidgetSnapshotTest {
         root.findViewById<View>(R.id.w_empty).visibility = View.GONE
         val col = LinearLayout(root.context).apply { orientation = LinearLayout.VERTICAL }
         fun day(label: String) = (inflater.inflate(R.layout.widget_day, col, false) as TextView).also { it.text = label; col.addView(it) }
+        val dark = paparazzi.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
         fun ev(e: Ev) {
             val v = inflater.inflate(R.layout.widget_item, col, false)
-            v.findViewById<TextView>(R.id.i_start).text = e.start
-            v.findViewById<TextView>(R.id.i_end).text = e.end
-            v.findViewById<ImageView>(R.id.i_bar).setColorFilter(Color.parseColor(e.color))
-            v.findViewById<TextView>(R.id.i_title).text = e.title
-            v.findViewById<TextView>(R.id.i_sub).text = e.sub
+            val chip = ChipStyle.colors(v.context, e.color, strong = e.now, dark = dark)
+            v.findViewById<ImageView>(R.id.i_fill).apply { setColorFilter(chip.bar); imageAlpha = chip.fillAlpha }
+            v.findViewById<ImageView>(R.id.i_bar).setColorFilter(chip.bar)
+            v.findViewById<TextView>(R.id.i_title).apply { text = e.title; setTextColor(chip.text) }
+            val time = v.findViewById<TextView>(R.id.i_time)
+            time.text = ChipStyle.timeText(e.start + "–" + e.end).takeIf { e.start != "весь" } ?: ""
+            time.setTextColor(chip.time)
+            time.visibility = if (time.text.isBlank()) View.GONE else View.VISIBLE
+            v.findViewById<TextView>(R.id.i_sub).apply { text = e.sub; setTextColor(chip.sub) }
             val note = v.findViewById<TextView>(R.id.i_note)
             val text = if (e.now) listOf("сейчас", e.note).filter { it.isNotBlank() }.joinToString("  ") else e.note
             note.text = text
@@ -47,16 +53,16 @@ class WidgetSnapshotTest {
             v.findViewById<View>(R.id.i_badge).visibility = if (e.issue == "conflict") View.VISIBLE else View.GONE
             col.addView(v)
         }
-        day("Сегодня, понедельник, 26 октября")
-        ev(Ev("12:00", "13:00", "Обед", "Оля", color = "#FF2D55", now = true))
+        ev(Ev("21:20", "21:40", "Виза", "Оля", color = "#FF2D55", now = true))
         ev(Ev("13:00", "14:00", "Daily xVR (Команда)", "Толик · Собрание Microsoft Teams", color = "#34C759"))
         ev(Ev("17:30", "18:00", "Отвезти Марка: Ушу", "Оля", color = "#FF2D55", issue = "conflict"))
         ev(Ev("18:00", "19:00", "Ушу Марк", "Марк", "→ Оля  ← кто?", "#007AFF", "unassigned"))
-        day("Завтра, вторник, 27 октября")
+        day("ЗАВТРА")
         ev(Ev("весь", "день", "ДР бабушки", "Оля, Толик, Марк", color = "#FF9500"))
-        ev(Ev("10:00", "11:00", "Weekly_маркетинг", "Оля", color = "#FF2D55"))
+        ev(Ev("10:40", "11:40", "Гитара", "Марк", color = "#34C759"))
+        ev(Ev("14:00", "14:45", "Обсуждение итогов", "Оля", color = "#FF3B30"))
         root.addView(col, idx, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        return root
+        return frame
     }
 
     @Test

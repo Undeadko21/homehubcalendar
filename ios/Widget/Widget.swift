@@ -95,7 +95,7 @@ enum Loader {
     }
 
     static func load(_ c: CalendarIntent, now: Date) async -> WData {
-        let days = max(1, min(3, c.days))
+        let days = max(2, min(3, c.days))   // для среднего виджета нужен ещё и завтрашний день
         let wanted = (c.people ?? "").split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
         var problems: [String] = []
@@ -237,102 +237,202 @@ struct Provider: AppIntentTimelineProvider {
     }
 }
 
-// MARK: - Вид
+// MARK: - Вид (по образцу виджета «Календарь» от Apple)
 
 func hexColor(_ hex: String?) -> Color {
     guard let h = hex?.trimmingCharacters(in: CharacterSet(charactersIn: "#")), h.count == 6, let v = UInt32(h, radix: 16) else { return .gray }
     return Color(red: Double((v >> 16) & 255) / 255, green: Double((v >> 8) & 255) / 255, blue: Double(v & 255) / 255)
 }
 
-enum Row: Identifiable {
-    case day(String, Int)
-    case event(WEvent)
-    var id: String {
-        switch self { case .day(let s, let i): return "d\(i)\(s)"; case .event(let e): return e.id }
+/// Цвета плашки как у Apple: полупрозрачная заливка цвета календаря, полоса слева и текст того же цвета (в тёмной теме светлее).
+func chipColors(_ hex: String?, dark: Bool, strong: Bool) -> (text: Color, fill: Color, bar: Color) {
+    var r = 0.56, g = 0.56, b = 0.58
+    if let h = hex?.trimmingCharacters(in: CharacterSet(charactersIn: "#")), h.count == 6, let v = UInt32(h, radix: 16) {
+        r = Double((v >> 16) & 255) / 255; g = Double((v >> 8) & 255) / 255; b = Double(v & 255) / 255
     }
+    let target = dark ? 1.0 : 0.0
+    let k = dark ? 0.32 : 0.30
+    let text = Color(red: r + (target - r) * k, green: g + (target - g) * k, blue: b + (target - b) * k)
+    let base = Color(red: r, green: g, blue: b)
+    return (text, base.opacity(dark ? (strong ? 0.34 : 0.22) : (strong ? 0.26 : 0.17)), base)
+}
+
+private let ruLocale = Locale(identifier: "ru_RU")
+
+func upperWeekday(_ d: Date) -> String {
+    let f = DateFormatter()
+    f.locale = ruLocale
+    f.dateFormat = "EEEE"
+    return f.string(from: d).uppercased()
+}
+
+func dayNumber(_ d: Date) -> String { String(Calendar.current.component(.day, from: d)) }
+
+/// «ЗАВТРА», «ВТОРНИК»… для заголовка не-сегодняшней колонки.
+func columnTitle(_ d: Date, today: Date) -> String {
+    let cal = Calendar.current
+    if cal.isDate(d, inSameDayAs: today) { return "СЕГОДНЯ" }
+    if let t = cal.date(byAdding: .day, value: 1, to: today), cal.isDate(d, inSameDayAs: t) { return "ЗАВТРА" }
+    return upperWeekday(d)
 }
 
 struct WidgetView: View {
     let entry: CalendarEntry
     @Environment(\.widgetFamily) private var family
 
-    private var capacity: Int {
-        let base: Double
-        switch family {
-        case .systemSmall: base = 3
-        case .systemMedium: base = 4
-        default: base = 9
+    private var s: Double { entry.scale }
+    private var today: Date { entry.data.days.first?.date ?? Calendar.current.startOfDay(for: entry.date) }
+
+    /// События дня без уже прошедших сегодня.
+    private func events(_ i: Int) -> [WEvent] {
+        guard i < entry.data.days.count else { return [] }
+        return entry.data.days[i].events.filter { e in
+            if e.allDay { return true }
+            guard let end = e.end else { return true }
+            return i > 0 || end > entry.date
         }
-        return max(1, Int(base / entry.scale))
     }
 
-    private var head: String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "ru_RU")
-        f.dateFormat = "EEEE, d MMMM"
-        let s = f.string(from: entry.date)
-        return s.prefix(1).uppercased() + s.dropFirst()
-    }
-
-    private var rows: [Row] {
-        var out: [Row] = []
-        for (i, d) in entry.data.days.enumerated() {
-            let evs = d.events.filter { e in
-                if e.allDay { return true }
-                guard let end = e.end else { return true }
-                return i > 0 || end > entry.date   // прошедшее сегодня скрываем
+    private func chips(_ list: [WEvent], limit: Int) -> some View {
+        let shown = Array(list.prefix(limit))
+        return VStack(alignment: .leading, spacing: 4 * s) {
+            ForEach(shown) { e in
+                EventChip(e: e, scale: s, details: showDetails, now: entry.date)
             }
-            if evs.isEmpty { continue }
-            if i > 0 || entry.data.days.count > 1 { out.append(.day(d.label, i)) }
-            out.append(contentsOf: evs.map { Row.event($0) })
+            if list.count > shown.count {
+                Text("ещё \(list.count - shown.count)").font(.system(size: 11 * s)).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Сколько плашек влезает: высота плашки с подробностями ~52 pt, без них ~38 pt.
+    private func fit(_ avail: Double) -> Int {
+        let chipH = (showDetails ? 52.0 : 38.0) * s
+        return max(1, Int((avail + 4 * s) / (chipH + 4 * s)))
+    }
+
+    private var showDetails: Bool { entry.details && family != .systemSmall }
+
+    private struct PlanItem: Identifiable { let id: Int; let take: Int }
+
+    /// Для большого виджета: какие дни и по сколько плашек помещается (высота ~330 pt).
+    private var largePlan: [PlanItem] {
+        var left = 330.0 - (entry.data.birthday != nil ? 18 : 0)
+        var out: [PlanItem] = []
+        for i in entry.data.days.indices {
+            let n = events(i).count
+            if n == 0 && i > 0 { continue }
+            let head = (i == 0 ? 30.0 : 16.0) * s + 6 * s
+            if left < head + (n > 0 ? 38 * s : 0) { break }
+            let take = n == 0 ? 0 : min(n, fit(left - head))
+            out.append(PlanItem(id: i, take: take))
+            left -= head + Double(max(take, 1)) * ((showDetails ? 52.0 : 38.0) + 4) * s + 8 * s
         }
         return out
     }
 
-    var body: some View {
-        let list = Array(rows.prefix(capacity))
-        VStack(alignment: .leading, spacing: 4 * entry.scale) {
-            if family != .systemSmall {
-                HStack {
-                    Text(head).font(.system(size: 14 * entry.scale, weight: .bold)).foregroundStyle(.red)
-                    Spacer()
-                    if entry.data.offline { Image(systemName: "icloud").font(.caption2).foregroundStyle(.secondary) }
-                }
-                if family == .systemLarge, let b = entry.data.birthday {
-                    Text(b).font(.system(size: 11 * entry.scale)).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            if let m = entry.data.message {
-                Text(m).font(.system(size: 12 * entry.scale)).foregroundStyle(.secondary)
-            } else if list.isEmpty {
-                Text("Ближайших событий нет").font(.system(size: 13 * entry.scale)).foregroundStyle(.secondary)
-            } else {
-                ForEach(list) { row in
-                    switch row {
-                    case .day(let s, _):
-                        Text(s).font(.system(size: 11 * entry.scale, weight: .semibold)).foregroundStyle(.secondary).padding(.top, 2)
-                    case .event(let e):
-                        EventLine(e: e, scale: entry.scale, details: entry.details, now: entry.date)
+    private var todayHeader: some View {
+        VStack(alignment: .leading, spacing: -2 * s) {
+            Text(upperWeekday(today)).font(.system(size: 11 * s, weight: .semibold)).foregroundStyle(.red).lineLimit(1)
+            Text(dayNumber(today)).font(.system(size: 34 * s, weight: .regular)).lineLimit(1)
+        }
+    }
+
+    private func smallHeader(_ i: Int) -> some View {
+        let d = i < entry.data.days.count ? entry.data.days[i].date : today
+        return Text(columnTitle(d, today: today)).font(.system(size: 11 * s, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1)
+    }
+
+    private func empty(_ text: String = "Нет событий") -> some View {
+        Text(text).font(.system(size: 13 * s)).foregroundStyle(.secondary)
+    }
+
+    private var column0: some View {
+        VStack(alignment: .leading, spacing: 4 * s) {
+            todayHeader
+            let list = events(0)
+            if list.isEmpty { empty() } else { chips(list, limit: fit(83)) }
+        }
+    }
+
+    private var column1: some View {
+        VStack(alignment: .leading, spacing: 6 * s) {
+            smallHeader(1)
+            let list = events(1)
+            if list.isEmpty { empty() } else { chips(list, limit: fit(110)) }
+        }
+    }
+
+    private var large: some View {
+        VStack(alignment: .leading, spacing: 6 * s) {
+            ForEach(largePlan) { item in
+                let d = entry.data.days[item.id]
+                let list = events(item.id)
+                VStack(alignment: .leading, spacing: 4 * s) {
+                    if item.id == 0 {
+                        HStack(alignment: .firstTextBaseline, spacing: 6 * s) {
+                            Text(upperWeekday(d.date)).font(.system(size: 11 * s, weight: .semibold)).foregroundStyle(.red)
+                            Text(dayNumber(d.date)).font(.system(size: 22 * s, weight: .regular))
+                        }
+                    } else {
+                        smallHeader(item.id)
                     }
+                    if list.isEmpty { empty() } else { chips(list, limit: item.take) }
                 }
             }
-            Spacer(minLength: 0)
+            if let b = entry.data.birthday {
+                Text(b).font(.system(size: 11 * s)).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+    }
+
+    var body: some View {
+        Group {
+            if let m = entry.data.message {
+                VStack(alignment: .leading, spacing: 4 * s) {
+                    if family != .systemSmall { smallHeader(0) }
+                    Text(m).font(.system(size: 12 * s)).foregroundStyle(.secondary)
+                }
+            } else {
+                switch family {
+                case .systemSmall:
+                    column0
+                case .systemMedium:
+                    HStack(alignment: .top, spacing: 14 * s) {
+                        column0.frame(maxWidth: .infinity, alignment: .topLeading)
+                        column1.frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                default:
+                    large
+                }
+            }
         }
         .padding(family == .systemSmall ? 12 : 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .topTrailing) {
+            if entry.data.offline {
+                Image(systemName: "icloud").font(.system(size: 10)).foregroundStyle(.secondary).padding(8)
+            }
+        }
         .containerBackground(Color(.systemBackground).opacity(entry.opacity), for: .widget)
     }
 }
 
-struct EventLine: View {
+/// Плашка события в стиле Apple: тонированная заливка, цветная полоса слева, название и время цветом календаря.
+struct EventChip: View {
     let e: WEvent
     let scale: Double
     let details: Bool
     let now: Date
+    @Environment(\.colorScheme) private var scheme
 
     private var isNow: Bool {
         guard !e.allDay, let s = e.start, let en = e.end else { return false }
         return s <= now && now < en
+    }
+
+    private var timeText: String {
+        e.allDay ? "" : e.time.replacingOccurrences(of: "–", with: " — ")
     }
 
     private var sub: String {
@@ -340,17 +440,25 @@ struct EventLine: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            RoundedRectangle(cornerRadius: 2).fill(hexColor(e.color)).frame(width: 3)
+        let c = chipColors(e.color, dark: scheme == .dark, strong: isNow)
+        HStack(spacing: 0) {
+            Rectangle().fill(c.bar).frame(width: 3)
             VStack(alignment: .leading, spacing: 0) {
-                Text(e.title).font(.system(size: 13 * scale, weight: .semibold)).lineLimit(1)
-                Text(isNow ? "сейчас · " + e.time : e.time)
-                    .font(.system(size: 11 * scale)).foregroundStyle(isNow ? Color.red : Color.secondary).lineLimit(1)
+                Text(e.title).font(.system(size: 14 * scale, weight: .semibold)).lineLimit(1)
+                if !timeText.isEmpty {
+                    Text(timeText).font(.system(size: 12 * scale)).opacity(0.85).lineLimit(1)
+                }
                 if details && !sub.isEmpty {
-                    Text(sub).font(.system(size: 11 * scale)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(sub).font(.system(size: 11 * scale)).opacity(0.7).lineLimit(1)
                 }
             }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            Spacer(minLength: 0)
         }
+        .foregroundStyle(c.text)
+        .background(c.fill)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .fixedSize(horizontal: false, vertical: true)
     }
 }
