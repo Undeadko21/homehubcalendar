@@ -68,6 +68,17 @@ class EventService:
         today = datetime.combine(datetime.now(self.tz).date(), dtime(0), self.tz)
         return start >= today - timedelta(days=self.WIDE_BACK) and end <= today + timedelta(days=self.WIDE_FWD)
 
+    def _wide_ready(self) -> list[dict] | None:
+        """Готовая лента окна или None (сборку запускает вызывающий уже после ответа — иначе потоки спорят за процессор)."""
+        today = datetime.now(self.tz).date()
+        with self._lock:
+            if self._wide and self._wide[0] == today:
+                return self._wide[1]
+        return None
+
+    def warm(self) -> None:
+        self._wide_events()
+
     def _wide_events(self) -> list[dict]:
         """Одна готовая лента на всё окно: любой обычный запрос диапазона берёт срез, а не разбирает календари заново."""
         today = datetime.now(self.tz).date()
@@ -91,12 +102,16 @@ class EventService:
         with self._lock:
             if key in self._cache:
                 return self._cache[key]
-        if self._in_wide(start, end):
-            result = [e for e in self._wide_events() if _in_range(e, start, end)]
+        wide = self._wide_ready() if self._in_wide(start, end) else None
+        if wide is not None:
+            result = [e for e in wide if _in_range(e, start, end)]
         else:
+            # Ленты окна ещё нет (после правки или запуска) — считаем только нужные дни, большую собираем в фоне.
             # Строим с запасом в сутки: конфликты поездок зависят от соседних событий.
             wide = self._compose(start - timedelta(days=1), end + timedelta(days=1))
             result = [e for e in wide if _in_range(e, start, end)]
+            if self._in_wide(start, end) and not self._wide_lock.locked():
+                threading.Thread(target=self.warm, daemon=True).start()
         with self._lock:
             if len(self._cache) > 64:
                 self._cache.clear()
