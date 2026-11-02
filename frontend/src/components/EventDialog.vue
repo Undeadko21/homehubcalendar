@@ -259,6 +259,7 @@ async function run(fn) {
     reload()
   } catch (err) {
     error.value = 'Не удалось сохранить: ' + err.message
+    refreshSelected().catch(() => {})   // вернуть то, что на самом деле сохранено
   } finally {
     saving.value = false
   }
@@ -274,6 +275,12 @@ function savePeople(people) {
 // Для разовых событий «вся серия» и «только этот день» — одно и то же, храним как серию.
 function setEscort(role, person, forceScope) {
   const sc = forceScope || (e.value.recurring ? scope.value : 'series')
+  // Сразу показываем выбор, не дожидаясь сервера; если не получится — карточка перечитается и вернёт как было.
+  const info = e.value.escort?.[role]
+  if (info && person !== null && ['dropoff', 'pickup'].includes(role)) {
+    info.person = person === '-' ? null : person
+    info.skip = person === '-'
+  }
   return run(() => api.setEscort(e.value.uid, sc === 'once' ? e.value.start : null, role, person))
 }
 

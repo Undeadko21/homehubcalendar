@@ -4,8 +4,9 @@
       <span>Люди</span>
       <button v-if="state.hiddenPeople.length" class="btn sm" @click="showAll">Показать всех</button>
     </div>
+    <div v-for="p in people" :key="p.id" class="prow">
     <button
-      v-for="p in people" :key="p.id" class="person"
+      class="person"
       :aria-pressed="!state.hiddenPeople.includes(p.id)"
       :style="{ '--c': p.color }"
       title="Нажмите, чтобы скрыть или показать. Двойное нажатие — только этот человек."
@@ -17,6 +18,8 @@
       <span class="name">{{ p.emoji ? p.emoji + ' ' : '' }}{{ p.name }}</span>
       <span v-if="p.needs_escort" class="tag">ребёнок</span>
     </button>
+    <button class="info" :aria-label="`Профиль: ${p.name}`" title="Профиль" @click="state.personSheet = p.id; state.peopleSheet = false">›</button>
+    </div>
   </div>
 </template>
 
@@ -26,10 +29,13 @@ import { state, people, togglePerson, showOnly, showAll } from '../lib/store'
 </script>
 
 <style scoped>
+.prow { display: flex; align-items: center; }
+.info { border: 0; background: none; color: var(--ink-3); font-size: 18px; padding: 2px 10px; border-radius: 7px; }
+.info:hover { background: var(--fill); color: var(--ink); }
 .ph { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 0 6px 4px 8px; min-height: 26px; }
 .sm { font-size: 12px; padding: 2px 6px; }
 .person {
-  --c: #8e8e93; display: flex; align-items: center; gap: 9px; width: 100%;
+  --c: #8e8e93; display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0;
   border: 0; background: none; padding: 5px 8px; border-radius: 7px; text-align: left; font-size: 14px;
 }
 .person:hover { background: var(--fill); }

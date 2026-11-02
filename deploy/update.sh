@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Обновление из репозитория: если в ветке появились новые коммиты —
-# подтягиваем и пересобираем контейнер. Запускается таймером systemd
-# (homecal-update.timer) каждые 15 минут, можно и вручную.
+# Обновление из репозитория (таймер systemd, раз в 15 минут): новые коммиты → пересборка.
 set -euo pipefail
 APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$APP_DIR"
@@ -21,9 +19,10 @@ if [ "$REMOTE" = "$(cat "$BAD_FILE" 2>/dev/null || true)" ] && [ "${1:-}" != "--
   exit 0
 fi
 
-healthy() {  # ждём до 90 секунд, пока /api/health ответит
+healthy() {  # ждём до 90 секунд: процесс отвечает (/api/health) и лента собирается (/api/ready)                                       
   for _ in $(seq 1 "${HEALTH_TRIES:-45}"); do
-    if curl -fsS -m 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then return 0; fi
+    if curl -fsS -m 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 \
+       && curl -fsS -m 10 "http://127.0.0.1:$PORT/api/ready" >/dev/null 2>&1; then return 0; fi
     sleep "${HEALTH_SLEEP:-2}"
   done
   return 1

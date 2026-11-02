@@ -14,6 +14,7 @@ from datetime import datetime, time
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
 from . import __version__
@@ -41,6 +42,8 @@ async def lifespan(app: FastAPI):
         core.scheduler.add_job(core.ws.flush, "interval", minutes=2, id="writeq", max_instances=1, coalesce=True)
         core.scheduler.add_job(core.cloud.tick, "interval", minutes=2, id="cloud", max_instances=1, coalesce=True)
         core.scheduler.add_job(poll_cloud, "interval", minutes=1, id="cloud-ops", max_instances=1, coalesce=True)
+        core.scheduler.add_job(core.run_checks, "cron", hour=4, minute=10, id="checks", max_instances=1, coalesce=True,
+                          misfire_grace_time=6 * 3600)
         core.scheduler.add_job(core.backup.run, "cron", hour=3, minute=30, id="backup", max_instances=1, coalesce=True,
                           misfire_grace_time=6 * 3600)
         core.scheduler.start()
@@ -50,6 +53,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="HomeHub Calendar", version=__version__, lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1200, compresslevel=4)
 
 
 # ---------- простая защита PIN-кодом (включается переменной HOMECAL_PIN) ----------
@@ -64,12 +68,16 @@ async def timing(request: Request, call_next):
         return await call_next(request)
     t0 = perf_counter()
     status = 500
+    rev_before = live.rev
     try:
         resp = await call_next(request)
         status = resp.status_code
         # Любая успешная запись через API — повод обновить остальные открытые экраны.
         if request.method != "GET" and status < 400 and request.url.path not in ("/api/client-log", "/api/login"):
-            live.bump()
+            after = live.bump()
+            cid = request.headers.get("x-client-id")
+            if cid:
+                live.mark(rev_before, after, cid[:40])
         return resp
     finally:
         ms = (perf_counter() - t0) * 1000
@@ -82,7 +90,7 @@ async def timing(request: Request, call_next):
 @app.middleware("http")
 async def pin_guard(request: Request, call_next):
     path = request.url.path
-    if core.settings.pin and path.startswith("/api/") and path not in ("/api/login", "/api/health"):
+    if core.settings.pin and path.startswith("/api/") and path not in ("/api/login", "/api/health", "/api/ready"):
         if not hmac.compare_digest(request.cookies.get("homecal_auth", ""), _token()):
             return JSONResponse({"detail": "auth_required"}, status_code=401)
     return await call_next(request)
@@ -123,6 +131,17 @@ def login(body: Login, request: Request, response: Response):
 @app.get("/api/health")
 def health():
     return {"ok": True, "version": __version__}
+
+
+@app.get("/api/ready")
+def ready():
+    """Глубже health: база читается и лента собирается. Нужен update.sh, чтобы поймать сломанную логику, а не только «процесс жив»."""
+    from . import checks
+    try:
+        return checks.ready(core.db, core.events, core.tz)
+    except Exception as e:  # noqa: BLE001
+        core.log.exception("ready")
+        return JSONResponse({"ok": False, "error": type(e).__name__}, status_code=503)
 
 
 # ---------- веб-интерфейс ----------

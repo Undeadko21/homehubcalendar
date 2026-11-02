@@ -94,6 +94,7 @@
       <Sheet :open="state.peopleSheet" title="Чьи события показывать" @close="state.peopleSheet = false">
         <PeopleList />
       </Sheet>
+      <PersonSheet />
       <EventDialog />
       <EventEditor />
       <SectionWizard />
@@ -116,6 +117,7 @@ import LoginScreen from './components/LoginScreen.vue'
 import MiniMonth from './components/MiniMonth.vue'
 import PeopleList from './components/PeopleList.vue'
 import Sheet from './components/Sheet.vue'
+import PersonSheet from './components/PersonSheet.vue'
 import { problems } from './lib/report'
 import TodayView from './views/TodayView.vue'
 import TimelineView from './views/TimelineView.vue'

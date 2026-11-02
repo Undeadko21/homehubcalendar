@@ -17,6 +17,8 @@ export function useRange(rangeFn) {
       const res = fetchRange(start, end)
       const same = () => +range.value.start === +start && +range.value.end === +end
       res.holidays.then((h) => { if (same()) holidays.value = h })
+      // Прошлый ответ для этого диапазона — сразу, свежий заменит его без мигания.
+      if (res.cached && same() && !raw.value.length) raw.value = res.cached
       const evs = await res.events
       // Проверяем, что за время запроса диапазон не сменился.
       if (same()) {

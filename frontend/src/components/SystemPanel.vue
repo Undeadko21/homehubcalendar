@@ -7,6 +7,18 @@
       </div>
       <div v-else class="group"><div class="row"><span class="ok">●</span><span class="lbl">Всё в порядке</span></div></div>
 
+      <h3 class="group-title">Проверка данных</h3>
+      <div class="group">
+        <div v-for="(x, i) in (s.checks?.items || [])" :key="i" class="row">
+          <span :class="x.level === 'warn' ? 'err' : 'muted'">{{ x.level === 'warn' ? '!' : 'i' }}</span><span class="lbl">{{ x.text }}</span>
+        </div>
+        <div v-if="s.checks?.at && !(s.checks.items || []).length" class="row"><span class="ok">●</span><span class="lbl">Замечаний нет</span></div>
+        <div class="row">
+          <button class="btn link" :disabled="checking" @click="runChecks">{{ checking ? 'Проверяю…' : 'Проверить сейчас' }}</button>
+          <span v-if="s.checks?.at" class="val muted">{{ ago(s.checks.at) }}</span>
+        </div>
+      </div>
+
       <h3 class="group-title">Календарь</h3>
       <div class="group">
         <div v-for="x in s.sources" :key="x.source_id" class="row">
@@ -142,6 +154,11 @@ const writable = writableCalendars()
 const testCal = ref(writable[0]?.key || '')
 const testSteps = ref([])
 const testing = ref(false)
+const checking = ref(false)
+async function runChecks() {
+  checking.value = true
+  try { await api.runChecks(); await load() } finally { checking.value = false }
+}
 async function selftest() {
   testing.value = true; testSteps.value = []; err.value = ''
   try { testSteps.value = (await api.selftestWrite(testCal.value)).steps } catch (e) { err.value = e.message }

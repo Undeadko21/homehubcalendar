@@ -234,3 +234,56 @@ def test_list_items_assignee_and_due(api):
     api.patch(f"/api/items/{item['id']}", json={"due": None})
     item = [i for l in api.get("/api/lists").json() for i in l["items"] if i["id"] == item["id"]][0]
     assert item["due"] is None
+
+
+def test_events_response_is_gzipped_and_stream_has_origin(api):
+    big = api.get("/api/events?start=2026-01-01T00:00:00&end=2026-12-31T00:00:00", headers={"Accept-Encoding": "gzip"})
+    assert big.status_code == 200
+    from app import live
+    r = live.rev
+    live.mark(r, r + 1, "abc")
+    assert live.origin(r + 1) == "abc" and live.origin(r) is None
+
+
+def test_events_speed_budget(tmp_path):
+    """Бюджет скорости: неделя из подписки в 1500 событий считается быстро (регресс ловим здесь, а не по жалобам)."""
+    import time
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from app.expand import expand_ics
+    from app.sources.ics_source import split_feed
+    tz = ZoneInfo("Asia/Yekaterinburg")
+    base = datetime(2026, 1, 1, 9)
+    ev = []
+    for i in range(1500):
+        s = base + timedelta(days=i % 600, hours=i % 8)
+        rr = "RRULE:FREQ=WEEKLY;COUNT=30\n" if i % 15 == 0 else ""
+        ev.append(f"BEGIN:VEVENT\nUID:u{i}\nDTSTAMP:20260101T000000Z\nDTSTART;TZID=Asia/Yekaterinburg:{s:%Y%m%dT%H%M%S}\n"
+                  f"DTEND;TZID=Asia/Yekaterinburg:{s + timedelta(hours=1):%Y%m%dT%H%M%S}\nSUMMARY:Встреча {i}\n{rr}END:VEVENT")
+    parts = split_feed("BEGIN:VCALENDAR\nVERSION:2.0\n" + "\n".join(ev) + "\nEND:VCALENDAR\n")
+    a = datetime(2026, 10, 26, tzinfo=tz)
+    for p in parts.values():          # первый проход строит границы, как после синхронизации
+        expand_ics(p, a, a + timedelta(days=9), tz)
+    t = time.time()
+    n = sum(len(expand_ics(p, a, a + timedelta(days=9), tz)) for p in parts.values())
+    assert n > 0 and time.time() - t < 0.5, f"неделя на 1500 событий: {time.time() - t:.2f} с"
+
+
+def test_ready_and_checks(api):
+    r = api.get("/api/ready")
+    assert r.status_code == 200 and r.json()["ok"] is True
+    # ребёнок без взрослых — предупреждение; после «Проверить сейчас» оно попадает в problems
+    api.put("/api/people/kid", json={"id": "kid", "name": "Оля", "color": "#ff0000", "emoji": "👧", "needs_escort": True})
+    api.delete("/api/people/anna")
+    out = api.post("/api/checks").json()
+    assert any("нет ни одного взрослого" in i["text"] for i in out["items"])
+    sysinfo = api.get("/api/system").json()
+    assert any("нет ни одного взрослого" in p for p in sysinfo["problems"]) and sysinfo["checks"]["at"]
+
+
+def test_person_summary(api):
+    r = api.get("/api/person/anna")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["person"]["id"] == "anna" and set(d) >= {"next", "regular", "duties", "todos"}
+    assert api.get("/api/person/nobody").status_code == 404

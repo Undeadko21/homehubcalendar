@@ -106,6 +106,18 @@ def _warm() -> None:
         log.exception("Прогрев")
 
 
+def run_checks() -> list[dict]:
+    """Ежедневная проверка данных (checks.py); результат — в kv, видно в «Состоянии»."""
+    from . import checks
+    try:
+        items = checks.run(db, events, tz)
+    except Exception:  # noqa: BLE001
+        log.exception("Проверка данных")
+        return []
+    db.kv_set("checks:last", {"at": datetime.now(tz).isoformat(timespec="seconds"), "items": items})
+    return items
+
+
 def _synced() -> None:
     ws.reapply()
     events.invalidate()

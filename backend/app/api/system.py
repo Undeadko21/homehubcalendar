@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from datetime import datetime, timedelta
 
@@ -23,13 +24,13 @@ async def stream(request: Request):
     """Живое обновление: отдаёт номер изменений, когда он меняется (EventSource в браузере сам переподключается)."""
     async def gen():
         last = live.rev
-        yield f"retry: 5000\ndata: {last}\n\n"
+        yield f"retry: 5000\ndata: {json.dumps({'rev': last})}\n\n"
         idle = 0
         while not await request.is_disconnected():
             await asyncio.sleep(1)
             if live.rev != last:
                 last, idle = live.rev, 0
-                yield f"data: {last}\n\n"
+                yield f"data: {json.dumps({'rev': last, 'o': live.origin(last)})}\n\n"
             else:
                 idle += 1
                 if idle >= 20:
@@ -75,6 +76,10 @@ def get_system():
             problems.append("Резервная копия: " + bk["last_error"])
         elif bk.get("last_ok") and now - datetime.fromisoformat(bk["last_ok"]).astimezone(core.tz) > timedelta(days=3):
             problems.append("Резервной копии не было больше 3 суток")
+    chk = (core.db.kv_get("checks:last")[0] or {})
+    for it in chk.get("items", []):
+        if it["level"] == "warn":
+            problems.append(it["text"])
     jobs = {j.id: j.next_run_time.isoformat(timespec="seconds") for j in core.scheduler.get_jobs() if j.next_run_time}
     count = lambda sql: (core.db.query(sql) or [{"n": 0}])[0]["n"]  # noqa: E731
     try:
@@ -90,7 +95,15 @@ def get_system():
         "cloud": {k: cl[k] for k in ("configured", "last_ok", "last_error", "ops_error")},
         "backup": bk, "jobs": jobs, "client_errors": len(core.CLIENT_LOG), "slow_requests": core.perf.slow_count(),
         "last_client_error": core.CLIENT_LOG[-1] if core.CLIENT_LOG else None, "problems": problems,
+        "checks": chk,
     }
+
+
+@router.post("/api/checks")
+def post_checks():
+    """Проверить данные сейчас."""
+    items = core.run_checks()
+    return {"at": (core.db.kv_get("checks:last")[0] or {}).get("at"), "items": items}
 
 
 @router.get("/api/status")

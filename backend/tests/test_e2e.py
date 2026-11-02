@@ -78,12 +78,14 @@ def page(stack):
         pg = b.new_context(viewport={"width": 1200, "height": 900}, timezone_id="Asia/Yekaterinburg").new_page()
         pg.goto(stack["url"])
         pg.wait_for_selector("text=Сегодня")
+        # «+» рисуется только после загрузки настроек (есть пишущий календарь) — ждём именно его, а не первую надпись
+        pg.wait_for_selector("button.add-btn", timeout=20000)
         yield pg
         b.close()
 
 
 def _open_new(pg):
-    pg.click('button[aria-label="Новое событие"], button:has-text("+")')
+    pg.click('button[aria-label="Новое событие"]')
     pg.wait_for_selector("input[placeholder='Название']")
 
 

@@ -1,8 +1,14 @@
 // Тонкая обёртка над HTTP API бэкенда.
+// Метка этого экрана: сервер сообщает по SSE, кто сделал изменение, и мы не перезагружаемся по собственной записи.
+export const CLIENT_ID = Math.random().toString(36).slice(2, 12)
+
 async function request(method, url, body) {
+  const headers = {}
+  if (body) headers['Content-Type'] = 'application/json'
+  if (method !== 'GET') headers['X-Client-Id'] = CLIENT_ID
   const res = await fetch(url, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
     credentials: 'same-origin',
   })
@@ -45,6 +51,8 @@ export const api = {
   backupFiles: () => request('GET', '/api/backup/files'),
   backupVerify: (name) => request('POST', '/api/backup/verify', { name: name || null }),
   backupRestore: (name) => request('POST', '/api/backup/restore', { name }),
+  person: (id) => request('GET', `/api/person/${encodeURIComponent(id)}`),
+  runChecks: () => request('POST', '/api/checks'),
   perf: () => request('GET', '/api/perf'),
   quick: (text) => request('POST', '/api/quick', { text }),
   changes: () => request('GET', '/api/changes'),

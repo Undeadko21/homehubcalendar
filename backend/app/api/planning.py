@@ -85,6 +85,15 @@ def list_people():
     return core.db.list_people()
 
 
+@router.get("/api/person/{person_id}")
+def get_person(person_id: str):
+    from .. import person as person_mod
+    p = next((x for x in core.db.list_people() if x["id"] == person_id), None)
+    if not p:
+        raise HTTPException(404, "Человек не найден")
+    return person_mod.build(p, core.events, core.db.lists(), {x["id"]: x for x in core.db.list_people()}, core.tz)
+
+
 @router.put("/api/people/{person_id}")
 def put_person(person_id: str, body: PersonIn):
     if person_id != body.id or person_id == UNASSIGNED:

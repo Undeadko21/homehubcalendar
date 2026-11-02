@@ -25,7 +25,16 @@ def get_events(start: str, end: str, people: str | None = None):
     if people:
         wanted = set(people.split(","))
         items = [i for i in items if wanted & set(i["people"])]
-    return items
+    return [_trim(i) for i in items]
+
+
+_MAX_DESC = 4000
+
+
+def _trim(e: dict) -> dict:
+    """Описания из писем-приглашений бывают огромными; в ленте хватает начала."""
+    d = e.get("description") or ""
+    return {**e, "description": d[:_MAX_DESC] + "…"} if len(d) > _MAX_DESC else e
 
 
 class EventPeople(BaseModel):
