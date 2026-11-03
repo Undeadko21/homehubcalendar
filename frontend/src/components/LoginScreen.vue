@@ -1,8 +1,8 @@
 <template>
   <form class="login" @submit.prevent="submit">
     <h1>Домашний календарь</h1>
-    <label for="pin" class="muted">Введите PIN-код</label>
-    <input id="pin" v-model="pin" type="password" inputmode="numeric" autocomplete="current-password" autofocus />
+    <label for="pin" class="muted">Введите пароль</label>
+    <input id="pin" v-model="pin" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" autofocus />
     <p v-if="error" class="err">{{ error }}</p>
     <button class="btn filled" :disabled="!pin">Войти</button>
   </form>
@@ -21,7 +21,7 @@ async function submit() {
     await api.login(pin.value)
     await reload()
   } catch (e) {
-    error.value = 'PIN не подошёл. Проверьте и попробуйте ещё раз.'
+    error.value = 'Пароль не подошёл или слишком много попыток. Проверьте и попробуйте ещё раз.'
   }
 }
 </script>
@@ -29,6 +29,6 @@ async function submit() {
 <style scoped>
 .login { max-width: 320px; margin: 18vh auto; padding: 24px; display: flex; flex-direction: column; gap: 10px; }
 h1 { font-size: 24px; margin: 0 0 8px; }
-input { padding: 10px 12px; border: 0; border-radius: var(--radius-m); background: var(--fill); font-size: 20px; letter-spacing: .3em; }
+input { padding: 10px 12px; border: 0; border-radius: var(--radius-m); background: var(--fill); font-size: 18px; }
 .err { color: var(--now); margin: 0; }
 </style>

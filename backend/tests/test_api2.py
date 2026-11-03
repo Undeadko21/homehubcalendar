@@ -287,3 +287,16 @@ def test_person_summary(api):
     d = r.json()
     assert d["person"]["id"] == "anna" and set(d) >= {"next", "regular", "duties", "todos"}
     assert api.get("/api/person/nobody").status_code == 404
+
+
+def test_login_behind_proxy_and_long_password(api, monkeypatch):
+    """За прокси блокировка считается по X-Forwarded-For, пароль может быть русским, cookie через HTTPS — Secure."""
+    monkeypatch.setattr(api.core.settings, "pin", "длинный пароль семьи", raising=False)
+    api.main._FAILS.clear()
+    bad = {"X-Forwarded-For": "203.0.113.7"}
+    codes = [api.post("/api/login", json={"pin": "x"}, headers=bad).status_code for _ in range(6)]
+    assert codes[5] == 429
+    # другой клиент за тем же прокси не заблокирован
+    r = api.post("/api/login", json={"pin": "длинный пароль семьи"}, headers={"X-Forwarded-For": "198.51.100.2", "X-Forwarded-Proto": "https"})
+    assert r.status_code == 200 and "secure" in r.headers["set-cookie"].lower()
+    assert "openapi" not in api.get("/openapi.json").text   # описание API не отдаётся (SPA-заглушка или 404)

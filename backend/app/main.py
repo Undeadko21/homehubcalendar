@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import __version__
 from . import ops
@@ -52,7 +52,8 @@ async def lifespan(app: FastAPI):
         core.scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="HomeHub Calendar", version=__version__, lifespan=lifespan)
+# Описание API наружу не отдаём: календарь может быть открыт в интернет.
+app = FastAPI(title="HomeHub Calendar", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(GZipMiddleware, minimum_size=1200, compresslevel=4)
 
 
@@ -97,7 +98,15 @@ async def pin_guard(request: Request, call_next):
 
 
 class Login(BaseModel):
-    pin: str
+    pin: str = Field(max_length=200)
+
+
+def _client_ip(request: Request) -> str:
+    """Адрес клиента. За прокси (Caddy на VPS) настоящий адрес — первый в X-Forwarded-For: Caddy сам его выставляет и чужой не доверяет."""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()[:64] or "?"
+    return request.client.host if request.client else "?"
 
 
 _FAILS: dict[str, list] = {}   # ip -> [число неудач, до какого момента заблокирован]
@@ -112,11 +121,11 @@ def _login_wait(ip: str) -> int:
 def login(body: Login, request: Request, response: Response):
     if not core.settings.pin:
         return {"ok": True}
-    ip = request.client.host if request.client else "?"
+    ip = _client_ip(request)
     wait = _login_wait(ip)
     if wait:
         raise HTTPException(429, f"Слишком много попыток. Подождите {wait // 60 + 1} мин.")
-    if not hmac.compare_digest(body.pin, core.settings.pin):
+    if not hmac.compare_digest(body.pin.encode(), core.settings.pin.encode()):   # байты: пароль может быть с русскими буквами
         n = (_FAILS.get(ip) or [0, 0])[0] + 1
         # 5 ошибок подряд — блокировка на 1 минуту, дальше вдвое дольше (до часа)
         _FAILS[ip] = [n, time_module.time() + (min(3600, 60 * 2 ** (n - 5)) if n >= 5 else 0)]
@@ -124,7 +133,8 @@ def login(body: Login, request: Request, response: Response):
             _FAILS.clear()
         raise HTTPException(401, "Неверный PIN")
     _FAILS.pop(ip, None)
-    response.set_cookie("homecal_auth", _token(), max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax")
+    secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"   # через HTTPS — cookie только по HTTPS
+    response.set_cookie("homecal_auth", _token(), max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax", secure=secure)
     return {"ok": True}
 
 
