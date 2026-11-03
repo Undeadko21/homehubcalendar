@@ -12,7 +12,7 @@ import org.json.JSONObject
 import java.time.OffsetDateTime
 
 class WidgetService : RemoteViewsService() {
-    override fun onGetViewFactory(intent: Intent): RemoteViewsFactory = Factory(applicationContext, intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 0))
+    override fun onGetViewFactory(intent: Intent): RemoteViewsFactory = Factory(applicationContext, intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 0), intent.getIntExtra("col", -1))
 }
 
 /** Строка списка: заголовок дня или событие. */
@@ -21,7 +21,7 @@ private sealed class Row {
     data class Ev(val j: JSONObject) : Row()
 }
 
-private class Factory(private val context: Context, private val widgetId: Int) : RemoteViewsService.RemoteViewsFactory {
+private class Factory(private val context: Context, private val widgetId: Int, private val col: Int) : RemoteViewsService.RemoteViewsFactory {
     private var rows: List<Row> = emptyList()
     private var cfg = WidgetCfg()
 
@@ -40,12 +40,13 @@ private class Factory(private val context: Context, private val widgetId: Int) :
         val now = OffsetDateTime.now()
         try {
             val root = JSONObject(json)
-            // Ближайшие дни рождения — строкой над списком.
-            root.optJSONArray("birthdays")?.let { b ->
+            // Ближайшие дни рождения — строкой над списком (в колонках — над левой).
+            if (col <= 0) root.optJSONArray("birthdays")?.let { b ->
                 for (i in 0 until b.length()) out += Row.Day(b.getJSONObject(i).optString("text"))
             }
             val days = root.getJSONArray("days")
             for (i in 0 until minOf(days.length(), cfg.days)) {
+                if (col >= 0 && i != col) continue   // колонка показывает ровно один день
                 val d = days.getJSONObject(i)
                 val evs = d.getJSONArray("events")
                 val list = (0 until evs.length()).map { evs.getJSONObject(it) }.filter { e ->
@@ -55,7 +56,7 @@ private class Factory(private val context: Context, private val widgetId: Int) :
                 if (list.isEmpty()) continue
                 // Заголовок дня как у Apple: «ЗАВТРА», «ВТОРНИК»; сегодняшний не нужен — дата стоит в шапке.
                 val head = d.getString("label").substringBefore(",").trim().uppercase(java.util.Locale("ru"))
-                if (head != "СЕГОДНЯ") out += Row.Day(head)
+                if (col < 0 && head != "СЕГОДНЯ") out += Row.Day(head)
                 list.forEach { out += Row.Ev(it) }
             }
         } catch (_: Exception) {

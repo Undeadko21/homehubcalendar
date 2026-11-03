@@ -71,11 +71,11 @@ object Widgets {
         val ids = ids(context)
         ids.forEach { mgr.updateAppWidget(it, build(context, it)) }
         mgr.notifyAppWidgetViewDataChanged(ids, R.id.w_list)
+        mgr.notifyAppWidgetViewDataChanged(ids, R.id.w_list2)
     }
 
     private fun build(context: Context, id: Int): RemoteViews {
         val prefs = Prefs(context)
-        val rv = RemoteViews(context.packageName, R.layout.widget)
         val now = Date()
         val ru = Locale("ru")
         val cfg = WidgetPrefs(context).get(id)
@@ -83,6 +83,9 @@ object Widgets {
         val opt = AppWidgetManager.getInstance(context).getAppWidgetOptions(id)
         val wDp = opt.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
         val hDp = opt.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 110)
+        // Широкий виджет — две колонки (сегодня | завтра), как у Apple.
+        val cols = cfg.days >= 2 && wDp >= 250 && hDp >= 90
+        val rv = RemoteViews(context.packageName, if (cols) R.layout.widget_cols else R.layout.widget)
         // Шапка подстраивается под размер: в низком виджете остаётся одна строка с датой, в самом низком — только события.
         val showTop = when (cfg.header) { 1 -> true; 2 -> false; else -> hDp >= 70 }
         val twoLine = hDp >= 110
@@ -100,6 +103,11 @@ object Widgets {
         rv.setTextViewTextSize(R.id.w_date, TypedValue.COMPLEX_UNIT_SP, (if (twoLine) 34f else 14f) * sc)
         rv.setTextViewTextSize(R.id.w_status, TypedValue.COMPLEX_UNIT_SP, 11f * sc)
         rv.setTextViewTextSize(R.id.w_empty, TypedValue.COMPLEX_UNIT_SP, 14f * sc)
+        if (cols) {
+            rv.setTextViewText(R.id.w_title2, "ЗАВТРА")
+            rv.setTextViewTextSize(R.id.w_title2, TypedValue.COMPLEX_UNIT_SP, 12f * sc)
+            rv.setTextViewTextSize(R.id.w_empty2, TypedValue.COMPLEX_UNIT_SP, 13f * sc)
+        }
         rv.setInt(R.id.w_bg, "setImageAlpha", (cfg.opacity * 255) / 100)
         val pad = if (hDp < 70 || wDp < 110) 6 else 12
         val padPx = (pad * context.resources.displayMetrics.density).toInt()
@@ -121,14 +129,34 @@ object Widgets {
             putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
             data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
         }
+        if (cols) svc.putExtra("col", 0).apply { data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME)) }
         rv.setRemoteAdapter(R.id.w_list, svc)
         rv.setEmptyView(R.id.w_list, R.id.w_empty)
+        if (cols) {
+            val svc2 = Intent(context, WidgetService::class.java).apply {
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                putExtra("col", 1)
+                data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
+            }
+            rv.setRemoteAdapter(R.id.w_list2, svc2)
+            rv.setEmptyView(R.id.w_list2, R.id.w_empty2)
+            rv.setTextViewText(R.id.w_empty2, if (prefs.widgetJson == null) "" else "Свободно")
+            rv.setPendingIntentTemplate(
+                R.id.w_list2,
+                PendingIntent.getActivity(
+                    context, 1, Intent(context, MainActivity::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+                ),
+            )
+            rv.setOnClickPendingIntent(R.id.w_empty2, PendingIntent.getActivity(
+                context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+        }
         rv.setTextViewText(
             R.id.w_empty,
             when {
                 prefs.server == null -> "Откройте приложение, чтобы подключиться к календарю"
                 prefs.widgetJson == null -> prefs.lastError ?: "Загружаю…"
-                else -> "Сегодня и завтра свободно"
+                else -> if (cols) "Свободно" else "Сегодня и завтра свободно"
             },
         )
 

@@ -65,6 +65,45 @@ class WidgetSnapshotTest {
         return frame
     }
 
+    /** Широкий виджет: две колонки, сегодня и завтра. */
+    private fun cols(inflater: LayoutInflater): View {
+        val frame = inflater.inflate(R.layout.widget_cols, null)
+        frame.findViewById<TextView>(R.id.w_weekday).text = "ВТОРНИК"
+        frame.findViewById<TextView>(R.id.w_date).text = "3"
+        frame.findViewById<TextView>(R.id.w_title2).text = "ЗАВТРА"
+        frame.findViewById<TextView>(R.id.w_status).text = "09:58"
+        fun fill(listId: Int, emptyId: Int, items: List<Ev>) {
+            val list = frame.findViewById<View>(listId)
+            val parent = list.parent as LinearLayout
+            val idx = parent.indexOfChild(list)
+            parent.removeView(list)
+            frame.findViewById<View>(emptyId).visibility = View.GONE
+            val col = LinearLayout(parent.context).apply { orientation = LinearLayout.VERTICAL }
+            items.forEach { e ->
+                val v = inflater.inflate(R.layout.widget_item, col, false)
+                val chip = ChipStyle.colors(v.context, e.color, dark = false)
+                val allDay = e.start == "весь"
+                v.findViewById<ImageView>(R.id.i_fill).apply { setImageResource(if (allDay) R.drawable.chip_pill else R.drawable.chip_bg); setColorFilter(chip.bar); imageAlpha = chip.fillAlpha }
+                v.findViewById<ImageView>(R.id.i_bar).apply { setColorFilter(chip.bar); visibility = if (allDay) View.GONE else View.VISIBLE }
+                v.findViewById<TextView>(R.id.i_title).apply { text = e.title; setTextColor(chip.text) }
+                v.findViewById<TextView>(R.id.i_time).apply { text = if (allDay) "" else ChipStyle.timeText(e.start + "–" + e.end); setTextColor(chip.time); visibility = if (allDay) View.GONE else View.VISIBLE }
+                v.findViewById<View>(R.id.i_sub).visibility = View.GONE
+                v.findViewById<View>(R.id.i_note).visibility = View.GONE
+                v.findViewById<View>(R.id.i_badge).visibility = View.GONE
+                col.addView(v)
+            }
+            parent.addView(col, idx, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        fill(R.id.w_list, R.id.w_empty, listOf(Ev("10:40", "11:40", "Гитара", "", color = "#34C759"), Ev("14:00", "14:45", "Обсуждение итогов", "", color = "#FF3B30")))
+        fill(R.id.w_list2, R.id.w_empty2, listOf(Ev("весь", "день", "День рождения", "", color = "#FF2D55"), Ev("08:30", "09:30", "Отвезти в школу", "", color = "#007AFF"), Ev("09:00", "10:30", "Йога", "", color = "#AF52DE")))
+        return frame
+    }
+
+    @Test
+    fun wide() {
+        paparazzi.snapshot(cols(paparazzi.layoutInflater))
+    }
+
     @Test
     fun light() {
         paparazzi.snapshot(widget(paparazzi.layoutInflater))
