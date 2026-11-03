@@ -34,7 +34,8 @@ export const state = reactive({
   config: readJson(CFG_KEY, null), // прошлые настройки — экран рисуется сразу, свежие подтянутся
   error: null,
   needLogin: false,
-  view: params.get('view') || prefs.view || 'today',
+  // На телефоне приложение открывается на месяце, как Календарь на iPhone.
+  view: params.get('view') || (params.has('kiosk') ? prefs.view : (typeof matchMedia === 'function' && matchMedia('(max-width: 599px)').matches ? 'month' : prefs.view)) || 'today',
   kiosk: params.has('kiosk'),
   cursor: new Date(), // дата, вокруг которой строится текущий вид
   hiddenPeople: prefs.hiddenPeople || [],

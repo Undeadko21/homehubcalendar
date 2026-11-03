@@ -72,6 +72,7 @@
           <KitchenView v-if="state.view === 'kitchen'" />
           <TodayView v-else-if="state.view === 'today'" />
           <TimelineView v-else-if="state.view === 'timeline'" />
+          <MonthPhone v-else-if="state.view === 'month' && screen.narrow" />
           <CalendarView v-else-if="state.view === 'week' || state.view === 'month'" :mode="state.view" />
           <AgendaView v-else-if="state.view === 'agenda'" />
           <FreeView v-else-if="state.view === 'free'" />
@@ -106,7 +107,7 @@
 
 <script setup>
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
-import { state, newEvent, writableCalendars, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays } from './lib/store'
+import { state, newEvent, writableCalendars, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen } from './lib/store'
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
 import EventDialog from './components/EventDialog.vue'
 import EventEditor from './components/EventEditor.vue'
@@ -122,6 +123,7 @@ import { problems } from './lib/report'
 import TodayView from './views/TodayView.vue'
 import TimelineView from './views/TimelineView.vue'
 import CalendarView from './views/CalendarView.vue'
+import MonthPhone from './views/MonthPhone.vue'
 import KitchenView from './views/KitchenView.vue'
 import AgendaView from './views/AgendaView.vue'
 import FreeView from './views/FreeView.vue'
@@ -168,7 +170,7 @@ const night = ref(false)
 
 function shift(dir) {
   const c = new Date(state.cursor)
-  if (state.view === 'month') c.setMonth(c.getMonth() + dir)
+  if (state.view === 'month') { const d = c.getDate(); c.setDate(1); c.setMonth(c.getMonth() + dir); c.setDate(Math.min(d, new Date(c.getFullYear(), c.getMonth() + 1, 0).getDate())) }
   else if (state.view === 'today') c.setDate(c.getDate() + dir)
   else if (state.view === 'timeline') c.setDate(c.getDate() + state.timelineDays * dir)
   else c.setDate(c.getDate() + weekDays() * dir)
