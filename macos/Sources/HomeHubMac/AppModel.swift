@@ -128,8 +128,14 @@ final class AppModel: ObservableObject {
                 webOK = true
                 return
             } catch {
-                failures += 1
-                if failures >= 2 { webOK = false }
+                if case AppError.pin = error {
+                    // Сервер отвечает, но нужен вход: показываем окно календаря, чтобы человек мог ввести пароль.
+                    failures = 0
+                    webOK = true
+                } else {
+                    failures += 1
+                    if failures >= 2 { webOK = false }
+                }
                 problems.append("Сервер: \(describe(error))")
             }
         } else {
