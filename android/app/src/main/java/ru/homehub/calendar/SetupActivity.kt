@@ -33,7 +33,7 @@ class SetupActivity : Activity() {
         progress = findViewById(R.id.s_progress)
         found = findViewById(R.id.s_found)
         url = findViewById(R.id.s_url)
-        Prefs(this).server?.let { url.setText(it.removePrefix("http://")) }
+        Prefs(this).server?.let { url.setText(it.removePrefix("http://").removePrefix("https://")) }
 
         findViewById<View>(R.id.s_search).setOnClickListener { search() }
         findViewById<View>(R.id.s_connect).setOnClickListener { connect(url.text.toString()) }
@@ -59,7 +59,7 @@ class SetupActivity : Activity() {
                 when {
                     list.isEmpty() -> status.text =
                         "Не нашёл. Проверьте, что телефон в домашней Wi-Fi сети, или введите адрес ниже — его видно в адресной строке браузера, где открыт календарь."
-                    list.size == 1 -> { status.text = "Нашёл: ${list[0].first.removePrefix("http://")}"; save(list[0].first) }
+                    list.size == 1 -> { status.text = "Нашёл: ${list[0].first.removePrefix("http://").removePrefix("https://")}"; save(list[0].first) }
                     else -> {
                         status.text = "Нашлось несколько — выберите:"
                         list.forEach { (base, _) -> found.addView(choice(base)) }
@@ -73,7 +73,7 @@ class SetupActivity : Activity() {
     }
 
     private fun choice(base: String) = TextView(this).apply {
-        text = base.removePrefix("http://")
+        text = base.removePrefix("http://").removePrefix("https://")
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
         setTextColor(getColor(R.color.red))
         typeface = Typeface.DEFAULT_BOLD
@@ -83,11 +83,11 @@ class SetupActivity : Activity() {
 
     private fun connect(input: String) {
         val base = normalizeServer(input) ?: run { status.text = "Введите адрес, например 192.168.0.188:8080"; return }
-        status.text = "Проверяю ${base.removePrefix("http://")}…"
+        status.text = "Проверяю ${base.removePrefix("http://").removePrefix("https://")}…"
         scope.launch {
             val ok = withContext(Dispatchers.IO) { Api.probe(base, 4000) }
             if (ok != null) save(base)
-            else status.text = "По адресу ${base.removePrefix("http://")} календарь не отвечает. Проверьте адрес и что телефон в домашней сети."
+            else status.text = "По адресу ${base.removePrefix("http://").removePrefix("https://")} календарь не отвечает. Проверьте адрес (для интернета — https://ваш-адрес) и подключение."
         }
     }
 

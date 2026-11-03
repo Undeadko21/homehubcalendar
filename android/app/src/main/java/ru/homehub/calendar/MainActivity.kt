@@ -275,7 +275,7 @@ class MainActivity : Activity() {
         if (showOffline()) return
         web.visibility = View.INVISIBLE
         errorView.visibility = View.VISIBLE
-        errorText.text = "Календарь ${server?.removePrefix("http://")} не отвечает.\n" +
+        errorText.text = "Календарь ${server?.removePrefix("http://")?.removePrefix("https://")} не отвечает.\n" +
             "Приложение работает в домашней Wi-Fi сети — проверьте подключение."
     }
 

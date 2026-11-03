@@ -114,12 +114,12 @@ class WidgetPrefs(context: Context) {
     }
 }
 
-/** Приводит ввод пользователя к адресу: «192.168.0.188» → «http://192.168.0.188:8080». */
+/** Приводит ввод пользователя к адресу: «192.168.0.188» → «http://192.168.0.188:8080»; https-адрес остаётся как есть (порт 443). */
 fun normalizeServer(input: String): String? {
     var s = input.trim().trimEnd('/')
     if (s.isEmpty()) return null
     if (!s.startsWith("http://") && !s.startsWith("https://")) s = "http://$s"
     val hostPart = s.substringAfter("://").substringBefore("/")
-    if (!hostPart.contains(":")) s = s.replaceFirst(hostPart, "$hostPart:8080")
+    if (s.startsWith("http://") && !hostPart.contains(":")) s = s.replaceFirst(hostPart, "$hostPart:8080")
     return s
 }
