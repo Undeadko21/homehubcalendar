@@ -46,18 +46,23 @@ def get_holidays(start: str, end: str):
 
 
 class SchoolIn(BaseModel):
-    breaks: list[dict]
+    breaks: list[dict] | None = None
+    hide: bool | None = None
+    hide_words: str | None = None
 
 
 @router.get("/api/school")
 def get_school():
-    return {"breaks": school.load(core.db)}
+    return {"breaks": school.load(core.db), **school.settings(core.db)}
 
 
 @router.put("/api/school")
 def put_school(body: SchoolIn):
-    out = school.save(core.db, body.breaks)
-    return {"breaks": out}
+    if body.breaks is not None:
+        school.save(core.db, body.breaks)
+    school.save_settings(core.db, body.hide, body.hide_words)
+    core.events.invalidate()   # школьные события скрываются/возвращаются сразу
+    return {"breaks": school.load(core.db), **school.settings(core.db)}
 
 
 @router.get("/api/stats")

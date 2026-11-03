@@ -1180,3 +1180,14 @@ def test_split_feed_keeps_series_together_and_results_equal():
     split = sorted((o.uid, o.start) for p in parts.values() for o in expand_ics(p, a, b, tz))
     assert whole == split and len(whole) == 5
     assert split_feed("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n") == {"feed.ics": "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"}
+
+
+def test_school_events_hidden_during_break(db):
+    from app import school
+    school.save(db, [{"name": "Осенние", "from": "2026-10-26", "to": "2026-11-03"}])
+    hide = school.hidden_filter(db)
+    assert hide({"start": "2026-11-02T08:30:00+05:00", "title": "Отвезти в школу"})
+    assert not hide({"start": "2026-11-02T08:30:00+05:00", "title": "Гитара"})
+    assert not hide({"start": "2026-11-05T08:30:00+05:00", "title": "Отвезти в школу"})
+    school.save_settings(db, False, None)
+    assert school.hidden_filter(db) is None

@@ -17,6 +17,13 @@
         </div>
       </div>
     </form>
+    <div class="group hide-box">
+      <label class="row"><span class="grow-t">Скрывать школьные события на каникулах</span><input v-model="hide" type="checkbox" @change="saveHide" /></label>
+      <div v-if="hide" class="row stack">
+        <input v-model="words" class="inline grow" placeholder="школ, урок" aria-label="Слова" @change="saveHide" />
+        <span class="small muted">События с этими словами в названии или месте не показываются в даты каникул (например «Отвезти в школу»).</span>
+      </div>
+    </div>
     <p v-if="error" class="group-note err">{{ error }}</p>
     <p class="group-note">
       Школьные каникулы у каждого региона свои, поэтому даты задаёте вы. Они подписываются на «Сегодня», в ленте и
@@ -35,9 +42,16 @@ const name = ref('')
 const from = ref('')
 const to = ref('')
 const error = ref('')
+const hide = ref(true)
+const words = ref('школ')
 const fmt = (d) => new Date(d + 'T12:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
 
-api.school().then((r) => (list.value = r.breaks)).catch(() => {})
+api.school().then((r) => { list.value = r.breaks; hide.value = r.hide !== false; words.value = r.hide_words ?? 'школ' }).catch(() => {})
+
+async function saveHide() {
+  error.value = ''
+  try { await api.saveSchoolHide(hide.value, words.value); reload() } catch (e) { error.value = e.message }
+}
 
 async function save(next) {
   error.value = ''
@@ -58,7 +72,7 @@ const remove = (i) => save(list.value.filter((_, j) => j !== i))
 .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .x { border: 0; background: none; color: var(--ink-3); font-size: 22px; line-height: 1; padding: 4px 8px; }
 .x:hover { color: var(--red); }
-.add { margin-top: 10px; }
+.add, .hide-box { margin-top: 10px; }
 .date { font: inherit; color: inherit; background: var(--fill); border: 0; border-radius: 8px; padding: 6px 8px; }
 .err { color: var(--red); }
 </style>

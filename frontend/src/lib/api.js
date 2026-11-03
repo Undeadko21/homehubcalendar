@@ -88,6 +88,7 @@ export const api = {
   saveEventReminders: (people, extra) => request('PUT', '/api/settings/event-reminders', { people, ...(extra || {}) }),
   school: () => request('GET', '/api/school'),
   saveSchool: (breaks) => request('PUT', '/api/school', { breaks }),
+  saveSchoolHide: (hide, hide_words) => request('PUT', '/api/school', { hide, hide_words }),
   stats: (start, end) => request('GET', `/api/stats?${q({ start, end })}`),
   system: () => request('GET', '/api/system'),
   runBackup: () => request('POST', '/api/backup'),

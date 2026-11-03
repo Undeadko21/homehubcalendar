@@ -7,7 +7,7 @@ import threading
 from datetime import date, datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
-from . import escorts, live
+from . import escorts, live, school
 from .db import Database
 from .expand import expand_ics
 
@@ -120,6 +120,9 @@ class EventService:
 
     def _compose(self, start: datetime, end: datetime) -> list[dict]:
         wide = self._build(start, end)
+        hide = school.hidden_filter(self.db)   # во время каникул школьные события не показываем
+        if hide:
+            wide = [e for e in wide if not hide(e)]
         people = {p["id"]: p for p in self.db.list_people()}
         cfg = self.escort_settings()
         escorts.annotate(wide, people, self.db.escorts(), cfg["before_minutes"], cfg["after_minutes"],
