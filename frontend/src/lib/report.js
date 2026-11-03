@@ -7,6 +7,7 @@ const sent = new Set()
 
 export function report(message, extra = {}) {
   const msg = String(message || 'Неизвестная ошибка').slice(0, 500)
+  if (msg.includes('auth_required')) return // нужен вход — это не поломка, экран входа покажет приложение
   if (!problems.list.includes(msg)) problems.list.push(msg)
   if (problems.list.length > 3) problems.list.shift()
   const key = msg + (extra.kind || '')

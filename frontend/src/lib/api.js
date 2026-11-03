@@ -2,6 +2,10 @@
 // Метка этого экрана: сервер сообщает по SSE, кто сделал изменение, и мы не перезагружаемся по собственной записи.
 export const CLIENT_ID = Math.random().toString(36).slice(2, 12)
 
+// Вызывается, когда любой запрос получил 401 (сессия кончилась или пароль ещё не введён): приложение покажет экран входа.
+let onAuth = null
+export function setAuthHandler(fn) { onAuth = fn }
+
 async function request(method, url, body) {
   const headers = {}
   if (body) headers['Content-Type'] = 'application/json'
@@ -15,6 +19,7 @@ async function request(method, url, body) {
   if (res.status === 401) {
     const err = new Error('auth_required')
     err.auth = true
+    if (onAuth && !url.endsWith('/api/login')) onAuth()
     throw err
   }
   if (!res.ok) {

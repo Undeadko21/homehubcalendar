@@ -1,6 +1,6 @@
 // Общее состояние приложения: настройки, фильтр людей, загрузка событий.
 import { reactive, computed } from 'vue'
-import { api, CLIENT_ID } from './api'
+import { api, CLIENT_ID, setAuthHandler } from './api'
 import { isoLocal, isoDate } from './dates'
 
 const LS_KEY = 'homecal.prefs'
@@ -129,6 +129,8 @@ export function eventColor(e) {
 export function isEventVisible(e) {
   return e.people.some((id) => !state.hiddenPeople.includes(id))
 }
+
+setAuthHandler(() => { state.needLogin = true; state.config = null })
 
 export async function loadConfig() {
   try {
