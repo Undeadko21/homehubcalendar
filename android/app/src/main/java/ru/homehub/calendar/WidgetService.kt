@@ -85,6 +85,9 @@ private class Factory(private val context: Context, private val widgetId: Int) :
         rv.setInt(R.id.i_fill, "setColorFilter", chip.bar)
         rv.setInt(R.id.i_fill, "setImageAlpha", chip.fillAlpha)
         rv.setInt(R.id.i_bar, "setColorFilter", chip.bar)
+        // Весь день — капсула без полосы, как у Apple.
+        rv.setImageViewResource(R.id.i_fill, if (allDay) R.drawable.chip_pill else R.drawable.chip_bg)
+        rv.setViewVisibility(R.id.i_bar, if (allDay) View.GONE else View.VISIBLE)
 
         rv.setTextViewText(R.id.i_title, e.optString("title"))
         rv.setTextColor(R.id.i_title, chip.text)

@@ -307,7 +307,7 @@ struct WidgetView: View {
 
     /// Сколько плашек влезает: высота плашки с подробностями ~52 pt, без них ~38 pt.
     private func fit(_ avail: Double) -> Int {
-        let chipH = (showDetails ? 52.0 : 38.0) * s
+        let chipH = (showDetails ? 54.0 : 40.0) * s
         return max(1, Int((avail + 4 * s) / (chipH + 4 * s)))
     }
 
@@ -441,25 +441,44 @@ struct EventChip: View {
 
     var body: some View {
         let c = chipColors(e.color, dark: scheme == .dark, strong: isNow)
-        HStack(spacing: 0) {
-            Rectangle().fill(c.bar).frame(width: 3)
-            VStack(alignment: .leading, spacing: 0) {
+        if e.allDay {
+            // Событие на весь день — капсула со значком, как у Apple.
+            HStack(spacing: 5 * scale) {
+                ZStack {
+                    Circle().fill(c.bar)
+                    Image(systemName: "calendar").font(.system(size: 8 * scale, weight: .bold)).foregroundStyle(.white)
+                }
+                .frame(width: 16 * scale, height: 16 * scale)
                 Text(e.title).font(.system(size: 14 * scale, weight: .semibold)).lineLimit(1)
-                if !timeText.isEmpty {
-                    Text(timeText).font(.system(size: 12 * scale)).opacity(0.85).lineLimit(1)
-                }
-                if details && !sub.isEmpty {
-                    Text(sub).font(.system(size: 11 * scale)).opacity(0.7).lineLimit(1)
-                }
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            Spacer(minLength: 0)
+            .padding(.horizontal, 3 * scale)
+            .padding(.vertical, 2 * scale)
+            .foregroundStyle(c.text)
+            .background(c.fill)
+            .clipShape(Capsule())
+        } else {
+            HStack(spacing: 0) {
+                // Полоса не доходит до краёв плашки и закруглена, как у Apple.
+                Capsule().fill(c.bar).frame(width: 3).padding(.vertical, 3).padding(.leading, 3)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(e.title).font(.system(size: 15 * scale, weight: .semibold)).lineLimit(1)
+                    if !timeText.isEmpty {
+                        Text(timeText).font(.system(size: 13.5 * scale)).opacity(0.85).lineLimit(1)
+                    }
+                    if details && !sub.isEmpty {
+                        Text(sub).font(.system(size: 11 * scale)).opacity(0.7).lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(c.text)
+            .background(c.fill)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .foregroundStyle(c.text)
-        .background(c.fill)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
