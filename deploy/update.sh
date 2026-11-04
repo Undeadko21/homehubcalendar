@@ -31,6 +31,7 @@ healthy() {  # ждём до 90 секунд: процесс отвечает (/
 echo "$(date -Is) обновление $LOCAL → $REMOTE"
 git reset -q --hard "origin/$BRANCH"   # config/ и data/ в .gitignore — не затрагиваются
 chmod +x deploy/*.sh
+export GIT_SHA="$(git rev-parse --short HEAD)"   # попадёт в образ: «Версия 0.11.4+abc1234»
 if docker compose up -d --build --remove-orphans && healthy; then
   rm -f "$BAD_FILE"
   docker image prune -f >/dev/null
@@ -43,6 +44,7 @@ echo "$(date -Is) ОШИБКА: $REMOTE не запустился, откат н
 docker compose logs --tail 40 >&2 || true
 mkdir -p "$(dirname "$BAD_FILE")" && echo "$REMOTE" > "$BAD_FILE"
 git reset -q --hard "$LOCAL"
+export GIT_SHA="$(git rev-parse --short HEAD)"
 docker compose up -d --build --remove-orphans
 healthy && echo "$(date -Is) откат выполнен, работает $(git log -1 --format='%h %s')" || echo "$(date -Is) откат не помог, нужна ручная проверка" >&2
 exit 1

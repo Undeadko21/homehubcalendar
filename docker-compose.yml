@@ -1,6 +1,9 @@
 services:
   homecal:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-}
     image: homehub-calendar:local
     container_name: homehub-calendar
     restart: unless-stopped
