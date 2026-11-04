@@ -293,16 +293,27 @@ struct WidgetView: View {
         }
     }
 
-    private func chips(_ list: [WEvent], limit: Int) -> some View {
+    private func chips(_ list: [WEvent], limit: Int, compact: Bool = false) -> some View {
         let shown = Array(list.prefix(limit))
-        return VStack(alignment: .leading, spacing: 4 * s) {
+        return VStack(alignment: .leading, spacing: (compact ? 3 : 4) * s) {
             ForEach(shown) { e in
-                EventChip(e: e, scale: s, details: showDetails, now: entry.date)
+                EventChip(e: e, scale: s, details: showDetails, now: entry.date, compact: compact)
             }
             if list.count > shown.count {
                 Text("ещё \(list.count - shown.count)").font(.system(size: 11 * s)).foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// Компактные плашки (одна строка: название и время) — в маленьком и среднем виджете, чтобы помещалось 3 события и больше.
+    private var compact: Bool { family != .systemLarge }
+
+    /// Сколько компактных плашек влезает в avail pt; если не всё помещается, оставляем место под строку «ещё N».
+    private func fitCompact(_ avail: Double, count: Int) -> Int {
+        let h = 23.0 * s + 3 * s
+        let n = max(1, Int((avail + 3 * s) / h))
+        if count <= n { return n }
+        return max(1, Int((avail - 14 * s + 3 * s) / h))
     }
 
     /// Сколько плашек влезает: высота плашки с подробностями ~52 pt, без них ~38 pt.
@@ -347,19 +358,31 @@ struct WidgetView: View {
         Text(text).font(.system(size: 13 * s)).foregroundStyle(.secondary)
     }
 
+    /// Заголовок «ПН 4» в одну строку — экономит высоту ради событий.
+    private var todayInline: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5 * s) {
+            Text(upperWeekday(today)).font(.system(size: 11 * s, weight: .semibold)).foregroundStyle(.red).lineLimit(1)
+            Text(dayNumber(today)).font(.system(size: 20 * s, weight: .regular)).lineLimit(1)
+        }
+    }
+
     private var column0: some View {
         VStack(alignment: .leading, spacing: 4 * s) {
-            todayHeader
+            if compact { todayInline } else { todayHeader }
             let list = events(0)
-            if list.isEmpty { empty() } else { chips(list, limit: fit(83)) }
+            if list.isEmpty { empty() }
+            else if compact { chips(list, limit: fitCompact(86, count: list.count), compact: true) }
+            else { chips(list, limit: fit(83)) }
         }
     }
 
     private var column1: some View {
-        VStack(alignment: .leading, spacing: 6 * s) {
+        VStack(alignment: .leading, spacing: 4 * s) {
             smallHeader(1)
             let list = events(1)
-            if list.isEmpty { empty() } else { chips(list, limit: fit(110)) }
+            if list.isEmpty { empty() }
+            else if compact { chips(list, limit: fitCompact(96, count: list.count), compact: true) }
+            else { chips(list, limit: fit(110)) }
         }
     }
 
@@ -424,6 +447,7 @@ struct EventChip: View {
     let scale: Double
     let details: Bool
     let now: Date
+    var compact: Bool = false
     @Environment(\.colorScheme) private var scheme
 
     private var isNow: Bool {
@@ -439,9 +463,30 @@ struct EventChip: View {
         [e.who, e.note, e.location].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
+    /// Только время начала («14:30») для однострочной плашки.
+    private var startText: String {
+        guard !e.allDay else { return "" }
+        let t = e.time
+        for sep in [" — ", "–", " - ", "-"] { if let r = t.range(of: sep) { return String(t[..<r.lowerBound]).trimmingCharacters(in: .whitespaces) } }
+        return t
+    }
+
     var body: some View {
         let c = chipColors(e.color, dark: scheme == .dark, strong: isNow)
-        if e.allDay {
+        if compact && !e.allDay {
+            HStack(spacing: 0) {
+                Capsule().fill(c.bar).frame(width: 3).padding(.vertical, 3).padding(.leading, 3)
+                Text(e.title).font(.system(size: 13 * scale, weight: .semibold)).lineLimit(1).padding(.leading, 5)
+                Spacer(minLength: 4)
+                if !startText.isEmpty {
+                    Text(startText).font(.system(size: 12 * scale)).opacity(0.85).lineLimit(1).fixedSize().padding(.trailing, 6)
+                }
+            }
+            .frame(height: 23 * scale)
+            .foregroundStyle(c.text)
+            .background(c.fill)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        } else if e.allDay {
             // Событие на весь день — капсула со значком, как у Apple.
             HStack(spacing: 5 * scale) {
                 ZStack {
@@ -449,7 +494,7 @@ struct EventChip: View {
                     Image(systemName: "calendar").font(.system(size: 8 * scale, weight: .bold)).foregroundStyle(.white)
                 }
                 .frame(width: 16 * scale, height: 16 * scale)
-                Text(e.title).font(.system(size: 14 * scale, weight: .semibold)).lineLimit(1)
+                Text(e.title).font(.system(size: (compact ? 13 : 14) * scale, weight: .semibold)).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 3 * scale)

@@ -53,8 +53,9 @@ const byDay = computed(() => {
   for (const e of events.value) {
     const r = eventRange(e)
     let d = startOfDay(r.start)
-    const last = startOfDay(e.all_day ? addDays(r.end, -1) : new Date(+r.end - 1))
-    for (let i = 0; i < 42 && d <= (last < d ? d : last); i++, d = addDays(d, 1)) (m[isoDate(d)] ||= []).push(e)
+    const end = startOfDay(e.all_day ? addDays(r.end, -1) : new Date(+r.end - 1))
+    const last = end < d ? d : end // событие без длительности всё равно лежит в своём дне
+    for (let i = 0; i < 42 && d <= last; i++, d = addDays(d, 1)) (m[isoDate(d)] ||= []).push(e)
   }
   return m
 })
