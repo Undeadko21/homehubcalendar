@@ -13,7 +13,7 @@
           <span class="chev" aria-hidden="true">›</span>
         </button>
       </div>
-      <p class="group-note version">Версия {{ state.config?.version }}</p>
+      <p class="group-note version">Версия {{ state.config?.version }}<template v-if="UI_BUILD"> · интерфейс {{ UI_BUILD }}</template></p>
     </template>
 
     <template v-else>
@@ -348,7 +348,7 @@
 import { copyToClipboard } from '../lib/clipboard'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from '../lib/api'
-import { state, reload, syncNow } from '../lib/store'
+import { state, reload, syncNow, UI_BUILD } from '../lib/store'
 import PeoplePicker from '../components/PeoplePicker.vue'
 import Sheet from '../components/Sheet.vue'
 import TemplatesEditor from '../components/TemplatesEditor.vue'

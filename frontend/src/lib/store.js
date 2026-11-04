@@ -176,6 +176,32 @@ export function fetchRange(start, end) {
   return entry
 }
 
+// Версия интерфейса, с которой собрана эта страница (хеш коммита подставляет сборка образа), и проверка, не вышла ли новее.
+export const UI_BUILD = import.meta.env.VITE_BUILD || ''
+let checking = false
+export async function checkUiVersion() {
+  if (!UI_BUILD || checking) return
+  checking = true
+  try {
+    const r = await fetch('/api/health', { cache: 'no-store' })
+    const v = String((await r.json()).version || '')
+    const server = v.includes('+') ? v.split('+')[1] : ''
+    if (server && server !== UI_BUILD) {
+      // Один раз на версию: если страница всё равно приходит старой, не крутимся в перезагрузках.
+      let done = null
+      try { done = sessionStorage.getItem('homecal.reloaded') } catch {}
+      if (done === server) return
+      try { sessionStorage.setItem('homecal.reloaded', server) } catch {}
+      location.reload() // приложение держало старую страницу — берём новую
+    }
+  } catch {} finally { checking = false }
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUiVersion() })
+  setInterval(checkUiVersion, 5 * 60 * 1000)
+  setTimeout(checkUiVersion, 3000)
+}
+
 // Живое обновление: сервер сообщает по SSE, что данные изменились (с этого или другого устройства) — перезагружаемся.
 let live = null
 export function connectLive() {
