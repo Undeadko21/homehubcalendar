@@ -168,5 +168,6 @@ if core.STATIC_DIR.exists():
     def spa(path: str):
         f = core.STATIC_DIR / path
         if path and f.is_file() and core.STATIC_DIR in f.resolve().parents:
-            return FileResponse(f)
-        return FileResponse(core.STATIC_DIR / "index.html")
+            return FileResponse(f, headers={"Cache-Control": "no-cache"} if f.name == "index.html" else None)
+        # Оболочка страницы всегда сверяется с сервером: иначе WebView в приложениях может долго держать старую версию интерфейса.
+        return FileResponse(core.STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})

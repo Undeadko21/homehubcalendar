@@ -300,3 +300,10 @@ def test_login_behind_proxy_and_long_password(api, monkeypatch):
     r = api.post("/api/login", json={"pin": "длинный пароль семьи"}, headers={"X-Forwarded-For": "198.51.100.2", "X-Forwarded-Proto": "https"})
     assert r.status_code == 200 and "secure" in r.headers["set-cookie"].lower()
     assert "openapi" not in api.get("/openapi.json").text   # описание API не отдаётся (SPA-заглушка или 404)
+
+
+def test_index_html_is_not_cached(api):
+    """Оболочка интерфейса не должна залипать в WebView: no-cache."""
+    r = api.get("/")
+    if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
+        assert r.headers.get("cache-control") == "no-cache"
