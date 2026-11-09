@@ -170,6 +170,7 @@ class EscortSettings(BaseModel):
     places: list[Place] = []   # «секция, бассейн» → 25 минут
     home_words: str = "дома"   # через запятую; событие с таким словом — «дома»
     home_address: str = ""     # часть адреса: событие в этом месте — «дома»
+    show_duties: bool = False  # показывать «Отвезти…/Забрать…» отдельными событиями у взрослых
 
 
 @router.put("/api/settings/escort")
@@ -205,7 +206,7 @@ def get_widget(days: int = 2, people: str | None = None):
     start = datetime.combine(now.date(), time(0), core.tz)
     plist = {p["id"]: p for p in core.db.list_people() if not p["hidden"]}
     only = set(people.split(",")) if people else None
-    evs = core.events.events(start, start + timedelta(days=days))
+    evs = core.events.visible(core.events.events(start, start + timedelta(days=days)))
     soon = bd.upcoming(core.db.birthdays(), core.events.events(start, start + timedelta(days=15)), start.date(), 14)[:2]
     return widget.build(evs, plist, core.tz, now, days, only, soon)
 

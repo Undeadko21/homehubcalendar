@@ -619,6 +619,9 @@ def test_ops_from_phone_are_applied_once(db):
     assert "p1-3" in snap["applied"] and snap["people"] and snap["lists"][0]["items"]
     pool = [x for x in snap["events"] if x["uid"] == "pool@test" and not x.get("duty")][0]
     assert pool["escort"]["dropoff"]["person"] == "tolya"
+    assert not [x for x in snap["events"] if x.get("duty")]  # по умолчанию поездки отдельными событиями не показываем
+    db.kv_set("settings:escort", {"show_duties": True})
+    snap = snapshot.build(svc, db, TZ, datetime(2026, 10, 27, 12, 0, tzinfo=TZ))
     duty = [x for x in snap["events"] if x.get("duty")][0]
     assert set(duty["duty"]) == {"role", "parent"} and isinstance(duty["duty"]["parent"], str)
 

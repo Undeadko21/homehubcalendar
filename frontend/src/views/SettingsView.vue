@@ -147,6 +147,13 @@
       адрес; «все вместе» — если в нём участвует кто-то из взрослых. Это всегда можно поменять в карточке.
     </p>
 
+    <h3 class="group-title">Поездки в календаре</h3>
+    <div class="group">
+      <label class="row">
+        <span class="lbl">Показывать «Отвезти / Забрать» отдельными событиями <small class="muted block">Выключено: кто везёт и забирает видно на самом событии ребёнка (→ и ←), копий в календарях взрослых нет. Напоминания водителю работают в любом случае.</small></span>
+        <input v-model="escort.show_duties" type="checkbox" class="switch" @change="saveEscort" />
+      </label>
+    </div>
     <h3 class="group-title">Время в дороге</h3>
     <div class="group">
       <label class="row">
@@ -417,7 +424,7 @@ async function saveShared(c) {
   try { await api.setSharedColor(c || null); await reload() } catch (e) { alert(e.message) }
 }
 const editing = ref(null)
-const escort = reactive({ before_minutes: 30, after_minutes: 30, home_words: 'дома', home_address: '', travel_buffer: 5, places: [] })
+const escort = reactive({ before_minutes: 30, after_minutes: 30, home_words: 'дома', home_address: '', travel_buffer: 5, places: [], show_duties: false })
 
 watch(() => state.config, (c) => {
   editPeople.value = (c?.people || []).filter((p) => !p.id.startsWith('_'))
@@ -530,6 +537,7 @@ async function saveEscort() {
     home_words: escort.home_words || '',
     home_address: escort.home_address || '',
     travel_buffer: Number(escort.travel_buffer) || 0,
+    show_duties: !!escort.show_duties,
     places: (escort.places || []).filter((p) => (p.words || '').trim()).map((p) => ({ words: p.words.trim(), minutes: Number(p.minutes) || 0 })),
   })
   await reload()

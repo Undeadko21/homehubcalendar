@@ -12,7 +12,7 @@ from .db import Database
 from .expand import expand_ics
 
 ESCORT_DEFAULTS = {"before_minutes": 30, "after_minutes": 30, "home_words": "дома", "home_address": "",
-                   "travel_buffer": 5, "places": []}
+                   "travel_buffer": 5, "places": [], "show_duties": False}
 
 UNASSIGNED = "_unassigned"
 
@@ -155,6 +155,14 @@ class EventService:
     def escort_settings(self) -> dict:
         value, _ = self.db.kv_get("settings:escort")
         return {**ESCORT_DEFAULTS, **(value or {})}
+
+    def visible(self, evs: list[dict]) -> list[dict]:
+        """Что показывать людям: поездки («Отвезти …») отдельными событиями — только если включено в настройках.
+        По умолчанию они уже видны на самом событии (→ кто / ← кто), поэтому отдельная копия — дубль.
+        Напоминания, свободное время и конфликты работают с полным списком (events()), не с этим."""
+        if self.escort_settings().get("show_duties"):
+            return evs
+        return [e for e in evs if not e.get("duty")]
 
     def _build(self, start: datetime, end: datetime) -> list[dict]:
         people = {p["id"]: p for p in self.db.list_people()}

@@ -21,7 +21,7 @@ def get_events(start: str, end: str, people: str | None = None):
     s, e = core._parse_dt(start), core._parse_dt(end)
     if e <= s or (e - s) > timedelta(days=400):
         raise HTTPException(400, "Некорректный диапазон")
-    items = core.events.events(s, e)
+    items = core.events.visible(core.events.events(s, e))
     if people:
         wanted = set(people.split(","))
         items = [i for i in items if wanted & set(i["people"])]

@@ -31,7 +31,8 @@ def build(events: EventService, db: Database, tz: ZoneInfo, now: datetime | None
     evs = events.events(start, start + timedelta(days=HORIZON_DAYS + 1))
     people = {p["id"]: p for p in db.list_people() if not p["hidden"]}
     soon = bd.upcoming(db.birthdays(), evs, start.date(), 14)[:2]
-    wid_events = [e for e in evs if datetime.fromisoformat(e["start"][:10]).date() < start.date() + timedelta(days=3)]
+    shown = events.visible(evs)   # поездки отдельными событиями — только если включено; напоминания берут полный список
+    wid_events = [e for e in shown if datetime.fromisoformat(e["start"][:10]).date() < start.date() + timedelta(days=3)]
     return {
         "v": VERSION,
         "generated": now.isoformat(timespec="seconds"),
@@ -42,7 +43,7 @@ def build(events: EventService, db: Database, tz: ZoneInfo, now: datetime | None
                                     [i for l in db.lists() for i in l["items"]], db.sync_status()),
         # --- для офлайн-экрана и команд с телефона (этап 2) ---
         "people": [{k: p.get(k) for k in ("id", "name", "color", "emoji", "needs_escort", "keywords")} for p in people.values()],
-        "events": [_compact(e) for e in evs],
+        "events": [_compact(e) for e in shown],
         "lists": db.lists(),
         "applied": ops.applied_ids(db)[-300:],
     }
