@@ -35,6 +35,18 @@ class CloudError(Exception):
 BAD_TOKEN = "Это не похоже на токен Яндекс.Диска: нужна одна длинная строка из латинских букв, цифр и знаков (обычно начинается с y0_)"
 
 
+def clean_token(token: str | None) -> str:
+    """Токен часто вставляют вместе с хвостом адреса: «…#access_token=y0_…&token_type=bearer&expires_in=…» или «OAuth y0_…».
+    Оставляем только сам токен."""
+    t = (token or "").strip().strip("\"'")
+    if "access_token=" in t:
+        t = t.split("access_token=", 1)[1]
+    t = t.split("&", 1)[0].split("#", 1)[0]
+    if t[:6].lower() == "oauth ":
+        t = t[6:]
+    return t.strip()
+
+
 def token_ok(token: str | None) -> bool:
     t = (token or "").strip()
     return len(t) >= 20 and t.isascii() and not any(c.isspace() for c in t)
@@ -155,9 +167,10 @@ class CloudSync:
 
     def set_token(self, token: str | None) -> None:
         if token:
+            token = clean_token(token)
             if not token_ok(token):
                 raise CloudError(BAD_TOKEN)
-            self.db.kv_set("cloud:token", {"token": token.strip()})
+            self.db.kv_set("cloud:token", {"token": token})
         else:
             self.db.kv_set("cloud:token", {})
             self.db.kv_set("cloud:state", {})

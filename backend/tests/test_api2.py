@@ -487,3 +487,14 @@ def test_access_checks_and_probe(api, monkeypatch):
     access.watch(db)
     assert not access.WATCH["down"]
     access.WATCH.update(fails=0, down=False, last=None, alerted=0.0)
+
+
+def test_cloud_token_is_cleaned_from_pasted_url(api):
+    from app.cloud import clean_token
+    raw = "y0_" + "A" * 40
+    assert clean_token(f"https://oauth.yandex.ru/verification_code#access_token={raw}&token_type=bearer&expires_in=31536000") == raw
+    assert clean_token(f"access_token={raw}&token_type=bearer") == raw
+    assert clean_token(f"OAuth {raw}") == raw
+    assert clean_token(f'  "{raw}"  ') == raw
+    api.core.cloud.set_token(f"{raw}&token_type=bearer&expires_in=1")
+    assert api.core.cloud._token() == raw
