@@ -1,78 +1,40 @@
 <template>
-  <div class="settings">
-    <!-- Главное меню настроек -->
-    <template v-if="!page">
-      <div class="group menu">
-        <button v-for="m in menu" :key="m.id" class="row menu-row" @click="open(m.id)">
-          <span class="micon" :style="{ background: m.color }" v-html="m.icon"></span>
-          <span class="pmain">
-            <span class="pname">{{ m.title }}</span>
-            <span class="psub">{{ m.sub }}</span>
-          </span>
-          <span v-if="m.warn" class="dot" aria-label="Требует внимания"></span>
-          <span class="chev" aria-hidden="true">›</span>
-        </button>
-      </div>
-      <p class="group-note version">Версия {{ state.config?.version }}<template v-if="UI_BUILD"> · интерфейс {{ UI_BUILD }}</template></p>
-    </template>
-
-    <template v-else>
-      <div class="subhead">
-        <button class="back" @click="open(null)">‹ Настройки</button>
-        <h2>{{ current?.title }}</h2>
-      </div>
-
-    <!-- Подключение -->
-    <template v-if="page === 'connect'">
-    <template v-for="acc in accounts" :key="acc.id">
-      <h3 class="group-title">Яндекс.Календарь</h3>
-      <form class="group" @submit.prevent="saveAccount(acc)">
-        <label class="row">
-          <span class="lbl">Логин</span>
-          <input v-model="acc.username" class="inline" type="email" autocomplete="username" autocapitalize="off" placeholder="ivanov@yandex.ru" />
-        </label>
-        <label class="row">
-          <span class="lbl">Пароль</span>
-          <input v-model="acc.password" class="inline" type="password" autocomplete="new-password"
-                 :placeholder="acc.has_password ? 'сохранён' : 'пароль приложения'" />
-        </label>
-        <div class="row">
-          <button class="btn filled" :disabled="acc.busy || !acc.username">{{ acc.busy ? 'Проверяю…' : 'Сохранить и подключить' }}</button>
+  <div class="settings" :class="{ split: wide }">
+    <!-- Меню: на телефоне — экран, на компьютере — колонка слева -->
+    <nav v-show="wide || !page" class="menu-col" aria-label="Разделы настроек">
+      <button class="row status-card" :class="{ bad: sysProblems > 0 || bad }" @click="open('system')">
+        <span class="sicon" aria-hidden="true">{{ sysProblems > 0 || bad ? '!' : '✓' }}</span>
+        <span class="pmain">
+          <span class="pname">{{ sysProblems > 0 || bad ? 'Требует внимания' : 'Всё работает' }}</span>
+          <span class="psub">{{ statusLine }}</span>
+        </span>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
+      <template v-for="g in groups" :key="g.title">
+        <h3 class="group-title">{{ g.title }}</h3>
+        <div class="group menu">
+          <button v-for="m in g.items" :key="m.id" class="row menu-row" :class="{ sel: wide && (page === m.id || parentOf[page] === m.id) }" @click="open(m.id)">
+            <span class="micon" :style="{ background: m.color }" v-html="m.icon"></span>
+            <span class="pmain">
+              <span class="pname">{{ m.title }}</span>
+              <span class="psub">{{ m.sub }}</span>
+            </span>
+            <span v-if="m.warn" class="dot" aria-label="Требует внимания"></span>
+            <span class="chev" aria-hidden="true">›</span>
+          </button>
         </div>
-      </form>
-      <p v-if="acc.result" class="group-note" :class="acc.result.ok ? 'ok' : 'err'">
-        {{ acc.result.ok ? `Подключено: календарей ${acc.result.calendars}, записей ${acc.result.objects}.` : 'Не удалось подключиться: ' + acc.result.error }}
-      </p>
-      <p v-else class="group-note">
-        Нужен <strong>пароль приложения</strong>, а не основной пароль:
-        <a href="https://id.yandex.ru/security/app-passwords" target="_blank" rel="noopener">id.yandex.ru → Пароли приложений</a>, тип «Календарь».
-        Хранится только на вашем сервере.
-      </p>
-    </template>
+      </template>
+      <p class="group-note version">Версия {{ state.config?.version }}<template v-if="UI_BUILD"> · интерфейс {{ UI_BUILD }}</template></p>
+    </nav>
 
-    <FeedsSettings />
-
-    <!-- Синхронизация -->
-    <h3 class="group-title">Синхронизация</h3>
-    <div class="group">
-      <div v-for="s in sources" :key="s.source_id" class="row">
-        <span class="lbl">{{ s.source_id }}</span>
-        <span v-if="s.last_error" class="val err">{{ s.last_error }}</span>
-        <span v-else class="val muted">{{ s.last_ok ? fmt(s.last_ok) : 'ещё не обновлялось' }}</span>
+    <section v-if="page" class="detail">
+      <div class="subhead">
+        <button v-if="!wide || parentOf[page]" class="back" @click="open(parentOf[page] || null)">‹ {{ parentOf[page] ? titleOf(parentOf[page]) : 'Настройки' }}</button>
+        <h2>{{ current?.title }}</h2>
+        <p v-if="current?.lead" class="lead">{{ current.lead }}</p>
       </div>
-      <div class="row">
-        <button class="btn" :disabled="busy" @click="sync">{{ busy ? 'Обновляю…' : 'Обновить сейчас' }}</button>
-      </div>
-    </div>
 
-    <h3 class="group-title">Облако: связь вне дома</h3>
-    <CloudSettings />
-
-    <h3 class="group-title">Доступ из интернета</h3>
-    <AccessSettings />
-    </template>
-
-    <!-- Люди и календари -->
+    <!-- Люди -->
     <template v-if="page === 'people'">
     <h3 class="group-title">Общие встречи</h3>
     <div class="group">
@@ -99,8 +61,12 @@
     </div>
     <p class="group-note">Нажмите на человека, чтобы поменять цвет, отметить ребёнка или задать слова для автопривязки.</p>
 
+
+    </template>
+
     <!-- Календари -->
-    <h3 class="group-title">Календари</h3>
+    <template v-if="page === 'calendars'">
+    <p v-if="!editCals.length" class="group-note">Календари появятся после первой синхронизации.</p>
     <p v-if="!editCals.length" class="group-note">Календари появятся после первой синхронизации.</p>
     <div v-for="c in editCals" :key="c.key" class="group cal" :class="{ hidden: c.hidden }">
       <div class="row">
@@ -143,12 +109,10 @@
         <input v-model="escort.home_address" class="inline" placeholder="например: Ленина, 5" @change="saveEscort" />
       </label>
     </div>
-    <p class="group-note">
-      Столько времени взрослый должен быть свободен, чтобы отвезти или забрать ребёнка: в эти минуты
-      проверяются конфликты. Кто отвозит, назначается в карточке события ребёнка.
-      Событие считается «дома», если в названии или месте есть одно из слов (через запятую) или
-      адрес; «все вместе» — если в нём участвует кто-то из взрослых. Это всегда можно поменять в карточке.
-    </p>
+    <Help title="Что значат эти числа">
+      <p>Столько времени взрослый должен быть свободен, чтобы отвезти или забрать ребёнка: в эти минуты проверяются конфликты. Кто отвозит, назначается в карточке события ребёнка.</p>
+      <p>Событие считается «дома», если в названии или месте есть одно из слов (через запятую) или адрес; «все вместе» — если в нём участвует кто-то из взрослых. Это всегда можно поменять в карточке.</p>
+    </Help>
 
     <h3 class="group-title">Поездки в календаре</h3>
     <div class="group">
@@ -171,11 +135,9 @@
       </div>
       <div class="row"><button class="btn" @click="addPlace">＋ Место</button></div>
     </div>
-    <p class="group-note">
-      Если у события (или в его месте) встречается слово из правила, окно «отвезти» = дорога + запас до начала,
-      а «забрать» — столько же после конца. Для отдельного события время в пути можно задать в его карточке.
-      Без правила работают минуты из блока выше.
-    </p>
+    <Help title="Как считается дорога">
+      <p>Если в названии или месте события есть слово из правила, окно «отвезти» = дорога + запас до начала, а «забрать» — столько же после конца. Для отдельного события время в пути можно задать в его карточке. Без правила работают минуты из блока выше.</p>
+    </Help>
 
     <h3 class="group-title">Шаблоны поездок по дням недели</h3>
     <TemplatesEditor />
@@ -190,31 +152,77 @@
     <SchoolBreaks />
     </template>
 
+    <!-- Напоминания -->
     <template v-if="page === 'reminders'">
-    <h3 class="group-title">Напоминать перед встречами</h3>
+    <template v-if="inApp">
+      <h3 class="group-title">На этом телефоне</h3>
+      <RemindersSettings />
+    </template>
+    <h3 class="group-title">Перед встречами</h3>
     <EventReminders />
     </template>
 
-    <template v-if="page === 'changes'">
-    <h3 class="group-title">Последние правки</h3>
-    <ChangeLog />
+    <!-- Источники событий -->
+    <template v-if="page === 'sources'">
+    <template v-for="acc in accounts" :key="acc.id">
+      <h3 class="group-title">Яндекс.Календарь</h3>
+      <form class="group" @submit.prevent="saveAccount(acc)">
+        <label class="row">
+          <span class="lbl">Логин</span>
+          <input v-model="acc.username" class="inline" type="email" autocomplete="username" autocapitalize="off" placeholder="ivanov@yandex.ru" />
+        </label>
+        <label class="row">
+          <span class="lbl">Пароль</span>
+          <input v-model="acc.password" class="inline" type="password" autocomplete="new-password"
+                 :placeholder="acc.has_password ? 'сохранён' : 'пароль приложения'" />
+        </label>
+        <div class="row">
+          <button class="btn filled" :disabled="acc.busy || !acc.username">{{ acc.busy ? 'Проверяю…' : 'Сохранить и подключить' }}</button>
+        </div>
+      </form>
+      <p v-if="acc.result" class="group-note" :class="acc.result.ok ? 'ok' : 'err'">
+        {{ acc.result.ok ? `Подключено: календарей ${acc.result.calendars}, записей ${acc.result.objects}.` : 'Не удалось подключиться: ' + acc.result.error }}
+      </p>
+      <p v-else class="group-note">
+        Нужен <strong>пароль приложения</strong>, а не основной пароль: <a href="https://id.yandex.ru/security/app-passwords" target="_blank" rel="noopener">id.yandex.ru → Пароли приложений</a>, тип «Календарь». Хранится только на вашем сервере.
+      </p>
     </template>
 
-    <template v-if="page === 'stats'">
-    <StatsPanel />
+
+    <FeedsSettings />
+
+    <h3 class="group-title">Синхронизация</h3>
+    <div class="group">
+      <div v-for="s in sources" :key="s.source_id" class="row">
+        <span class="lbl">{{ s.source_id }}</span>
+        <span v-if="s.last_error" class="val err">{{ s.last_error }}</span>
+        <span v-else class="val muted">{{ s.last_ok ? fmt(s.last_ok) : 'ещё не обновлялось' }}</span>
+      </div>
+      <div class="row">
+        <button class="btn" :disabled="busy" @click="sync">{{ busy ? 'Обновляю…' : 'Обновить сейчас' }}</button>
+      </div>
+    </div>
     </template>
 
-    <template v-if="page === 'system'">
-    <SystemPanel />
+    <!-- Связь вне дома: сводка и переходы -->
+    <template v-if="page === 'outside'">
+    <AccessSettings part="status" />
+    <h3 class="group-title">Настройка</h3>
+    <div class="group menu">
+      <button v-for="m in outsideItems" :key="m.id" class="row menu-row" @click="open(m.id)">
+        <span class="micon" :style="{ background: m.color }" v-html="m.icon"></span>
+        <span class="pmain"><span class="pname">{{ m.title }}</span><span class="psub">{{ m.sub }}</span></span>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
+    </div>
     </template>
+    <template v-if="page === 'cloud'">
+    <CloudSettings />
+    </template>
+    <AccessSettings v-if="page === 'address' || page === 'devices' || page === 'vps'" :part="page" />
 
-    <!-- Приложение и экраны -->
+    <!-- Приложения и виджеты -->
     <template v-if="page === 'app'">
-    <template v-if="inApp">
-      <h3 class="group-title">Напоминания</h3>
-      <RemindersSettings />
-    </template>
-
     <!-- Приложение для Android -->
     <h3 class="group-title">Приложение для Android</h3>
     <div class="group">
@@ -246,14 +254,12 @@
         </div>
         <div v-else-if="macInfo" class="row"><span class="muted small">Сборка для Mac ещё не готова.</span></div>
       </div>
-      <p class="group-note">
-        Окно календаря и значок в строке меню с ближайшим событием; вне дома читает снимок из облака (код подключения —
-        в разделе «Подключение»). Распакуйте zip, перенесите программу в «Программы» и при первом запуске нажмите на ней
-        правой кнопкой → «Открыть» (приложение подписано без аккаунта разработчика Apple).
-      </p>
+      <Help title="Как установить">
+        <p>Распакуйте zip, перенесите программу в «Программы» и при первом запуске нажмите на ней правой кнопкой → «Открыть» (приложение подписано без аккаунта разработчика Apple). Вне дома читает снимок из облака — код подключения в «Связь вне дома».</p>
+      </Help>
     </template>
     <template v-if="!inApp">
-      <h3 class="group-title">Приложение для iPhone (AltStore)</h3>
+      <h3 class="group-title">Приложение для iPhone</h3>
       <div class="group">
         <div v-if="iosInfo?.available" class="row">
           <span class="lbl">Версия {{ iosInfo.version }} <small class="muted block">{{ (iosInfo.size / 1048576).toFixed(1) }} МБ · iOS 16+</small></span>
@@ -265,36 +271,42 @@
           <div class="code"><code>{{ origin }}/altstore.json</code><button class="btn" @click="copyText(origin + '/altstore.json')">Копировать</button></div>
         </div>
       </div>
-      <p class="group-note">
-        AltStore ставит приложение на iPhone с вашим бесплатным Apple ID; подпись живёт 7 дней, AltStore продлевает её
-        сам, когда iPhone и компьютер с AltServer в одной Wi-Fi сети.
-      </p>
-      <p class="group-note">
-        <b>Если AltStore выдаёт ошибку</b> (например, 503 или «No anisette server»): скачайте .ipa кнопкой выше и установите
-        его через программу Sideloadly на компьютере — тот же бесплатный Apple ID, USB-кабель, кнопка Start. Подпись так же живёт
-        7 дней: раз в неделю повторяйте установку. Данные и настройки приложения сохраняются.
-      </p>
+      <Help title="Установка и ошибки AltStore">
+        <p>AltStore ставит приложение с вашим бесплатным Apple ID; подпись живёт 7 дней, AltStore продлевает её сам, когда iPhone и компьютер с AltServer в одной Wi-Fi сети.</p>
+        <p><b>Если AltStore выдаёт ошибку</b> (503, «No anisette server»): скачайте .ipa кнопкой выше и установите через Sideloadly на компьютере — тот же Apple ID, USB-кабель, кнопка Start. Подпись так же живёт 7 дней; данные приложения сохраняются.</p>
+      </Help>
     </template>
-    <p class="group-note">
-      Откройте эту страницу на телефоне в домашней Wi-Fi сети и нажмите «Скачать». Android спросит разрешение
-      ставить приложения из браузера — разрешите. Виджет «Семейный день» добавляется кнопкой в приложении
-      (⚙ → «Добавить на экран») или вручную: долгое нажатие на пустом месте рабочего стола → «Виджеты» →
-      найдите «Календарь» с красно-белой иконкой (на Xiaomi — раздел «Виджеты Android» внизу списка).
-    </p>
+    <Help title="Виджет на рабочий стол">
+      <p>Откройте эту страницу на телефоне и нажмите «Скачать». Android спросит разрешение ставить приложения из браузера — разрешите. Виджет «Семейный день» добавляется кнопкой в приложении (⚙ → «Добавить на экран») или вручную: долгое нажатие на пустом месте рабочего стола → «Виджеты» → «Календарь» (на Xiaomi — раздел «Виджеты Android» внизу списка).</p>
+    </Help>
+    </template>
 
-    <h3 class="group-title">Экран на стене</h3>
+    <!-- Экран на стене -->
+    <template v-if="page === 'wall'">
+    <h3 class="group-title">Сегодня</h3>
     <div class="group">
-      <div class="row"><code class="link">{{ kioskUrl }}</code></div>
-      <div class="row stack"><span class="lbl">Экран на кухню <small class="muted block">крупные часы, погода, ближайшие события, поездки и дела — для планшета на стене</small></span>
-        <code class="link">{{ kitchenUrl }}</code></div>
+      <div class="row stack"><span class="lbl">Ссылка <small class="muted block">день по людям, крупно</small></span>
+        <div class="code"><code>{{ kioskUrl }}</code><button class="btn" @click="copyText(kioskUrl)">Копировать</button></div></div>
     </div>
-    <p class="group-note">
-      Откройте ссылку на планшете в полноэкранном режиме: ночью экран приглушается, данные обновляются сами.
-      Добавьте <code>&amp;rotate=60</code>, чтобы каждую минуту переключаться между «Сегодня» и «Лентой».
-    </p>
+    <h3 class="group-title">Кухня</h3>
+    <div class="group">
+      <div class="row stack"><span class="lbl">Ссылка <small class="muted block">часы, погода, ближайшие события, поездки и дела</small></span>
+        <div class="code"><code>{{ kitchenUrl }}</code><button class="btn" @click="copyText(kitchenUrl)">Копировать</button></div></div>
+    </div>
+    <p class="group-note">Откройте ссылку на планшете в полноэкранном режиме: ночью экран приглушается, данные обновляются сами. Добавьте <code>&amp;rotate=60</code>, чтобы каждую минуту переключаться между «Сегодня» и «Лентой».</p>
+    </template>
 
+    <!-- Данные -->
+    <template v-if="page === 'changes'">
+    <ChangeLog />
     </template>
+    <template v-if="page === 'stats'">
+    <StatsPanel />
     </template>
+    <template v-if="page === 'system'">
+    <SystemPanel />
+    </template>
+    </section>
 
     <!-- Карточка человека -->
     <Sheet :open="!!editing" :title="editing?.name || ''" @close="closePerson">
@@ -378,49 +390,104 @@ import ChangeLog from '../components/ChangeLog.vue'
 import SchoolBreaks from '../components/SchoolBreaks.vue'
 import StatsPanel from '../components/StatsPanel.vue'
 import SystemPanel from '../components/SystemPanel.vue'
+import Help from '../components/Help.vue'
 
 // Системные цвета Apple
 const PALETTE = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#a2845e']
 
 const busy = ref(false)
+// Широкий экран: меню слева, страница справа (как «Системные настройки» на Mac)
+const wideMq = typeof matchMedia === 'function' ? matchMedia('(min-width: 900px)') : null
+const wide = ref(!!wideMq?.matches)
+wideMq?.addEventListener?.('change', (e) => { wide.value = e.matches })
 const page = ref(null)
 try { page.value = sessionStorage.getItem('settingsPage') || null } catch { /* без хранилища */ }
+if (wide.value && !page.value) page.value = 'people'
+watch(wide, (w) => { if (w && !page.value) page.value = 'people' })
+// Вложенные страницы: «Связь вне дома» → облако, адрес, устройства, VPS
+const parentOf = { cloud: 'outside', address: 'outside', devices: 'outside', vps: 'outside' }
 function open(id) {
   page.value = id
   try { id ? sessionStorage.setItem('settingsPage', id) : sessionStorage.removeItem('settingsPage') } catch { /* ок */ }
   window.scrollTo?.(0, 0)
 }
 const ico = (d) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`
-const menu = computed(() => {
+const accInfo = ref(null)
+const devCount = ref(null)
+api.access().then((r) => { accInfo.value = r }).catch(() => {})
+api.sessions().then((r) => { devCount.value = r.pin ? r.sessions.length : null }).catch(() => {})
+const outsideBad = computed(() => (accInfo.value?.checks || []).some((c) => c.level === 'bad'))
+const outsideItems = computed(() => {
+  const a = accInfo.value
+  return [
+    { id: 'cloud', title: 'Облако Яндекс.Диска', color: '#007aff', sub: 'снимок для виджетов и телефона вне дома',
+      icon: ico('<path d="M7 18a4.500 4.500 0 01-.600-8.960A6 6 0 0118 10a4 4 0 010 8z"/>') },
+    { id: 'address', title: 'Адрес и доступ приложений', color: '#34c759', sub: a?.public_url ? a.public_url.replace('https://', '') : 'публичный адрес не задан',
+      icon: ico('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.500 2.500 3.500 5.500 3.500 9s-1 6.500-3.500 9c-2.500-2.500-3.500-5.500-3.500-9s1-6.500 3.500-9z"/>') },
+    { id: 'devices', title: 'Устройства и вход', color: '#ff9500', sub: devCount.value != null ? `вошло устройств: ${devCount.value} · QR-код, журнал` : 'QR-код, журнал входов',
+      icon: ico('<rect x="3" y="5" width="13" height="10" rx="1.500"/><path d="M1 19h17M19 9h2.500v10H19z"/>') },
+    { id: 'vps', title: 'Сервер и уведомления', color: '#5856d6', sub: a?.vps?.enabled ? 'агент подключён' + (a?.ntfy?.enabled ? ', уведомления включены' : '') : 'агент на VPS, ntfy',
+      icon: ico('<rect x="3" y="4" width="18" height="6" rx="1.500"/><rect x="3" y="14" width="18" height="6" rx="1.500"/><path d="M7 7h.01M7 17h.01"/>') },
+  ]
+})
+const groups = computed(() => {
   const people = (state.config?.people || []).filter((p) => !p.id.startsWith('_'))
   const cals = state.config?.calendars || []
   const srcs = sources.value
   const bad = srcs.some((s) => s.last_error)
   const kids = people.filter((p) => p.needs_escort).length
   return [
-    { id: 'people', title: 'Люди и календари', color: '#007aff', sub: `${people.length} чел. · календарей: ${cals.length}`,
-      icon: ico('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 14.8c2 .6 3.2 2.3 3.5 5.2"/>') },
-    { id: 'trips', title: 'Поездки детей', color: '#ff9500', sub: kids ? `детей: ${kids} · дорога, шаблоны` : 'дорога, шаблоны, «дома»',
-      icon: ico('<path d="M5 16V9l2-4h10l2 4v7M3 16h18v3H3zM7.5 12.5h.01M16.5 12.5h.01"/>') },
-    { id: 'birthdays', title: 'Дни рождения и каникулы', color: '#ff2d55', sub: 'даты, напоминания, школьные каникулы',
-      icon: ico('<path d="M4 20h16v-7H4zM12 13V8M12 8c-1.2 0-1.5-1.3-.8-2.2L12 4l.8 1.8c.7.9.4 2.2-.8 2.2zM4 16c2 1.500 3.500 1.500 5.500 0s3.500-1.500 5.500 0 3 1 5 0"/>') },
-    { id: 'reminders', title: 'Напоминания о встречах', color: '#ff3b30', sub: 'за сколько минут — для каждого человека',
-      icon: ico('<path d="M6 16V11a6 6 0 0112 0v5l1.500 2h-15zM10 20a2 2 0 004 0"/>') },
-    { id: 'connect', title: 'Подключение', color: '#34c759', warn: bad,
-      sub: bad ? 'есть ошибка синхронизации' : (srcs.find((s) => s.last_ok) ? 'обновлено ' + fmt(srcs.find((s) => s.last_ok).last_ok) : 'Яндекс, синхронизация, облако'),
-      icon: ico('<path d="M20 12a8 8 0 01-14 5.300M4 12a8 8 0 0114-5.300"/><path d="M18 3v4h-4M6 21v-4h4"/>') },
-    { id: 'changes', title: 'Журнал изменений', color: '#af52de', sub: 'правки событий и отмена',
-      icon: ico('<path d="M3 12a9 9 0 109-9 9 9 0 00-7 3.500M3 4v4h4M12 7v5l3 2"/>') },
-    { id: 'stats', title: 'Итоги семьи', color: '#00c7be', sub: 'встречи, часы и поездки по людям',
-      icon: ico('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>') },
-    { id: 'system', title: 'Состояние и копии', color: '#8e8e93', warn: sysProblems.value > 0,
-      sub: sysProblems.value ? `проблем: ${sysProblems.value}` : 'синхронизация, облако, резервные копии',
-      icon: ico('<path d="M3 12h4l3-8 4 16 3-8h4"/>') },
-    { id: 'app', title: 'Приложение и экраны', color: '#5856d6', sub: inApp ? 'версия ' + appVersionInstalled : 'Android, виджет, экран на стене',
-      icon: ico('<rect x="7" y="2.500" width="10" height="19" rx="2"/><path d="M11 18.500h2"/>') },
+    { title: 'Семья', items: [
+      { id: 'people', title: 'Люди', color: '#007aff', sub: people.length ? people.map((p) => p.name).slice(0, 4).join(', ') : 'добавьте семью',
+        icon: ico('<circle cx="9" cy="8" r="3.500"/><path d="M2.500 20c.600-3.600 3.200-5.500 6.500-5.500s5.900 1.900 6.500 5.500"/><path d="M16 4.500a3.500 3.500 0 010 7M18 14.800c2 .600 3.200 2.300 3.500 5.200"/>') },
+      { id: 'calendars', title: 'Календари', color: '#ff3b30', sub: `${cals.length} шт. · чей, скрыть, «занят»`,
+        icon: ico('<rect x="3.500" y="5" width="17" height="15" rx="2.500"/><path d="M3.500 10h17M8 3v4M16 3v4"/>') },
+      { id: 'trips', title: 'Поездки детей', color: '#ff9500', sub: kids ? `детей: ${kids} · дорога, шаблоны` : 'дорога, шаблоны, «дома»',
+        icon: ico('<path d="M5 16V9l2-4h10l2 4v7M3 16h18v3H3zM7.500 12.500h.01M16.500 12.500h.01"/>') },
+      { id: 'birthdays', title: 'Дни рождения и каникулы', color: '#ff2d55', sub: 'даты и школьные каникулы',
+        icon: ico('<path d="M4 20h16v-7H4zM12 13V8M12 8c-1.200 0-1.500-1.300-.800-2.200L12 4l.8 1.800c.7.900.4 2.200-.8 2.200zM4 16c2 1.500 3.500 1.500 5.500 0s3.500-1.500 5.500 0 3 1 5 0"/>') },
+    ] },
+    { title: 'Уведомления', items: [
+      { id: 'reminders', title: 'Напоминания', color: '#ff3b30', sub: inApp ? 'на этом телефоне и перед встречами' : 'за сколько минут — для каждого',
+        icon: ico('<path d="M6 16V11a6 6 0 0112 0v5l1.500 2h-15zM10 20a2 2 0 004 0"/>') },
+    ] },
+    { title: 'Подключения', items: [
+      { id: 'sources', title: 'Яндекс и другие календари', color: '#34c759', warn: bad,
+        sub: bad ? 'есть ошибка синхронизации' : (srcs.find((s) => s.last_ok) ? 'обновлено ' + fmt(srcs.find((s) => s.last_ok).last_ok) : 'аккаунт, подписки, синхронизация'),
+        icon: ico('<path d="M20 12a8 8 0 01-14 5.300M4 12a8 8 0 0114-5.300"/><path d="M18 3v4h-4M6 21v-4h4"/>') },
+      { id: 'outside', title: 'Связь вне дома', color: '#5ac8fa', warn: outsideBad,
+        sub: outsideBad ? 'нет связи снаружи' : 'облако, интернет-адрес, устройства',
+        icon: ico('<path d="M2 9a15 15 0 0120 0M5 12.500a10 10 0 0114 0M8.500 16a5 5 0 017 0M12 19.500h.01"/>') },
+    ] },
+    { title: 'Приложения и экраны', items: [
+      { id: 'app', title: 'Приложения и виджеты', color: '#5856d6', sub: inApp ? 'версия ' + appVersionInstalled : 'Android, Mac, iPhone',
+        icon: ico('<rect x="7" y="2.500" width="10" height="19" rx="2"/><path d="M11 18.500h2"/>') },
+      { id: 'wall', title: 'Экран на стене', color: '#af52de', sub: 'планшет на кухне, ссылки',
+        icon: ico('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>') },
+    ] },
+    { title: 'Данные', items: [
+      { id: 'changes', title: 'Журнал изменений', color: '#8e8e93', sub: 'правки событий и отмена',
+        icon: ico('<path d="M3 12a9 9 0 109-9 9 9 0 00-7 3.500M3 4v4h4M12 7v5l3 2"/>') },
+      { id: 'stats', title: 'Итоги семьи', color: '#00c7be', sub: 'встречи, часы и поездки по людям',
+        icon: ico('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>') },
+      { id: 'system', title: 'Состояние и копии', color: '#30b0c7', warn: sysProblems.value > 0,
+        sub: sysProblems.value ? `проблем: ${sysProblems.value}` : 'синхронизация, резервные копии, перенос',
+        icon: ico('<path d="M3 12h4l3-8 4 16 3-8h4"/>') },
+    ] },
   ]
 })
-const current = computed(() => menu.value.find((m) => m.id === page.value))
+const flat = computed(() => [...groups.value.flatMap((g) => g.items), ...outsideItems.value])
+const titleOf = (id) => flat.value.find((m) => m.id === id)?.title || ''
+const current = computed(() => flat.value.find((m) => m.id === page.value))
+const bad = computed(() => sources.value.some((s) => s.last_error) || outsideBad.value)
+const statusLine = computed(() => {
+  const ok = sources.value.find((s) => s.last_ok)
+  const bits = []
+  if (sysProblems.value) bits.push(`проблем: ${sysProblems.value}`)
+  else if (bad.value) bits.push('есть ошибка — откройте «Состояние»')
+  if (ok) bits.push('обновлено ' + fmt(ok.last_ok))
+  return bits.join(' · ') || 'синхронизация, копии, проверки'
+})
 const newName = ref('')
 const sysProblems = ref(0)
 api.system().then((r) => { sysProblems.value = r.problems.length }).catch(() => {})
@@ -563,7 +630,20 @@ function translit(s) {
 
 <style scoped>
 .settings { max-width: 680px; width: 100%; margin: 0 auto; padding: 4px 20px 48px; }
-.group { background: var(--surface-2); }
+.settings.split { max-width: 1060px; display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 32px; align-items: start; padding-top: 12px; }
+.menu-col { min-width: 0; }
+.split .menu-col { position: sticky; top: 8px; max-height: calc(100vh - 24px); overflow-y: auto; padding-right: 4px; }
+.detail { min-width: 0; max-width: 680px; }
+.split .detail .subhead { padding-top: 0; }
+.menu-row.sel { background: var(--fill); }
+.menu-row.sel .pname { color: var(--red); }
+.status-card { width: 100%; border: 0; text-align: left; color: inherit; background: var(--surface-2); border-radius: var(--radius-m); margin-top: 12px; min-height: 60px; cursor: pointer; }
+.status-card:hover { background: var(--fill); }
+.sicon { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; background: #34c759; color: #fff; font-weight: 700; font-size: 18px; }
+.status-card.bad .sicon { background: #ff9500; }
+.settings :deep(.row.stack .inline) { text-align: left; background: var(--fill); border-radius: 8px; padding: 9px 11px; }
+.lead { margin: 2px 0 0; color: var(--ink-2); font-size: 15px; }
+.group, .settings :deep(.group) { background: var(--surface-2); }
 .cal { margin-bottom: 12px; }
 .cal.hidden .cname { color: var(--ink-3); text-decoration: line-through; }
 .lbl { flex: 1; min-width: 0; }
@@ -590,7 +670,8 @@ a.btn.filled { text-decoration: none; }
 .cname { font-weight: 600; }
 .link { overflow-wrap: anywhere; font-size: 13px; }
 .version { margin-top: 24px; text-align: center; }
-.menu { margin-top: 12px; }
+.group-title:first-child { margin-top: 12px; }
+.menu { margin-top: 0; }
 .menu-row { width: 100%; border: 0; background: none; text-align: left; color: inherit; min-height: 56px; }
 .menu-row:hover { background: var(--fill); }
 .micon { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex: none; }
