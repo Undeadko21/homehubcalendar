@@ -498,3 +498,15 @@ def test_cloud_token_is_cleaned_from_pasted_url(api):
     assert clean_token(f'  "{raw}"  ') == raw
     api.core.cloud.set_token(f"{raw}&token_type=bearer&expires_in=1")
     assert api.core.cloud._token() == raw
+
+
+def test_access_checks_survive_timezone_aware_cloud_time(api):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    api.core.db.kv_set("cloud:state", {"public_url": "https://disk.yandex.ru/d/x",
+                                       "last_ok": datetime.now(ZoneInfo("Asia/Yekaterinburg")).isoformat(timespec="seconds")})
+    api.core.cloud.set_token("y0_" + "a" * 30)
+    r = api.get("/api/access")
+    assert r.status_code == 200
+    cloud = next(c for c in r.json()["checks"] if c["id"] == "cloud")
+    assert cloud["level"] == "ok" and "назад" in cloud["detail"] or "только что" in cloud["detail"]

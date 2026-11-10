@@ -1,5 +1,10 @@
 <template>
-  <div v-if="st">
+  <div>
+    <div v-if="!st" class="group"><div class="row">
+      <span v-if="err" class="lbl err">Не удалось загрузить: {{ err }}</span>
+      <span v-else class="muted">Загружаю…</span>
+    </div></div>
+    <div v-if="st">
     <!-- Сводка -->
     <template v-if="part === 'status'">
       <div class="group">
@@ -144,6 +149,7 @@
       <p v-if="err" class="group-note err">{{ err }}</p>
       <p v-if="st.ntfy.enabled" class="group-note">Тема — как пароль: кто её знает, видит ваши уведомления. После включения повторите установку на VPS, чтобы агент узнал тему.</p>
     </template>
+    </div>
   </div>
 </template>
 

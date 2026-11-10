@@ -166,7 +166,7 @@ def problems(db: Database, now: datetime | None = None) -> list[str]:
         return ["VPS подключён, но отчётов ещё не было (установите агента на VPS)"]
     out: list[str] = []
     try:
-        age = now - datetime.fromisoformat(r["at"])
+        age = now - (_naive(r["at"]) or now)
         if age > timedelta(hours=3):
             out.append(f"VPS не присылал отчёт {int(age.total_seconds() // 3600)} ч (туннель или VPS недоступны)")
     except ValueError:
@@ -221,9 +221,9 @@ def fails_last_day(db: Database, now: datetime | None = None) -> int:
     for e in value or []:
         if e.get("kind") == "fail":
             try:
-                if now - datetime.fromisoformat(e["at"]) < timedelta(days=1):
+                if now - _naive(e["at"]) < timedelta(days=1):
                     n += 1
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
     return n
 
@@ -307,13 +307,22 @@ def watch(db: Database) -> None:
 
 # ---------- сводка состояния доступа ----------
 
-def _ago(iso: str | None, now: datetime) -> str:
+def _naive(iso: str | None) -> datetime | None:
+    """Время из базы бывает с поясом (облако пишет +05:00) и без; приводим к местному времени без пояса, чтобы их можно было вычитать."""
     if not iso:
-        return ""
+        return None
     try:
-        m = int((now - datetime.fromisoformat(iso)).total_seconds() // 60)
-    except ValueError:
+        d = datetime.fromisoformat(iso)
+    except (ValueError, TypeError):
+        return None
+    return d.astimezone().replace(tzinfo=None) if d.tzinfo else d
+
+
+def _ago(iso: str | None, now: datetime) -> str:
+    d = _naive(iso)
+    if not d:
         return ""
+    m = int((now - d).total_seconds() // 60)
     if m < 1:
         return "только что"
     if m < 90:
@@ -324,6 +333,15 @@ def _ago(iso: str | None, now: datetime) -> str:
 
 
 def checks(db: Database, cloud_status: dict, sessions_count: int, now: datetime | None = None) -> list[dict]:
+    """Сводка не должна ронять страницу настроек: при любой неожиданности отдаём одну строку «не удалось собрать»."""
+    try:
+        return _checks(db, cloud_status, sessions_count, now)
+    except Exception as e:  # noqa: BLE001
+        log.exception("access.checks")
+        return [{"id": "error", "level": "warn", "title": "Не удалось собрать сводку", "detail": type(e).__name__}]
+
+
+def _checks(db: Database, cloud_status: dict, sessions_count: int, now: datetime | None = None) -> list[dict]:
     """Единый список «всё ли в порядке с доступом вне дома»: level = ok | warn | bad | info."""
     now = now or datetime.now()
     out: list[dict] = []
@@ -355,8 +373,8 @@ def checks(db: Database, cloud_status: dict, sessions_count: int, now: datetime 
             add("vps", "warn", "От агента на VPS не было отчётов", "выполните команду установки на VPS")
         else:
             try:
-                old = now - datetime.fromisoformat(r["at"]) > timedelta(hours=3)
-            except ValueError:
+                old = now - _naive(r["at"]) > timedelta(hours=3)
+            except (ValueError, TypeError):
                 old = False
             certs = r.get("certs") or {}
             cert = f", сертификат {min(certs.values())} дн." if certs else ""
@@ -367,8 +385,8 @@ def checks(db: Database, cloud_status: dict, sessions_count: int, now: datetime 
         b = backup_info(db)
         if b:
             try:
-                stale = now - datetime.fromisoformat(b["at"]) > timedelta(hours=48)
-            except ValueError:
+                stale = now - _naive(b["at"]) > timedelta(hours=48)
+            except (ValueError, TypeError):
                 stale = False
             add("vps-backup", "warn" if stale else "ok", "Копия настроек VPS", _ago(b["at"], now))
 
