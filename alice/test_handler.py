@@ -72,7 +72,10 @@ def test_far_and_empty():
 def test_day_and_escort():
     assert text("что завтра у папы") == "Завтра у Папы: весь день Праздник; в 09:30 Планёрка."
     assert text("что сегодня у мамы") == "У Мамы сегодня ничего нет."
-    assert text("кто отвозит машу") == "Танцы у Маши, сегодня в 16:00. Отвезти: Мама. Забрать: никто не назначен."
+    assert text("кто отвозит машу") == "Танцы у Маши, сегодня в 16:00: отвозит Мама."
+    assert text("кто сегодня забирает машу") == "Танцы у Маши, сегодня в 16:00: забирает никто не назначен."
+    assert text("кто везёт машу") == "Танцы у Маши, сегодня в 16:00: отвозит Мама."
+    assert text("кто завтра забирает машу") == "Поездок у Маши завтра нет."
 
 
 def test_me_and_remember():
@@ -132,3 +135,34 @@ def test_add_command(monkeypatch):
     monkeypatch.delenv("HOMEHUB_TOKEN")
     assert "токен" in h.answer_add(req, send=sent.append)["response"]["text"]
     assert h.is_add("Добавь что-нибудь") and not h.is_add("когда следующая встреча")
+
+
+SNAP["lists"] = [{"id": 3, "name": "Покупки", "items": [{"id": 1, "text": "Молоко", "done": False},
+                                                       {"id": 2, "text": "Хлеб", "done": True},
+                                                       {"id": 4, "text": "Яйца", "done": False}]}]
+
+
+def test_shopping_question_and_add(monkeypatch):
+    assert text("что купить") == "Покупки: Молоко, Яйца."
+    assert text("какой список покупок") == "Покупки: Молоко, Яйца."
+    assert h.parse_item("добавь молоко в покупки") == "молоко"
+    assert h.parse_item("добавь хлеб и сыр в список покупок") == "хлеб и сыр"
+    assert h.parse_item("купи батарейки") == "батарейки"
+    assert h.parse_item("добавь на завтра в 18:00 врача Марку") is None
+    sent = []
+    monkeypatch.setenv("HOMEHUB_TOKEN", "x" * 30)
+    req = {"request": {"command": "добавь хлеб и сыр в покупки"}, "state": {"user": {"person": "mama"}}}
+    r = h.answer_item(req, SNAP, send=sent.append)
+    assert r["response"]["text"] == "Добавила в «Покупки»: хлеб, сыр."
+    assert [o["text"] for o in sent] == ["хлеб", "сыр"] and all(o["list_id"] == 3 and o["person_id"] == "mama" for o in sent)
+
+
+def test_move_command(monkeypatch):
+    assert h.is_move("перенеси йогу на завтра") and not h.is_move("добавь йогу на завтра")
+    sent = []
+    monkeypatch.setenv("HOMEHUB_TOKEN", "x" * 30)
+    r = h.answer_move({"request": {"command": "перенеси йогу на завтра в 19 00"}}, send=sent.append)
+    assert sent[0]["type"] == "event_move" and sent[0]["text"] == "йогу на завтра в 19:00"
+    assert r["response"]["end_session"]
+    r = h.answer_move({"request": {"command": "перенеси йогу"}}, send=sent.append)
+    assert len(sent) == 1 and not r["response"]["end_session"]          # без дня — переспрашиваем

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import os
 import threading
 from datetime import date, datetime, time, timedelta
@@ -208,3 +209,67 @@ def _ops_event(op: dict) -> None:
     cal = op.get("calendar") if op.get("calendar") and _writable(str(op.get("calendar"))) else _pick_calendar(people)
     rep = fields.get("repeat") if isinstance(fields.get("repeat"), dict) and fields["repeat"].get("freq") else None
     _create_event(cal, title, s, e, all_day, str(fields.get("location") or "")[:200], "", rep, people)
+
+
+def _stem(w: str) -> str:
+    """Основа слова без окончания: «йогу» → «йог», «бассейна» → «бассей» — чтобы «перенеси йогу» нашло «Йога»."""
+    w = w.lower().strip(".,!?«»\"'")
+    return w[:max(3, len(w) - 2)] if len(w) > 4 else w[:3] if len(w) >= 3 else w
+
+
+def _ops_move(op: dict) -> None:
+    """Команда Алисы «перенеси йогу на завтра [в 19:00]»: ищем ближайшее подходящее событие на 3 недели вперёд
+    и переносим только его (у серии — только это вхождение), сохраняя время и длительность, если новое не сказано."""
+    from .api.writing import EventEdit, update_event
+    now = datetime.now(tz)
+    text = str(op.get("text", ""))[:300]
+    q = quick.parse(text, now.replace(tzinfo=None), db.list_people())
+    if not q["date"]:
+        raise ValueError("не сказано, на какой день перенести: «%s»" % text)
+    stems = [_stem(w) for w in re.findall(r"[а-яёa-z]{3,}", (q["title"] or "").lower()) if w not in ("на", "мою", "мой", "моё", "наш", "нашу")]
+    if not stems:
+        raise ValueError("не сказано, что перенести: «%s»" % text)
+    who = set(q["people"] or [p for p in (op.get("people") or []) if isinstance(p, str)])
+    found = []
+    for e in events.events(now - timedelta(hours=1), now + timedelta(days=21)):
+        if e.get("private") or e.get("duty") or e.get("birthday") or not any(_writable(c) for c in e.get("calendars", [])):
+            continue
+        words = [_stem(w) for w in re.findall(r"[а-яёa-z]{3,}", e["title"].lower())]
+        if not all(any(w.startswith(s) or s.startswith(w) for w in words) for s in stems):
+            continue
+        if who and not who & set(e.get("owners") or []):
+            continue
+        found.append(e)
+    if not found:
+        raise ValueError("не нашла событие «%s» на ближайшие три недели" % q["title"])
+    e = min(found, key=lambda x: x["start"])
+    old_s, old_e = datetime.fromisoformat(e["start"]), datetime.fromisoformat(e["end"])
+    d = date.fromisoformat(q["date"])
+    if e.get("all_day"):
+        ns = datetime.combine(d, time(0))
+        ne = ns + (old_e - old_s)
+    else:
+        t = time.fromisoformat(q["start"]) if q["start"] else old_s.timetz().replace(tzinfo=None)
+        ns = datetime.combine(d, t, old_s.tzinfo or tz)
+        ne = ns + (old_e - old_s)
+    cal = next(c for c in e["calendars"] if _writable(c))
+    update_event(e["uid"], EventEdit(calendar=cal, start=ns.isoformat(), end=ne.isoformat(), all_day=bool(e.get("all_day")),
+                                     occurrence=e["start"] if e.get("recurring") else None, scope="once" if e.get("recurring") else None))
+
+
+def backup_drill() -> dict:
+    """Раз в месяц: учебное восстановление свежей копии; результат — на телефон (если включён ntfy) и в журнал."""
+    from . import access
+    if not cloud._token():
+        return {"ok": False, "error": "облако не подключено"}
+    res = backup.drill()
+    if res.get("ok"):
+        text = (f"Копия {res.get('name', '')} разворачивается и читается: людей {res.get('people', 0)}, "
+                f"календарей {res.get('calendars', 0)}, записей {res.get('objects', 0)}.")
+        access.event(db, "backup", "Учебное восстановление: " + text)
+        access.notify(db, "HomeHub: копия в порядке", text, priority="low")
+    else:
+        text = f"Свежую копию не удалось развернуть: {res.get('error', 'неизвестная ошибка')}. Откройте «Состояние и копии»."
+        access.event(db, "backup", "Учебное восстановление: " + text)
+        access.notify(db, "HomeHub: копия не читается", text, priority="high")
+    return res

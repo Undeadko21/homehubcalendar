@@ -65,6 +65,14 @@
           <span v-if="s.backup.verified.ok" class="val muted">{{ ago(s.backup.verified.at) }}: открывается, людей {{ s.backup.verified.people }}, записей {{ s.backup.verified.objects }}</span>
           <span v-else class="val err">{{ s.backup.verified.error }}</span></div>
       </div>
+      <h3 class="group-title">Учебное восстановление</h3>
+      <div class="group">
+        <div class="row"><span class="lbl">Последнее <small class="muted block">1-го числа каждого месяца сервер сам разворачивает свежую копию и сравнивает с базой</small></span>
+          <span v-if="!s.backup.drill" class="val muted">ещё не было</span>
+          <span v-else-if="s.backup.drill.ok" class="val muted">{{ ago(s.backup.drill.at) }}: в порядке</span>
+          <span v-else class="val err">{{ s.backup.drill.error }}</span></div>
+        <div class="row"><button class="btn link" :disabled="busy || !s.backup.configured" @click="drill">Провести сейчас</button></div>
+      </div>
       <div class="group">
         <div class="row"><button class="btn link" :disabled="busy || !s.backup.configured" @click="verify()">Проверить свежую копию</button></div>
         <div class="row"><button class="btn link" :disabled="busy || !s.backup.configured" @click="showFiles">{{ files ? 'Обновить список' : 'Восстановить из копии…' }}</button></div>
@@ -225,6 +233,16 @@ async function verify(name) {
     const r = await api.backupVerify(name)
     note.value = r.ok ? `Копия ${nameDate(r.name)} в порядке: людей ${r.people}, календарей ${r.calendars}, записей ${r.objects}.` : ''
     if (!r.ok) err.value = r.error
+  } catch (e) { err.value = e.message }
+  busy.value = false
+  load()
+}
+async function drill() {
+  busy.value = true; err.value = ''; note.value = ''
+  try {
+    const r = await api.backupDrill()
+    if (r.ok) note.value = `Копия ${nameDate(r.name)} разворачивается и совпадает с базой: людей ${r.people}, записей ${r.objects} (в базе ${r.live_objects}).`
+    else err.value = r.error
   } catch (e) { err.value = e.message }
   busy.value = false
   load()

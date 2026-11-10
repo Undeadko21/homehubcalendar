@@ -566,3 +566,57 @@ def test_domain_check(api, monkeypatch):
     none = api.post("/api/access/domain-check", json={"domain": "nowhere.ru"}).json()
     assert not none["ok"] and "DNS" in none["steps"][0]["text"]
     assert not api.post("/api/access/domain-check", json={"domain": "не домен"}).json()["ok"]
+
+
+def test_deploy_rollback_is_reported_once(api, tmp_path, monkeypatch):
+    from app import access, deploywatch
+    sent = []
+    monkeypatch.setattr(access, "notify", lambda db, title, text, priority="default": sent.append(title) or True)
+    assert deploywatch.check(api.core.db, tmp_path, "0.12.3") is None
+    (tmp_path / ".bad_commit").write_text("abcdef1234567890\n")
+    assert deploywatch.check(api.core.db, tmp_path, "0.12.3") == "abcdef1234567890"
+    deploywatch.check(api.core.db, tmp_path, "0.12.3")
+    assert sent == ["HomeHub: обновление откатилось"]                        # один раз на плохой коммит
+    assert "abcdef1" in deploywatch.problems(tmp_path)[0]
+    (tmp_path / ".bad_commit").unlink()
+    assert deploywatch.problems(tmp_path) == []
+
+
+def test_backup_drill_compares_with_live_db(api, monkeypatch):
+    bk = api.core.backup
+    live = api.core.db.query("SELECT COUNT(*) AS n FROM objects")[0]["n"]
+    monkeypatch.setattr(bk, "verify", lambda name=None: {"ok": True, "name": "b.bin", "people": 2, "calendars": 1, "objects": live, "at": "x"})
+    assert bk.drill()["ok"]
+    monkeypatch.setattr(bk, "verify", lambda name=None: {"ok": True, "name": "b.bin", "people": 2, "calendars": 1, "objects": 0, "at": "x"})
+    with api.core.db.tx() as c:
+        c.executemany("INSERT INTO objects(calendar_key, href, ics) VALUES ('c', ?, '')", [(f"h{i}",) for i in range(30)])
+    res = bk.drill()
+    assert not res["ok"] and "неполная" in res["error"]
+    assert api.get("/api/system").json()["problems"]
+
+
+def test_ops_event_move_by_voice(api):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from app import ops
+    c, m = api, api.core
+    tz = ZoneInfo("Asia/Yekaterinburg")
+    d1 = (datetime.now(tz) + timedelta(days=2)).date()
+    c.post("/api/event", json={"calendar": "ya/home", "title": "Йога", "start": f"{d1}T10:00:00", "end": f"{d1}T11:30:00"})
+    w = c.post("/api/event", json={"calendar": "ya/home", "title": "Бассейн", "start": f"{d1}T17:00:00", "end": f"{d1}T18:00:00",
+                                   "repeat": {"freq": "weekly"}}).json()["uid"]
+    h = {"event_move": m._ops_move}
+    target = (datetime.now(tz) + timedelta(days=3)).date()
+    words = {0: "понедельник", 1: "вторник", 2: "среду", 3: "четверг", 4: "пятницу", 5: "субботу", 6: "воскресенье"}
+    ops.apply(m.db, [{"id": "m1", "t": 1, "type": "event_move", "text": f"йогу на {words[target.weekday()]}"},
+                     {"id": "m2", "t": 2, "type": "event_move", "text": f"бассейн на {words[target.weekday()]} в 19:00"},
+                     {"id": "m3", "t": 3, "type": "event_move", "text": "танцы на завтра"}], h)
+    evs = _events(c, f"{d1}T00:00:00", f"{target + timedelta(days=8)}T00:00:00")
+    yoga = [e for e in evs if e["title"] == "Йога"]
+    assert [e["start"][:16] for e in yoga] == [f"{target}T10:00"] and yoga[0]["end"][:16] == f"{target}T11:30"   # время и длительность сохранены
+    pool = sorted(e["start"][:16] for e in evs if e["title"] == "Бассейн")
+    assert f"{target}T19:00" in pool and f"{d1}T17:00" not in pool                     # перенесено только одно вхождение
+    assert f"{d1 + timedelta(days=7)}T17:00" in pool                                   # серия дальше идёт как была
+    rej = m.db.kv_get("ops:rejected")[0]["items"]
+    assert any("Танцы" in r["why"] for r in rej)
+    assert w

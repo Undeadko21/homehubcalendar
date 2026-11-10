@@ -142,7 +142,7 @@ input.field, select.field, textarea.field {
   * { transition: none !important; animation: none !important; }
 }
 
-.kiosk.night { filter: brightness(.55); }
+.kiosk.night { filter: brightness(.7); }
 .kiosk { cursor: none; }
 
 /* Старые WebView (Chrome < 111) не знают color-mix: события становятся нейтральными

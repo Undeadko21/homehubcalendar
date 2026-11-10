@@ -209,6 +209,15 @@ def event(db: Database, kind: str, text: str, ip: str = "", alert: bool = False,
         threading.Thread(target=_post_ntfy, args=(ntfy_topic(db), title, text, priority), daemon=True).start()
 
 
+def notify(db: Database, title: str, text: str, priority: str = "default") -> bool:
+    """Уведомление на телефон о работе сервера (сбои, обновления, копии) — при включённом ntfy, независимо от «Сообщать о входах»."""
+    topic = ntfy_topic(db)
+    if not topic:
+        return False
+    threading.Thread(target=_post_ntfy, args=(topic, title, text, priority), daemon=True).start()
+    return True
+
+
 def security_log(db: Database, limit: int = 15) -> list[dict]:
     value, _ = db.kv_get(LOG_KEY)
     return list(reversed(list(value or [])))[:limit]

@@ -55,6 +55,7 @@ export const api = {
   conflicts: (b) => request('POST', '/api/conflicts', b),
   backupFiles: () => request('GET', '/api/backup/files'),
   backupVerify: (name) => request('POST', '/api/backup/verify', { name: name || null }),
+  backupDrill: () => request('POST', '/api/backup/drill'),
   backupRestore: (name) => request('POST', '/api/backup/restore', { name }),
   person: (id) => request('GET', `/api/person/${encodeURIComponent(id)}`),
   runChecks: () => request('POST', '/api/checks'),

@@ -9,7 +9,7 @@ import threading
 import time as time_module
 from time import perf_counter
 from contextlib import asynccontextmanager
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
@@ -18,7 +18,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 
 from . import __version__
-from . import access, ops
+from . import access, deploywatch, ops
 from . import sessions as sessions_mod
 from . import live
 from .perf import SLOW_MS
@@ -29,7 +29,7 @@ from .api import apps, cloud_api, lists, planning, system, writing
 
 def poll_cloud() -> None:
     """Команды, которые телефоны оставили в облаке, применяем и сразу обновляем снимок."""
-    if core.cloud.poll_ops(lambda items: ops.apply(core.db, items, {"event_add": core._ops_event, "event_quick": core._ops_event})):
+    if core.cloud.poll_ops(lambda items: ops.apply(core.db, items, {"event_add": core._ops_event, "event_quick": core._ops_event, "event_move": core._ops_move})):
         core.events.invalidate()
         core.cloud.tick(force=True)
 
@@ -47,6 +47,10 @@ async def lifespan(app: FastAPI):
         core.scheduler.add_job(lambda: access.watch(core.db), "interval", minutes=5, id="access-watch", max_instances=1, coalesce=True)
         core.scheduler.add_job(core.run_checks, "cron", hour=4, minute=10, id="checks", max_instances=1, coalesce=True,
                           misfire_grace_time=6 * 3600)
+        core.scheduler.add_job(core.backup_drill, "cron", day=1, hour=4, minute=40, id="backup-drill", max_instances=1, coalesce=True,
+                               misfire_grace_time=6 * 3600)
+        core.scheduler.add_job(lambda: deploywatch.check(core.db, core.settings.data_dir, __version__), "interval", minutes=10,
+                               id="deploy-watch", max_instances=1, coalesce=True, next_run_time=datetime.now() + timedelta(seconds=30))
         core.scheduler.add_job(core.backup.run, "cron", hour=3, minute=30, id="backup", max_instances=1, coalesce=True,
                           misfire_grace_time=6 * 3600)
         core.scheduler.start()

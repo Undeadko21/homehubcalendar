@@ -231,9 +231,24 @@ async function doSync() {
 }
 
 const timers = []
+// Экран на стене: тёмная тема по расписанию (?kiosk&dark=21-7 — по умолчанию с 21 до 7; dark=0 — не включать,
+// dark=always — всегда тёмная) и дополнительное приглушение глубокой ночью.
+const darkParam = new URLSearchParams(location.search).get('dark') ?? '21-7'
+function inDarkWindow(d) {
+  if (darkParam === 'always') return true
+  const m = /^(\d{1,2})(?::(\d{2}))?-(\d{1,2})(?::(\d{2}))?$/.exec(darkParam)
+  if (!m) return false
+  const now = d.getHours() * 60 + d.getMinutes()
+  const from = +m[1] * 60 + +(m[2] || 0), to = +m[3] * 60 + +(m[4] || 0)
+  return from <= to ? now >= from && now < to : now >= from || now < to
+}
 function tickNight() {
-  const hr = new Date().getHours()
+  const d = new Date(), hr = d.getHours()
   night.value = state.kiosk && (hr >= 23 || hr < 6)
+  if (!state.kiosk) return
+  const root = document.documentElement
+  if (inDarkWindow(d)) root.dataset.theme = 'dark'
+  else if (root.dataset.theme === 'dark') delete root.dataset.theme
 }
 
 onMounted(async () => {

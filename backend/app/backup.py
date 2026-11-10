@@ -92,7 +92,7 @@ class BackupService:
     def status(self) -> dict:
         st = self.db.kv_get("backup:state")[0] or {}
         return {"configured": bool(self.cloud._token()), "last_ok": st.get("last_ok"), "last_error": st.get("last_error"),
-                "size": st.get("size"), "name": st.get("name"), "count": st.get("count"), "keep": KEEP,
+                "size": st.get("size"), "name": st.get("name"), "count": st.get("count"), "keep": KEEP, "drill": st.get("drill"),
                 "verified": st.get("verified")}
 
     def run(self) -> dict:
@@ -162,6 +162,21 @@ class BackupService:
             res = {"ok": False, "name": name, "error": str(e)}
         res["at"] = datetime.now(self.tz).isoformat(timespec="seconds")
         st["verified"] = res
+        self.db.kv_set("backup:state", st)
+        return res
+
+    def drill(self) -> dict:
+        """Учебное восстановление (раз в месяц): скачать свежую копию, расшифровать, развернуть во временную базу,
+        проверить целостность и сравнить с живой базой — копия, в которой заметно меньше событий, считается плохой."""
+        res = self.verify()
+        if res.get("ok"):
+            live = self.db.query("SELECT COUNT(*) AS n FROM objects")[0]["n"]
+            got = res.get("objects", 0)
+            res["live_objects"] = live
+            if live >= 20 and got < live * 0.5:
+                res.update(ok=False, error=f"в копии {got} записей календаря, а в базе {live} — копия неполная")
+        st = self.db.kv_get("backup:state")[0] or {}
+        st["drill"] = res
         self.db.kv_set("backup:state", st)
         return res
 

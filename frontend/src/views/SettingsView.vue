@@ -311,6 +311,7 @@
         <div class="code"><code>{{ kitchenUrl }}</code><button class="btn" @click="copyText(kitchenUrl)">Копировать</button></div></div>
     </div>
     <p class="group-note">Откройте ссылку на планшете в полноэкранном режиме: ночью экран приглушается, данные обновляются сами. Добавьте <code>&amp;rotate=60</code>, чтобы каждую минуту переключаться между «Сегодня» и «Лентой».</p>
+    <p class="group-note">С 21:00 до 7:00 экран сам переходит на тёмную тему. Своё время — <code>&amp;dark=22-6</code> (можно с минутами: <code>&amp;dark=21:30-6:45</code>), всегда тёмная — <code>&amp;dark=always</code>, не переключать — <code>&amp;dark=0</code>.</p>
     </template>
 
     <!-- Данные -->

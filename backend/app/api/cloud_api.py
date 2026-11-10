@@ -64,6 +64,12 @@ def backup_verify(body: dict | None = None):
     return core.backup.verify((body or {}).get("name"))
 
 
+@router.post("/api/backup/drill")
+def backup_drill():
+    """Учебное восстановление по кнопке (то же, что делается 1-го числа каждого месяца)."""
+    return core.backup_drill()
+
+
 @router.post("/api/backup/restore")
 def backup_restore(body: dict):
     try:

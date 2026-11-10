@@ -251,31 +251,139 @@ def answer_day(snap, person, now, words, whose_gen):
                 f"{_cap(label)} {whose_gen}: " + "; ".join(tts_parts) + "." + more)
 
 
-def answer_escort(snap, person, now, whose_gen):
+_DAYS = {"сегодня": 0, "завтра": 1, "послезавтра": 2}
+
+
+def answer_escort(snap, person, now, whose_gen, words=()):
+    """«Кто отвозит Машу», «кто сегодня забирает Олю»: с днём — все поездки этого дня, с «забирает/отвозит» — только эта роль."""
     names = {p["id"]: p["name"] for p in snap.get("people", [])}
+    day = next((_DAYS[w] for w in words if w in _DAYS), None)
+    only = "pickup" if any(w.startswith(("забер", "забир")) for w in words) else \
+        "dropoff" if any(w.startswith(("отвез", "отвоз", "везет", "везёт")) for w in words) else None
+    labels = (("dropoff", "отвозит"), ("pickup", "забирает"))
+    out_t, out_s = [], []
     for e in _events_of(snap, person["id"]):
         esc = e.get("escort")
         if not esc or e.get("all_day") or _dt(e["end"]) <= now:
             continue
+        if day is not None and (_dt(e["start"]).date() - now.date()).days != day:
+            continue
         if esc.get("mode") == "home":
-            return _ans(f"{e['title']}: {person['name']} добирается сам, в доме.")
-        if esc.get("mode") == "together":
-            return _ans(f"{e['title']}: все идут вместе.")
+            line = f"{e['title']}: {person['name']} добирается сам, в доме"
+            out_t.append(line); out_s.append(line)
+        elif esc.get("mode") == "together":
+            line = f"{e['title']}: все идут вместе"
+            out_t.append(line); out_s.append(line)
+        else:
+            bits = []
+            for role, label in labels:
+                if only and role != only:
+                    continue
+                r = esc.get(role) or {}
+                if r.get("skip"):
+                    continue
+                bits.append(f"{label} {names.get(r.get('person')) or 'никто не назначен'}")
+            if not bits:
+                continue
+            text, tts = when_text(_dt(e["start"]), now)
+            out_t.append(f"{e['title']} {whose_gen}, {text}: " + ", ".join(bits))
+            out_s.append(f"{e['title']} {whose_gen}, {tts}: " + ", ".join(bits))
+        if day is None:
+            break    # без дня — только ближайшая поездка
+    if not out_t:
+        when = {0: "сегодня", 1: "завтра", 2: "послезавтра"}.get(day, "в ближайшие дни")
+        return _ans(f"Поездок {whose_gen} {when} нет.")
+    return _ans(". ".join(out_t) + ".", ". ".join(out_s) + ".")
 
-        def who(role):
-            r = esc[role]
-            if r.get("skip"):
-                return None
-            return names.get(r.get("person")) or "никто не назначен"
-        text, tts = when_text(_dt(e["start"]), now)
-        bits = []
-        for role, label in (("dropoff", "Отвезти"), ("pickup", "Забрать")):
-            w = who(role)
-            if w:
-                bits.append(f"{label}: {w}")
-        return _ans(f"{e['title']} {whose_gen}, {text}. " + ". ".join(bits) + ".",
-                    f"{e['title']} {whose_gen}, {tts}. " + ". ".join(bits) + ".")
-    return _ans(f"Поездок {whose_gen} в ближайшие дни нет.")
+
+# --------------------------------------------------------------------------- покупки
+
+_LIST_WORDS = ("покупк", "магазин")
+
+
+def shopping_list(snap: dict) -> dict | None:
+    """Список покупок: по названию («Покупки», «Магазин»), иначе первый."""
+    lists = snap.get("lists") or []
+    return next((l for l in lists if any(w in l.get("name", "").lower() for w in _LIST_WORDS)), lists[0] if lists else None)
+
+
+def is_shopping_question(words: list[str]) -> bool:
+    has = any(w.startswith(("купит", "покуп", "купл")) for w in words)
+    ask = any(w in ("что", "чего", "какие", "какой", "какая", "список", "прочитай", "покажи", "скажи", "надо", "нужно") for w in words)
+    return has and ask and not any(w in ADD_WORDS for w in words)
+
+
+def answer_shopping(snap: dict) -> dict:
+    lst = shopping_list(snap)
+    if not lst:
+        return _reply("Списка покупок пока нет — создайте его в календаре, во вкладке «Списки».")
+    todo = [i["text"] for i in lst.get("items", []) if not i.get("done")]
+    if not todo:
+        return _reply(f"В списке «{lst['name']}» всё куплено.")
+    more = f" и ещё {len(todo) - 12}" if len(todo) > 12 else ""
+    return _reply(f"{lst['name']}: " + ", ".join(todo[:12]) + more + ".")
+
+
+_ITEM_RE = re.compile(r"^(?:добавь|добавить|запиши|записать|внеси|положи)\s+(.+?)\s+(?:в|во)\s+(?:список\s+)?(?:покуп\w*|магазин\w*)$|"
+                      r"^(?:купи|купить|надо купить|нужно купить|не забыть купить)\s+(.+)$", re.I)
+
+
+def parse_item(command: str) -> str | None:
+    m = _ITEM_RE.match(command.strip().rstrip(".!"))
+    return (m.group(1) or m.group(2)).strip() if m else None
+
+
+def answer_item(req: dict, snap: dict, send=None) -> dict:
+    send = send or send_command
+    text = parse_item((req.get("request", {}).get("command") or ""))
+    if not os.environ.get("HOMEHUB_TOKEN"):
+        return _reply("Чтобы я добавляла покупки, в настройках навыка нужен токен записи.")
+    lst = shopping_list(snap)
+    if not lst:
+        return _reply("Списка покупок пока нет — создайте его в календаре, во вкладке «Списки».")
+    state = (req.get("state") or {}).get("user") or {}
+    items = [x.strip() for x in re.split(r",|\s+и\s+", text) if x.strip()][:10]
+    try:
+        for it in items:
+            op = {"id": uuid.uuid4().hex[:12], "t": int(time.time() * 1000), "type": "item_add", "list_id": lst["id"], "text": it[:300]}
+            if state.get("person"):
+                op["person_id"] = state["person"]
+            send(op)
+    except Exception as e:  # noqa: BLE001
+        print("send error:", repr(e))
+        return _reply("Не получилось отправить в список. Попробуйте чуть позже.")
+    return _reply(f"Добавила в «{lst['name']}»: {', '.join(items)}.")
+
+
+# --------------------------------------------------------------------------- перенос
+
+MOVE_WORDS = ("перенеси", "передвинь", "сдвинь", "перенести", "перемести")
+
+
+def is_move(command: str) -> bool:
+    w = command.lower().split()
+    return bool(w) and w[0] in MOVE_WORDS
+
+
+def answer_move(req: dict, send=None) -> dict:
+    send = send or send_command
+    command = (req.get("request", {}).get("command") or "").strip()
+    text = normalize_speech(command.split(None, 1)[1] if " " in command else "")
+    if not os.environ.get("HOMEHUB_TOKEN"):
+        return _reply("Чтобы я переносила события, в настройках навыка нужен токен записи.")
+    if not text or not _DAY_RE.search(text.lower()):
+        return _reply("Что и на какой день перенести? Например: перенеси йогу на завтра в 19:00.", end=False)
+    state = (req.get("state") or {}).get("user") or {}
+    op = {"id": uuid.uuid4().hex[:12], "t": int(time.time() * 1000), "type": "event_move", "text": text}
+    if re.search(r"(?<!\w)(мою|мой|моё|мне)(?!\w)", text.lower()) and state.get("person"):
+        op["people"] = [state["person"]]
+    try:
+        send(op)
+    except Exception as e:  # noqa: BLE001
+        print("send error:", repr(e))
+        return _reply("Не получилось отправить в календарь. Попробуйте ещё раз чуть позже.")
+    return _reply(f"Переношу: {text}. Ближайшее такое событие сдвинется через минуту-две; если не найду — будет отметка в календаре.")
+
 
 # --------------------------------------------------------------------------- добавление событий
 
@@ -338,8 +446,8 @@ def answer_add(req: dict, send=send_command) -> dict:
 # --------------------------------------------------------------------------- Алиса
 
 HELP = ("Я знаю расписание семьи. Спросите: когда следующая встреча Оли, что завтра у Маши, "
-        "кто отвозит Машу. Скажите «я Оля», и я запомню, что «мои» встречи — ваши. "
-        "А ещё могу записать: «добавь на завтра в 18:00 врача Марку».")
+        "кто сегодня забирает Машу, что купить. Скажите «я Оля», и я запомню, что «мои» встречи — ваши. "
+        "А ещё могу записать: «добавь на завтра в 18:00 врача Марку», «добавь молоко в покупки», «перенеси йогу на завтра».")
 
 
 def _reply(text, tts=None, end=True, user_state=None):
@@ -361,6 +469,9 @@ def respond(req: dict, snap: dict, now: datetime | None = None) -> dict:
     if any(w in ("помощь", "умеешь", "что") for w in words[:2]) and len(words) <= 3 and "ты" in words:
         return _reply(HELP, end=False)
 
+    if is_shopping_question(words):
+        return answer_shopping(snap)
+
     # «я Оля», «меня зовут Оля» — запоминаем, кто говорит
     if words and (words[0] == "я" or words[:2] == ["меня", "зовут"] or words[0] == "запомни"):
         me = find_person(snap, words[1:] if words[0] != "я" else words[1:])
@@ -379,11 +490,13 @@ def respond(req: dict, snap: dict, now: datetime | None = None) -> dict:
         return _reply("Не поняла, чьё расписание. Я знаю: " + ", ".join(p["name"] for p in snap.get("people", [])) + ". " + HELP, end=False)
 
     whose = "у вас" if mine else f"у {genitive(person['name'])}"
+    if _intent(words, command) == "escort":
+        whose_esc = "у вас" if mine else f"у {genitive(person['name'])}"
+        text, tts = answer_escort(snap, person, now, whose_esc, words)
+        return _reply(text, tts)
     whose_gen = "у вас" if mine else genitive(person["name"])
     intent = _intent(words, command)
-    if intent == "escort":
-        text, tts = answer_escort(snap, person, now, whose)
-    elif intent == "now":
+    if intent == "now":
         text, tts = answer_now(snap, person, now, whose, whose)
     elif intent == "day":
         text, tts = answer_day(snap, person, now, words, whose)
@@ -396,7 +509,12 @@ def handler(event, context=None):
     """Точка входа Yandex Cloud Functions."""
     req = event if "request" in event else json.loads(event.get("body") or "{}")
     try:
-        if is_add((req.get("request", {}).get("command") or "")):
+        command = req.get("request", {}).get("command") or ""
+        if parse_item(command):
+            out = answer_item(req, load_snapshot())   # нужен id списка покупок
+        elif is_move(command):
+            out = answer_move(req)
+        elif is_add(command):
             out = answer_add(req)   # снимок календаря для записи не нужен
         else:
             out = respond(req, load_snapshot())

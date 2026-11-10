@@ -11,6 +11,7 @@
   {"id", "t", "type": "item_delete", "item_id"}
   {"id", "t", "type": "event_add", "title", "date": "YYYY-MM-DD", "start"?: "HH:MM", "end"?, "all_day"?, "people"?: [id], "calendar"?, "location"?}
   {"id", "t", "type": "event_quick", "text": "Врач завтра в 18:00 Марку"}   — фраза разбирается на сервере (quick.parse); так шлёт Алиса
+  {"id", "t", "type": "event_move", "text": "йогу на завтра в 19:00"}      — Алиса: ближайшее похожее событие переносится (у серии — одно вхождение)
 Самые поздние применяются последними — побеждает последнее изменение.
 """
 from __future__ import annotations
@@ -77,7 +78,7 @@ def apply(db: Database, ops: list[dict], handlers: dict | None = None) -> list[s
                 log.warning("Команда из облака отклонена: %s", {k: op.get(k) for k in ("id", "type")})
         except Exception as e:  # битая команда не должна блокировать остальные
             log.warning("Команда из облака не применена (%s): %s", oid, e)
-            if op.get("type") in ("event_add", "event_quick"):
+            if op.get("type") in ("event_add", "event_quick", "event_move"):
                 _reject(db, op, str(getattr(e, "detail", None) or e))
         seen.add(oid)
         new.append(oid)
