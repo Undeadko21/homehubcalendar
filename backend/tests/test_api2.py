@@ -307,3 +307,80 @@ def test_index_html_is_not_cached(api):
     r = api.get("/")
     if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
         assert r.headers.get("cache-control") == "no-cache"
+
+
+def test_access_tokens_qr_and_public_versions(api, monkeypatch):
+    """Токены доступа: виджет читает сводку без пароля, VPS присылает отчёт, вход по одноразовой ссылке, версии приложений открыты."""
+    from app import access
+    api.post("/api/login", json={"pin": ""})  # без PIN всё открыто — проверим защищённый режим ниже
+    monkeypatch.setattr(api.core.settings, "pin", "длинный пароль семьи", raising=False)
+
+    # версии приложений и здоровье — без входа; данные — нет
+    for path in ("/api/app", "/api/app-mac", "/api/app-ios", "/api/health"):
+        assert api.get(path).status_code == 200, path
+    assert api.get("/api/widget").status_code == 401 and api.get("/api/snapshot").status_code == 401
+    assert api.get("/api/lists").status_code == 401
+
+    # вход, включение токенов
+    assert api.post("/api/login", json={"pin": "длинный пароль семьи"}).status_code == 200
+    st = api.put("/api/access", json={"public_url": "https://cal.example.ru", "widget": True, "vps": True, "ntfy": True}).json()
+    assert st["widget"] and st["vps"]["enabled"] and st["ntfy"]["topic"].startswith("homehub-")
+    assert api.put("/api/access", json={"public_url": "http://bad"}).status_code == 400
+    wtoken = access.token(api.core.db, "widget")
+    vtoken = access.token(api.core.db, "vps")
+    api.cookies.clear()
+
+    # токен виджета: только GET /api/widget и /api/snapshot
+    assert api.get("/api/widget", headers={"X-Widget-Token": wtoken}).status_code == 200
+    assert api.get("/api/snapshot", headers={"X-Widget-Token": wtoken}).status_code == 200
+    assert api.get("/api/widget", headers={"X-Widget-Token": "wrong-token"}).status_code == 401
+    assert api.get("/api/lists", headers={"X-Widget-Token": wtoken}).status_code == 401
+    assert api.post("/api/sync", headers={"X-Widget-Token": wtoken}).status_code == 401
+
+    # VPS: установка и отчёт по токену VPS (токен виджета не годится)
+    bad = {"Authorization": f"Bearer {wtoken}"}
+    good = {"Authorization": f"Bearer {vtoken}"}
+    assert api.get("/api/vps/install.sh", headers=bad).status_code == 401
+    sh = api.get("/api/vps/install.sh", headers=good)
+    assert sh.status_code == 200 and vtoken in sh.text and "https://ntfy.sh/homehub-" in sh.text and "@TOKEN@" not in sh.text
+    import base64
+    body = {"report": {"disk_pct": 40, "certs": {"cal.example.ru": 60}, "caddy": True, "uptime_days": 3},
+            "backup": base64.b64encode(b"tar-bytes").decode()}
+    assert api.post("/api/vps/ingest", json=body, headers=bad).status_code == 401
+    assert api.post("/api/vps/ingest", json=body, headers=good).status_code == 200
+    assert access.problems(api.core.db) == []
+    access.save_report(api.core.db, {"disk_pct": 91, "certs": {"cal.example.ru": 5}, "caddy": False}, None)
+    texts = " ".join(access.problems(api.core.db))
+    assert "91%" in texts and "истекает" in texts and "Caddy" in texts
+
+    # код подключения несёт адрес и токен виджета
+    api.post("/api/login", json={"pin": "длинный пароль семьи"})
+    st = api.get("/api/access").json()
+    assert st["vps"]["backup"]["size"] == len(b"tar-bytes")
+    assert api.get("/api/access/vps-backup").content == b"tar-bytes"
+
+    # вход по одноразовой ссылке
+    link = api.post("/api/login/qr").json()["url"]
+    path = "/api/login/qr/" + link.rsplit("/", 1)[1]
+    api.cookies.clear()
+    r = api.get(path, follow_redirects=False)
+    assert r.status_code == 303 and "homecal_auth" in r.headers["set-cookie"]
+    assert api.get("/api/lists").status_code == 200
+    api.cookies.clear()
+    assert api.get(path, follow_redirects=False).status_code == 410   # второй раз не работает
+
+
+def test_connection_code_carries_server_and_widget_token(api):
+    import base64
+    import json
+
+    from app import access
+    cl = api.core.cloud
+    cl.set_token("y0_" + "a" * 30)
+    cl.db.kv_set("cloud:state", {"public_url": "https://disk.yandex.ru/d/xyz"})
+    access.set_public_url(cl.db, "https://cal.example.ru")
+    payload = lambda: json.loads(base64.urlsafe_b64decode(cl.code()[5:] + "=="))  # noqa: E731
+    assert "w" not in payload()
+    access.token(cl.db, "widget")
+    p = payload()
+    assert p["s"] == "https://cal.example.ru" and p["w"] == access.token(cl.db, "widget") and p["u"] and p["k"]

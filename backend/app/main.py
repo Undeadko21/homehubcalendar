@@ -12,16 +12,17 @@ from contextlib import asynccontextmanager
 from datetime import datetime, time
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 
 from . import __version__
-from . import ops
+from . import access, ops
 from . import live
 from .perf import SLOW_MS
 from . import core
+from .api import access as access_api
 from .api import apps, cloud_api, lists, planning, system, writing
 
 
@@ -88,11 +89,23 @@ async def timing(request: Request, call_next):
             core.log.warning("Медленный запрос %s %s: %d мс", request.method, request.url.path, ms)
 
 
+# Без входа доступно только то, что нужно до входа: проверка живости, сведения о версиях приложений (номера, не файлы данных).
+_PUBLIC_API = ("/api/login", "/api/health", "/api/ready", "/api/app", "/api/app-mac", "/api/app-ios")
+
+
 @app.middleware("http")
 async def pin_guard(request: Request, call_next):
     path = request.url.path
-    if core.settings.pin and path.startswith("/api/") and path not in ("/api/login", "/api/health", "/api/ready"):
-        if not hmac.compare_digest(request.cookies.get("homecal_auth", ""), _token()):
+    if core.settings.pin and path.startswith("/api/") and path not in _PUBLIC_API and not path.startswith("/api/login/qr/"):
+        if hmac.compare_digest(request.cookies.get("homecal_auth", ""), _token()):
+            pass
+        elif request.method == "GET" and path in ("/api/widget", "/api/snapshot") and \
+                access.check(core.db, "widget", request.headers.get("x-widget-token", "")):
+            pass   # токен виджета: только чтение сводки, ничего не меняет
+        elif path in ("/api/vps/ingest", "/api/vps/install.sh") and \
+                access.check(core.db, "vps", access.bearer(request.headers.get("authorization", ""))):
+            pass   # VPS-агент приходит с токеном через обратный туннель
+        else:
             return JSONResponse({"detail": "auth_required"}, status_code=401)
     return await call_next(request)
 
@@ -138,6 +151,31 @@ def login(body: Login, request: Request, response: Response):
     return {"ok": True}
 
 
+@app.post("/api/login/qr")
+def login_qr_create(request: Request):
+    """Одноразовая ссылка входа на 10 минут — для QR-кода: открыть на новом устройстве, пароль вводить не нужно."""
+    origin = f"{request.headers.get('x-forwarded-proto', request.url.scheme)}://{request.headers.get('host', request.url.netloc)}"
+    return {"url": f"{origin}/api/login/qr/{access.new_login_link()}", "ttl": access.QR_TTL}
+
+
+@app.get("/api/login/qr/{link}")
+def login_qr_use(link: str, request: Request):
+    ip = _client_ip(request)
+    wait = _login_wait(ip)
+    if wait:
+        raise HTTPException(429, f"Слишком много попыток. Подождите {wait // 60 + 1} мин.")
+    if not core.settings.pin or access.use_login_link(link):
+        _FAILS.pop(ip, None)
+        resp = RedirectResponse("/", status_code=303)
+        if core.settings.pin:
+            secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+            resp.set_cookie("homecal_auth", _token(), max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax", secure=secure)
+        return resp
+    n = (_FAILS.get(ip) or [0, 0])[0] + 1
+    _FAILS[ip] = [n, time_module.time() + (min(3600, 60 * 2 ** (n - 5)) if n >= 5 else 0)]
+    return PlainTextResponse("Ссылка недействительна или уже использована. Создайте новую в настройках.", status_code=410)
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "version": __version__}
@@ -157,7 +195,7 @@ def ready():
 # ---------- веб-интерфейс ----------
 
 # Маршруты по темам (app/api/*.py). Страница-заглушка SPA ниже должна идти последней.
-for _r in (system, apps, cloud_api, lists, planning, writing):
+for _r in (system, apps, cloud_api, lists, planning, writing, access_api):
     app.include_router(_r.router)
 
 

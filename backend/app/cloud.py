@@ -168,6 +168,13 @@ class CloudSync:
             return None
         # t — токен записи: нужен приложению, чтобы вне дома класть команды в папку на Диске
         payload = {"u": url, "k": _b64(self.key()), "t": self._token()}
+        # s и w — публичный адрес сервера и токен «только чтение»: по ним приложения и виджеты берут свежие данные
+        # напрямую с сервера, когда он доступен из интернета, и сами выбирают «дом / интернет».
+        from . import access
+        pub = access.public_url(self.db)
+        if pub and access.enabled(self.db, "widget"):
+            payload["s"] = pub
+            payload["w"] = access.token(self.db, "widget")
         return "hhc1." + _b64(json.dumps(payload).encode())
 
     def status(self) -> dict:

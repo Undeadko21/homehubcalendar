@@ -67,6 +67,9 @@
 
     <h3 class="group-title">Облако: связь вне дома</h3>
     <CloudSettings />
+
+    <h3 class="group-title">Доступ из интернета</h3>
+    <AccessSettings />
     </template>
 
     <!-- Люди и календари -->
@@ -362,6 +365,7 @@ import TemplatesEditor from '../components/TemplatesEditor.vue'
 import BirthdaysEditor from '../components/BirthdaysEditor.vue'
 import RemindersSettings from '../components/RemindersSettings.vue'
 import CloudSettings from '../components/CloudSettings.vue'
+import AccessSettings from '../components/AccessSettings.vue'
 import FeedsSettings from '../components/FeedsSettings.vue'
 import ColorPick from '../components/ColorPick.vue'
 import EventReminders from '../components/EventReminders.vue'

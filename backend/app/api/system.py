@@ -76,6 +76,8 @@ def get_system():
             problems.append("Резервная копия: " + bk["last_error"])
         elif bk.get("last_ok") and now - datetime.fromisoformat(bk["last_ok"]).astimezone(core.tz) > timedelta(days=3):
             problems.append("Резервной копии не было больше 3 суток")
+    from .. import access
+    problems.extend(access.problems(core.db))
     chk = (core.db.kv_get("checks:last")[0] or {})
     for it in chk.get("items", []):
         if it["level"] == "warn":
