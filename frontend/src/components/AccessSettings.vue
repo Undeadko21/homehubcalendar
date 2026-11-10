@@ -1,9 +1,9 @@
 <template>
   <div v-if="st">
     <div class="group">
-      <form class="row" @submit.prevent="savePublic">
-        <span class="lbl">Публичный адрес <small class="muted block">по нему приложения ходят вне дома; попадает в код подключения</small></span>
-        <input v-model="publicUrl" class="inline grow" placeholder="https://имя.ru" autocapitalize="off" autocomplete="off" aria-label="Публичный адрес" />
+      <div class="row"><span class="lbl">Публичный адрес <small class="muted block">по нему приложения ходят вне дома; попадает в код подключения</small></span></div>
+      <form class="row" @submit.prevent="savePublic" style="gap:8px">
+        <input v-model="publicUrl" class="field" style="flex:1;min-width:0" placeholder="https://имя.ru" autocapitalize="off" autocomplete="off" aria-label="Публичный адрес" />
         <button class="btn" :disabled="busy || publicUrl.trim() === st.public_url">Сохранить</button>
       </form>
       <label class="row">
