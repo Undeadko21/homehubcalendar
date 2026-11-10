@@ -384,3 +384,9 @@ def test_connection_code_carries_server_and_widget_token(api):
     access.token(cl.db, "widget")
     p = payload()
     assert p["s"] == "https://cal.example.ru" and p["w"] == access.token(cl.db, "widget") and p["u"] and p["k"]
+
+
+def test_altstore_uses_forwarded_scheme(api):
+    r = api.get("/altstore.json", headers={"X-Forwarded-Proto": "https", "Host": "cal.example.ru"})
+    assert r.status_code == 200
+    assert r.json()["sourceURL"] == "https://cal.example.ru/altstore.json"

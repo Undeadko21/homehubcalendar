@@ -86,7 +86,10 @@ def altstore_icon():
 def altstore_source(request: Request):
     """Источник для AltStore: добавьте этот адрес в AltStore → Sources, и приложение будет ставиться и обновляться оттуда."""
     rel = _ios_release() or {}
-    base = str(request.base_url).rstrip("/")
+    # За Caddy сервер видит http: берём схему и хост из заголовков прокси (иначе AltStore получит http-ссылку на .ipa).
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip() or request.url.scheme
+    host = request.headers.get("x-forwarded-host", "").split(",")[0].strip() or request.headers.get("host") or request.url.netloc
+    base = f"{proto}://{host}".rstrip("/")
     version = {"version": rel.get("version", "1.0"), "buildVersion": str(rel.get("build", 1)), "date": rel.get("date", "2026-01-01"),
                "size": rel.get("size", 0), "downloadURL": f"{base}/app-ios.ipa", "minOSVersion": "16.0",
                "localizedDescription": "Окно календаря, ближайшие события и напоминания."}
