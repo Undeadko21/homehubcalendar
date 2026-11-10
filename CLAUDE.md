@@ -68,7 +68,7 @@
 - **Приложение для macOS** (`macos/`, SwiftPM, macOS 13+): `HomeHubCore` (код подключения, расшифровка снимка CryptoKit, `Agenda` — «что дальше»; тесты
   `swift test`, включая блоб, зашифрованный сервером) и `HomeHubMac` (SwiftUI: окно = WKWebView сервера, иначе офлайн-список из снимка; значок в строке меню
   с ближайшим событием; локальные уведомления из `reminders`; запуск при входе). Дома берёт `/api/snapshot`, вне дома — снимок с Диска по коду `hhc1.`.
-  Swift локально недоступен: собирает и тестирует GitHub Actions (`.github/workflows/macos.yml`, macos-14) и кладёт `macos/release/HomeHub-Calendar.zip` +
+  Swift локально недоступен: собирает и тестирует GitHub Actions (`.github/workflows/macos.yml`, macos-15 (macos-14 GitHub больше не даёт)) и кладёт `macos/release/HomeHub-Calendar.zip` +
   `version.json` в main (`[skip ci]`); сервер раздаёт `/app-mac.zip`, `/api/app-mac` (`HOMECAL_MAC_DIR`). Версия — `macos/version.txt`. Ошибки CI смотреть:
   `gh api repos/Undeadko21/homehubcalendar/actions/jobs/<id>/logs`. Подпись ad-hoc (без аккаунта Apple): первый запуск через «Открыть».
 - **Приложение для iPhone** (`ios/`, SwiftUI, iOS 16+, ставится через AltStore бесплатным Apple ID): проект генерирует XcodeGen из `ios/project.yml` (в нём же
