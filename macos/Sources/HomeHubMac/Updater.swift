@@ -34,7 +34,7 @@ final class Updater: ObservableObject {
         guard Self.canUpdate else { return }
         try? await Task.sleep(nanoseconds: 20_000_000_000)
         while !Task.isCancelled {
-            await check(model.serverBase, quiet: true)
+            await check(model.webBase, quiet: true)
             try? await Task.sleep(nanoseconds: 6 * 3600 * 1_000_000_000)
         }
     }

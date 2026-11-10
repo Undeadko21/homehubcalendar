@@ -117,6 +117,15 @@ enum Loader {
             }
         }
         if let cc = Cloud.parse(c.code ?? "") {
+            if cc.publicURL != nil, cc.widgetToken != nil {
+                do {
+                    let plain = try await Cloud.fetchPublic(cc)
+                    let snap = try Snapshot.decode(plain)
+                    return fromSnapshot(snap, now: now, days: days, wanted: wanted)
+                } catch {
+                    problems.append("интернет-адрес не отвечает")
+                }
+            }
             do {
                 let plain = try await Cloud.fetch(cc)
                 let snap = try Snapshot.decode(plain)

@@ -78,6 +78,8 @@ class AppBridge(private val activity: MainActivity) {
         p.cloudUrl = parsed.url
         p.cloudKey = parsed.key
         p.cloudToken = parsed.token
+        p.publicUrl = parsed.publicUrl
+        p.widgetToken = parsed.widgetToken
         Widgets.refreshNow(activity)
         return true
     }
@@ -151,6 +153,8 @@ class MainActivity : Activity() {
     private lateinit var errorView: LinearLayout
     private lateinit var errorText: TextView
     private var server: String? = null
+    /** Адрес, который сейчас открыт в WebView: домашний или публичный. */
+    private var active: String? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -181,7 +185,7 @@ class MainActivity : Activity() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val u = request.url
                     // Внешние ссылки (карты, сайты) — в браузер; свои страницы — здесь.
-                    return if (server != null && u.toString().startsWith(server!!)) false
+                    return if ((server != null && u.toString().startsWith(server!!)) || (active != null && u.toString().startsWith(active!!))) false
                     else { startActivity(Intent(Intent.ACTION_VIEW, u)); true }
                 }
             }
@@ -241,9 +245,13 @@ class MainActivity : Activity() {
         scope.launch {
             // Быстрая проверка: если дом не отвечает, не ждём долгий таймаут WebView, а сразу показываем облако.
             val ok = withContext(Dispatchers.IO) { Api.probe(base, 2500) != null }
-            if (!ok && showOffline()) return@launch
+            // Дом не отвечает — пробуем публичный адрес (вход паролем один раз, куки сохраняются).
+            val pub = Prefs(this@MainActivity).publicUrl
+            val pubOk = !ok && pub != null && withContext(Dispatchers.IO) { Api.probe(pub, 4000) != null }
+            if (!ok && !pubOk && showOffline()) return@launch
             offline = false
-            web.loadUrl("$base/")
+            active = if (pubOk) pub!! else base
+            web.loadUrl("$active/")
         }
     }
 

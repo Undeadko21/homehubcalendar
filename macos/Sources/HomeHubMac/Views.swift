@@ -104,7 +104,7 @@ struct MainView: View {
         Group {
             if !model.configured {
                 ConnectView(model: model)
-            } else if model.webOK, let url = model.serverBase {
+            } else if model.webOK, let url = model.webBase {
                 WebView(url: url, reloadToken: model.reloadToken)
             } else {
                 OfflineView(model: model)
@@ -258,7 +258,7 @@ struct SettingsForm: View {
                         .foregroundStyle({ if case .failed = updater.state { return Color.red }; return Color.secondary }())
                     Toggle("Обновлять автоматически", isOn: $updater.auto)
                     HStack {
-                        Button("Проверить") { Task { await updater.check(model.serverBase) } }
+                        Button("Проверить") { Task { await updater.check(model.webBase) } }
                         if case .available(let info) = updater.state {
                             Button("Установить сборку \(info.build)") { Task { await updater.install(info) } }
                         }

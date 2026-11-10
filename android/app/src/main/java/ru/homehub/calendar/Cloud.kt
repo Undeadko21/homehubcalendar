@@ -16,7 +16,7 @@ import javax.crypto.spec.SecretKeySpec
 object Cloud {
     private const val API = "https://cloud-api.yandex.net/v1/disk/public/resources/download"
 
-    data class Code(val url: String, val key: String, val token: String?)
+    data class Code(val url: String, val key: String, val token: String?, val publicUrl: String? = null, val widgetToken: String? = null)
 
     /** Код подключения «hhc1.…» → ссылка, ключ base64url и (необязательно) токен записи, или null. */
     fun parseCode(code: String): Code? = runCatching {
@@ -24,7 +24,7 @@ object Cloud {
         val j = JSONObject(String(Base64.decode(body, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP), Charsets.UTF_8))
         val url = j.getString("u")
         val key = j.getString("k")
-        if (url.startsWith("https://") && key.isNotEmpty()) Code(url, key, j.optString("t").ifEmpty { null }) else null
+        if (url.startsWith("https://") && key.isNotEmpty()) Code(url, key, j.optString("t").ifEmpty { null }, j.optString("s").ifEmpty { null }?.trimEnd('/'), j.optString("w").ifEmpty { null }) else null
     }.getOrNull()
 
     private fun download(url: String, timeoutMs: Int = 12000): ByteArray {

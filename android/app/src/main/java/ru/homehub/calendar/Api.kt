@@ -19,13 +19,14 @@ class ApiException(message: String, val needLogin: Boolean = false) : Exception(
 
 object Api {
     /** GET-запрос к календарю. Куки (PIN) берём из WebView — вход один на приложение. */
-    fun get(base: String, path: String, timeoutMs: Int = 8000): String {
+    fun get(base: String, path: String, timeoutMs: Int = 8000, token: String? = null): String {
         val url = URL(base + path)
         val c = url.openConnection() as HttpURLConnection
         c.connectTimeout = timeoutMs
         c.readTimeout = timeoutMs
         c.setRequestProperty("Accept", "application/json")
-        CookieManager.getInstance().getCookie(base)?.let { c.setRequestProperty("Cookie", it) }
+        if (token != null) c.setRequestProperty("X-Widget-Token", token)
+        else CookieManager.getInstance().getCookie(base)?.let { c.setRequestProperty("Cookie", it) }
         try {
             val code = c.responseCode
             if (code == 401) throw ApiException("Нужен PIN — откройте приложение и войдите", needLogin = true)

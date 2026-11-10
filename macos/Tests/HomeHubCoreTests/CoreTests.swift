@@ -29,6 +29,13 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(parsed?.url, "https://yadi.sk/d/abc")
         XCTAssertEqual(parsed?.token, "y0_tok")
         XCTAssertNil(Cloud.parse("мусор"))
+
+        let j2 = #"{"u":"https://yadi.sk/d/abc","k":"AAEC","s":"https://example.ru/","w":"tok"}"#
+        let c2 = "hhc1." + Data(j2.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        XCTAssertEqual(Cloud.parse(c2)?.publicURL, "https://example.ru")
+        XCTAssertEqual(Cloud.parse(c2)?.widgetToken, "tok")
+        XCTAssertNil(parsed?.publicURL)
     }
 
     func testAgendaPicksNextTimedEventOfSelectedPeople() throws {

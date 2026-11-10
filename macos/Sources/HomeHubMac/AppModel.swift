@@ -77,6 +77,15 @@ final class AppModel: ObservableObject {
         return URL(string: s)
     }
 
+    /// Сейчас данные идут через публичный адрес (дом недоступен).
+    @Published var viaInternet = false
+
+    /// Адрес для окна календаря: дома — домашний, вне дома — публичный из кода подключения.
+    var webBase: URL? {
+        if viaInternet, let s = Cloud.parse(code)?.publicURL, let u = URL(string: s) { return u }
+        return serverBase
+    }
+
     var configured: Bool { serverBase != nil || Cloud.parse(code) != nil }
     var people: [Person] { snapshot?.people ?? [] }
 
@@ -89,7 +98,7 @@ final class AppModel: ObservableObject {
     var statusText: String {
         let t = lastUpdate.map { Self.time.string(from: $0) } ?? ""
         switch source {
-        case .server: return "Сервер дома · \(t)"
+        case .server: return (viaInternet ? "Через интернет · " : "Сервер дома · ") + t
         case .cloud: return "Через облако · \(t)"
         case .cache: return "Нет связи, показан последний снимок"
         case .none: return configured ? "Загружаю…" : "Не подключено"
@@ -124,6 +133,7 @@ final class AppModel: ObservableObject {
             do {
                 let data = try await fetchServer(base)
                 try accept(data, from: .server)
+                viaInternet = false
                 failures = 0
                 webOK = true
                 return
@@ -142,6 +152,18 @@ final class AppModel: ObservableObject {
             webOK = false
         }
         if let c = Cloud.parse(code) {
+            if c.publicURL != nil, c.widgetToken != nil {
+                do {
+                    let data = try await Cloud.fetchPublic(c)
+                    try accept(data, from: .server)
+                    viaInternet = true
+                    webOK = true
+                    self.error = nil
+                    return
+                } catch {
+                    problems.append("Интернет: \(describe(error))")
+                }
+            }
             do {
                 let plain = try await Cloud.fetch(c)
                 try accept(plain, from: .cloud)

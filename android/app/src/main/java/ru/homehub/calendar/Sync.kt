@@ -34,6 +34,19 @@ object Sync {
                 error = "Нет связи с календарём"
             }
         }
+        // Вне дома: публичный адрес сервера с токеном «только чтение» — свежие данные без облака.
+        if (json == null) {
+            val pub = prefs.publicUrl
+            val tok = prefs.widgetToken
+            if (pub != null && tok != null) {
+                try {
+                    json = Api.get(pub, "/api/snapshot", 8000, tok)
+                    source = "public"
+                } catch (e: Exception) {
+                    error = (error ?: "Нет связи с календарём") + "; интернет-адрес: " + (e.message ?: "недоступен")
+                }
+            }
+        }
         if (json == null) {
             val url = prefs.cloudUrl
             val key = prefs.cloudKey

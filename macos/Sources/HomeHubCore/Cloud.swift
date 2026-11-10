@@ -6,6 +6,14 @@ public struct ConnectionCode: Equatable {
     public let url: String
     public let key: String
     public let token: String?
+    /// Публичный адрес сервера и токен «только чтение» (вне дома без облака), если есть в коде.
+    public let publicURL: String?
+    public let widgetToken: String?
+
+    public init(url: String, key: String, token: String?, publicURL: String? = nil, widgetToken: String? = nil) {
+        self.url = url; self.key = key; self.token = token
+        self.publicURL = publicURL; self.widgetToken = widgetToken
+    }
 }
 
 public enum CloudError: LocalizedError {
@@ -38,7 +46,22 @@ public enum Cloud {
               let u = obj["u"] as? String, let k = obj["k"] as? String,
               u.hasPrefix("https://"), !k.isEmpty else { return nil }
         let t = obj["t"] as? String
-        return ConnectionCode(url: u, key: k, token: (t?.isEmpty ?? true) ? nil : t)
+        func opt(_ v: Any?) -> String? { (v as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        var pub = opt(obj["s"])
+        while pub?.hasSuffix("/") == true { pub?.removeLast() }
+        return ConnectionCode(url: u, key: k, token: (t?.isEmpty ?? true) ? nil : t, publicURL: pub, widgetToken: opt(obj["w"]))
+    }
+
+    /// Снимок напрямую с сервера по публичному адресу и токену «только чтение» (вне дома).
+    public static func fetchPublic(_ code: ConnectionCode, session: URLSession = .shared) async throws -> Data {
+        guard let s = code.publicURL, let tok = code.widgetToken, let base = URL(string: s) else { throw CloudError.badCode }
+        var req = URLRequest(url: base.appendingPathComponent("api/snapshot"))
+        req.timeoutInterval = 8
+        req.setValue(tok, forHTTPHeaderField: "X-Widget-Token")
+        let (data, resp) = try await session.data(for: req)
+        let st = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard st == 200 else { throw CloudError.badResponse(st) }
+        return data
     }
 
     public static func decrypt(key: Data, blob: Data) throws -> Data {

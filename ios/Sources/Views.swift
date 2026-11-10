@@ -39,7 +39,7 @@ struct RootView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if model.webOK, let url = model.serverBase {
+        if model.webOK, let url = model.webBase {
             WebView(url: url, reloadToken: model.reloadToken)
         } else if model.configured {
             OfflineList(model: model)

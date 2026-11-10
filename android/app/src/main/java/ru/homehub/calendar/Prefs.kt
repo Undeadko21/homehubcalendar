@@ -11,6 +11,15 @@ class Prefs(context: Context) {
         get() = sp.getString("server", null)
         set(v) = sp.edit().putString("server", v).apply()
 
+    /** Публичный адрес сервера (https, из кода подключения) и токен «только чтение» для виджетов вне дома. */
+    var publicUrl: String?
+        get() = sp.getString("public_url", null)
+        set(v) = sp.edit().putString("public_url", v).apply()
+
+    var widgetToken: String?
+        get() = sp.getString("widget_token", null)
+        set(v) = sp.edit().putString("widget_token", v).apply()
+
     /** Последний ответ /api/widget (JSON). */
     var widgetJson: String?
         get() = sp.getString("widget_json", null)
