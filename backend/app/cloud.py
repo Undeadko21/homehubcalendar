@@ -73,10 +73,12 @@ class YandexDisk:
     def __init__(self, token: str, client: httpx.Client | None = None):
         self.c = client or httpx.Client(timeout=30)
         self.h = {"Authorization": f"OAuth {token}"}
+        # Подсказка для сообщений об ошибке: по длине и началу видно, что именно ушло в Яндекс (сам токен не показываем).
+        self.hint = f"{token[:4]}…{token[-2:]}, {len(token)} зн." if len(token) > 8 else f"{len(token)} зн."
 
     def _check(self, r: httpx.Response, what: str) -> httpx.Response:
         if r.status_code == 401:
-            raise CloudError("Токен Яндекс.Диска не подошёл или истёк — получите новый")
+            raise CloudError(f"Токен Яндекс.Диска не подошёл или истёк ({self.hint}; {what}). Получите новый и проверьте, что он скопирован целиком, без лишнего")
         if r.status_code == 403:
             raise CloudError("У токена нет доступа к папке приложения на Диске")
         if r.status_code == 507:
