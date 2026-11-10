@@ -129,7 +129,8 @@ def test_live_update_between_two_pages(page, stack):
 
 def test_selftest_in_settings(page, stack):
     page.click("text=Настройки")
-    page.click("text=Состояние")
+    page.click(".menu-col .menu-row:has-text('Состояние и копии')")
+    page.click(".detail .menu-row:has-text('Проверки')")
     page.click("button:has-text('Проверить запись')")
     page.wait_for_selector("text=Удалить тестовое событие", timeout=30000)
     assert page.locator("span.err:has-text('✕')").count() == 0

@@ -2,6 +2,22 @@
   <div class="settings" :class="{ split: wide }">
     <!-- Меню: на телефоне — экран, на компьютере — колонка слева -->
     <nav v-show="wide || !page" class="menu-col" aria-label="Разделы настроек">
+      <label class="search">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.500-3.500"/></svg>
+        <input v-model="q" type="search" placeholder="Поиск по настройкам" aria-label="Поиск по настройкам" autocomplete="off" />
+      </label>
+      <template v-if="q.trim()">
+        <div v-if="found.length" class="group menu">
+          <button v-for="m in found" :key="m.id" class="row menu-row" @click="pick(m.id)">
+            <span class="micon" :style="{ background: m.color }" v-html="m.icon"></span>
+            <span class="pmain"><span class="pname">{{ m.title }}</span>
+              <span class="psub">{{ parentOf[m.id] ? titleOf(parentOf[m.id]) + ' · ' : '' }}{{ m.sub }}</span></span>
+            <span class="chev" aria-hidden="true">›</span>
+          </button>
+        </div>
+        <p v-else class="group-note">Ничего не нашлось. Попробуйте другое слово: «пароль», «копия», «виджет».</p>
+      </template>
+      <template v-else>
       <button class="row status-card" :class="{ bad: sysProblems > 0 || bad }" @click="open('system')">
         <span class="sicon" aria-hidden="true">{{ sysProblems > 0 || bad ? '!' : '✓' }}</span>
         <span class="pmain">
@@ -23,6 +39,7 @@
             <span class="chev" aria-hidden="true">›</span>
           </button>
         </div>
+      </template>
       </template>
       <p class="group-note version">Версия {{ state.config?.version }}<template v-if="UI_BUILD"> · интерфейс {{ UI_BUILD }}</template></p>
     </nav>
@@ -304,8 +321,17 @@
     <StatsPanel />
     </template>
     <template v-if="page === 'system'">
-    <SystemPanel />
+    <SystemPanel part="overview" />
+    <h3 class="group-title">Подробнее</h3>
+    <div class="group menu">
+      <button v-for="m in systemItems" :key="m.id" class="row menu-row" @click="open(m.id)">
+        <span class="micon" :style="{ background: m.color }" v-html="m.icon"></span>
+        <span class="pmain"><span class="pname">{{ m.title }}</span><span class="psub">{{ m.sub }}</span></span>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
+    </div>
     </template>
+    <SystemPanel v-if="page && page.startsWith('sys-')" :key="page" :part="page.slice(4)" />
     </section>
 
     <!-- Карточка человека -->
@@ -405,7 +431,8 @@ try { page.value = sessionStorage.getItem('settingsPage') || null } catch { /* �
 if (wide.value && !page.value) page.value = 'people'
 watch(wide, (w) => { if (w && !page.value) page.value = 'people' })
 // Вложенные страницы: «Связь вне дома» → облако, адрес, устройства, VPS
-const parentOf = { cloud: 'outside', address: 'outside', devices: 'outside', vps: 'outside' }
+const parentOf = { cloud: 'outside', address: 'outside', devices: 'outside', vps: 'outside',
+  'sys-checks': 'system', 'sys-backup': 'system', 'sys-transfer': 'system', 'sys-server': 'system' }
 function open(id) {
   page.value = id
   try { id ? sessionStorage.setItem('settingsPage', id) : sessionStorage.removeItem('settingsPage') } catch { /* ок */ }
@@ -430,6 +457,33 @@ const outsideItems = computed(() => {
       icon: ico('<rect x="3" y="4" width="18" height="6" rx="1.500"/><rect x="3" y="14" width="18" height="6" rx="1.500"/><path d="M7 7h.01M7 17h.01"/>') },
   ]
 })
+const systemItems = [
+  { id: 'sys-checks', title: 'Проверки', color: '#34c759', sub: 'данные календаря и запись в Яндекс', kw: 'проверка данных водитель дубли самопроверка запись',
+    icon: ico('<path d="M5 12.500l4.500 4.500L19 7.500"/>') },
+  { id: 'sys-backup', title: 'Резервные копии', color: '#007aff', sub: 'создать, проверить, восстановить', kw: 'копия бэкап backup восстановление диск',
+    icon: ico('<path d="M12 3v12M7 10l5 5 5-5M4 20h16"/>') },
+  { id: 'sys-transfer', title: 'Перенос настроек', color: '#ff9500', sub: 'скачать или загрузить файл настроек', kw: 'экспорт импорт файл перенос',
+    icon: ico('<path d="M7 7h11l-3-3M17 17H6l3 3"/>') },
+  { id: 'sys-server', title: 'Сервер и скорость', color: '#8e8e93', sub: 'синхронизация, время ответов, версия', kw: 'версия скорость медленно база ошибки сервер',
+    icon: ico('<rect x="3" y="4" width="18" height="6" rx="1.500"/><rect x="3" y="14" width="18" height="6" rx="1.500"/><path d="M7 7h.01M7 17h.01"/>') },
+]
+const KW = {
+  people: 'цвет ребёнок автопривязка слова порядок колонок общие встречи', calendars: 'владелец скрыть занят приватный',
+  trips: 'отвезти забрать дорога шаблон водитель дома', birthdays: 'др каникулы школа', reminders: 'уведомления напомнить минут',
+  sources: 'яндекс логин пароль приложения teams битрикс outlook ics подписка синхронизация', outside: 'интернет vpn облако доступ',
+  cloud: 'токен диск код подключения алиса снимок', address: 'домен публичный адрес токен чтение виджет', devices: 'qr вход пароль сессии журнал безопасность отключить',
+  vps: 'агент ntfy уведомления сертификат туннель', app: 'android mac iphone altstore apk скачать виджет обновление', wall: 'планшет киоск кухня',
+  changes: 'отмена правки история', stats: 'статистика часы', system: 'состояние проблемы',
+}
+const q = ref('')
+const found = computed(() => {
+  const words = q.value.toLowerCase().split(/\s+/).filter(Boolean)
+  return flat.value.filter((m) => {
+    const hay = `${m.title} ${m.sub || ''} ${m.kw || KW[m.id] || ''}`.toLowerCase()
+    return words.every((w) => hay.includes(w))
+  })
+})
+function pick(id) { q.value = ''; open(id) }
 const groups = computed(() => {
   const people = (state.config?.people || []).filter((p) => !p.id.startsWith('_'))
   const cals = state.config?.calendars || []
@@ -476,7 +530,7 @@ const groups = computed(() => {
     ] },
   ]
 })
-const flat = computed(() => [...groups.value.flatMap((g) => g.items), ...outsideItems.value])
+const flat = computed(() => [...groups.value.flatMap((g) => g.items), ...outsideItems.value, ...systemItems])
 const titleOf = (id) => flat.value.find((m) => m.id === id)?.title || ''
 const current = computed(() => flat.value.find((m) => m.id === page.value))
 const bad = computed(() => sources.value.some((s) => s.last_error) || outsideBad.value)
@@ -642,6 +696,10 @@ function translit(s) {
 .sicon { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; background: #34c759; color: #fff; font-weight: 700; font-size: 18px; }
 .status-card.bad .sicon { background: #ff9500; }
 .settings :deep(.row.stack .inline) { text-align: left; background: var(--fill); border-radius: 8px; padding: 9px 11px; }
+.search { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 0 10px; height: 36px; border-radius: 10px; background: var(--fill); color: var(--ink-2); }
+.search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; color: var(--ink); font-size: 16px; }
+.search input::-webkit-search-cancel-button { cursor: pointer; }
+.search + .group { margin-top: 12px; }
 .lead { margin: 2px 0 0; color: var(--ink-2); font-size: 15px; }
 .group, .settings :deep(.group) { background: var(--surface-2); }
 .cal { margin-bottom: 12px; }

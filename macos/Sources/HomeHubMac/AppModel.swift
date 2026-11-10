@@ -77,6 +77,18 @@ final class AppModel: ObservableObject {
         return URL(string: s)
     }
 
+    /// Подключение по QR-коду: страница /connect открывает homehub://connect?c=hhc1.… Код тот же, что вставляется вручную,
+    /// поэтому уже подключённым устройствам ничего делать не нужно. Если адреса сервера ещё нет — берём публичный из кода.
+    @discardableResult
+    func connect(url: URL) -> Bool {
+        guard url.scheme == "homehub", url.host == "connect",
+              let c = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "c" })?.value,
+              let parsed = Cloud.parse(c) else { return false }
+        if serverURL.trimmingCharacters(in: .whitespaces).isEmpty, let pub = parsed.publicURL { serverURL = pub }
+        code = c
+        return true
+    }
+
     /// Сейчас данные идут через публичный адрес (дом недоступен).
     @Published var viaInternet = false
 

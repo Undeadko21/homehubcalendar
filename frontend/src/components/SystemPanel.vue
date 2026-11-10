@@ -2,11 +2,28 @@
   <div>
     <div v-if="!s" class="group"><div class="row"><span class="muted">Загружаю…</span></div></div>
     <template v-else>
+      <template v-if="part === 'overview'">
       <div v-if="s.problems.length" class="group warn">
         <div v-for="p in s.problems" :key="p" class="row"><span class="dotr"></span><span class="lbl">{{ p }}</span></div>
       </div>
       <div v-else class="group"><div class="row"><span class="ok">●</span><span class="lbl">Всё в порядке</span></div></div>
 
+      <div class="group" style="margin-top:14px">
+        <div class="row"><span class="lbl">Синхронизация</span>
+          <span v-if="s.sources.some((x) => x.last_error)" class="val err">есть ошибка</span>
+          <span v-else class="val muted">{{ lastSync ? ago(lastSync) : 'ещё не было' }}</span></div>
+        <div class="row"><span class="lbl">Облако</span>
+          <span v-if="!s.cloud.configured" class="val muted">не подключено</span>
+          <span v-else-if="s.cloud.last_error" class="val err">ошибка</span>
+          <span v-else class="val muted">{{ s.cloud.last_ok ? ago(s.cloud.last_ok) : 'скоро' }}</span></div>
+        <div class="row"><span class="lbl">Резервная копия</span>
+          <span v-if="!s.backup.configured" class="val muted">нужно облако</span>
+          <span v-else-if="s.backup.last_error" class="val err">ошибка</span>
+          <span v-else class="val muted">{{ s.backup.last_ok ? ago(s.backup.last_ok) : 'ещё не было' }}</span></div>
+        <div class="row"><span class="lbl">Версия сервера</span><span class="val muted">{{ s.version }}</span></div>
+      </div>
+      </template>
+      <template v-if="part === 'checks'">
       <h3 class="group-title">Проверка данных</h3>
       <div class="group">
         <div v-for="(x, i) in (s.checks?.items || [])" :key="i" class="row">
@@ -19,27 +36,6 @@
         </div>
       </div>
 
-      <h3 class="group-title">Календарь</h3>
-      <div class="group">
-        <div v-for="x in s.sources" :key="x.source_id" class="row">
-          <span class="lbl">{{ x.source_id }}</span>
-          <span v-if="x.last_error" class="val err">{{ x.last_error }}</span>
-          <span v-else class="val muted">{{ x.last_ok ? ago(x.last_ok) : 'ещё не обновлялось' }}</span>
-        </div>
-        <div class="row"><span class="lbl">Период опроса</span><span class="val muted">каждые {{ s.sync_interval }} мин</span></div>
-        <div class="row"><span class="lbl">В базе</span>
-          <span class="val muted">{{ s.counts.calendars }} календ., {{ s.counts.objects }} записей</span></div>
-      </div>
-
-      <h3 class="group-title">Облако</h3>
-      <div class="group">
-        <div class="row"><span class="lbl">Снимок для телефона и Алисы</span>
-          <span v-if="!s.cloud.configured" class="val muted">не подключено</span>
-          <span v-else-if="s.cloud.last_error" class="val err">{{ s.cloud.last_error }}</span>
-          <span v-else class="val muted">{{ s.cloud.last_ok ? ago(s.cloud.last_ok) : 'скоро' }}</span></div>
-        <div v-if="s.cloud.ops_error" class="row"><span class="lbl">Команды с телефона</span><span class="val err">{{ s.cloud.ops_error }}</span></div>
-      </div>
-
       <h3 class="group-title">Проверка записи в Яндекс</h3>
       <div class="group">
         <div class="row between"><label for="st-cal">Календарь</label>
@@ -50,10 +46,12 @@
           <span v-if="x.error" class="val err">{{ x.error }}</span><span v-else-if="x.ms != null" class="val muted">{{ x.ms }} мс</span>
         </div>
       </div>
-      <p class="group-note">Создаёт на сервере Яндекса тестовое событие на 3:00 через месяц, переносит, делает исключение из серии и удаляет всё.
-        В семейном календаре оно не появляется. Так можно убедиться, что запись работает, не трогая ваши события.</p>
+      <Help title="Что делает проверка"><p>Создаёт на сервере Яндекса тестовое событие на 3:00 через месяц, переносит, делает исключение из серии и удаляет всё.
+        В семейном календаре оно не появляется. Так можно убедиться, что запись работает, не трогая ваши события.</p></Help>
 
-      <h3 class="group-title">Резервная копия</h3>
+      </template>
+      <template v-if="part === 'backup'">
+      <h3 class="group-title">Последняя копия</h3>
       <div class="group">
         <div class="row"><span class="lbl">Последняя копия</span>
           <span v-if="!s.backup.configured" class="val muted">нужно облако</span>
@@ -86,12 +84,15 @@
           </div>
         </template>
       </div>
-      <p class="group-note">
-        Раз в сутки около 03:30 база (события, люди, шаблоны, списки, настройки) шифруется и кладётся на Яндекс.Диск в
+      <p v-if="note" class="group-note">{{ note }}</p>
+      <Help title="Как устроены копии">
+        <p>Раз в сутки около 03:30 база (события, люди, шаблоны, списки, настройки) шифруется и кладётся на Яндекс.Диск в
         папку приложения «backups»; хранятся последние {{ s.backup.keep }}. Расшифровать копию можно ключом из
-        кода подключения (поле «k», он же HOMEHUB_KEY навыка Алисы): <code>backend/tools/restore_backup.py</code>.
-      </p>
+        кода подключения (поле «k», он же HOMEHUB_KEY навыка Алисы): <code>backend/tools/restore_backup.py</code>.</p>
+      </Help>
 
+      </template>
+      <template v-if="part === 'transfer'">
       <h3 class="group-title">Перенос настроек</h3>
       <div class="group">
         <div class="row">
@@ -108,6 +109,29 @@
         Событий, паролей и токенов в нём нет — они вернутся после подключения Яндекса. При загрузке текущие люди, шаблоны и списки заменяются.
       </p>
       <p v-if="note" class="group-note">{{ note }}</p>
+
+      </template>
+      <template v-if="part === 'server'">
+      <h3 class="group-title">Календарь</h3>
+      <div class="group">
+        <div v-for="x in s.sources" :key="x.source_id" class="row">
+          <span class="lbl">{{ x.source_id }}</span>
+          <span v-if="x.last_error" class="val err">{{ x.last_error }}</span>
+          <span v-else class="val muted">{{ x.last_ok ? ago(x.last_ok) : 'ещё не обновлялось' }}</span>
+        </div>
+        <div class="row"><span class="lbl">Период опроса</span><span class="val muted">каждые {{ s.sync_interval }} мин</span></div>
+        <div class="row"><span class="lbl">В базе</span>
+          <span class="val muted">{{ s.counts.calendars }} календ., {{ s.counts.objects }} записей</span></div>
+      </div>
+
+      <h3 class="group-title">Облако</h3>
+      <div class="group">
+        <div class="row"><span class="lbl">Снимок для телефона и Алисы</span>
+          <span v-if="!s.cloud.configured" class="val muted">не подключено</span>
+          <span v-else-if="s.cloud.last_error" class="val err">{{ s.cloud.last_error }}</span>
+          <span v-else class="val muted">{{ s.cloud.last_ok ? ago(s.cloud.last_ok) : 'скоро' }}</span></div>
+        <div v-if="s.cloud.ops_error" class="row"><span class="lbl">Команды с телефона</span><span class="val err">{{ s.cloud.ops_error }}</span></div>
+      </div>
 
       <h3 class="group-title">Скорость</h3>
       <div class="group">
@@ -135,17 +159,21 @@
           <span class="val" :class="s.client_errors ? 'err' : 'muted'">{{ s.client_errors }}</span></div>
         <div v-if="s.last_client_error" class="row stack"><small class="muted block">последняя: {{ s.last_client_error.message }}</small></div>
       </div>
+      </template>
     </template>
     <p v-if="err" class="group-note err">{{ err }}</p>
   </div>
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import Help from './Help.vue'
 import { api } from '../lib/api'
 import { writableCalendars } from '../lib/store'
 
+const props = defineProps({ part: { type: String, default: 'overview' } })
 const s = ref(null)
+const lastSync = computed(() => (s.value?.sources || []).map((x) => x.last_ok).filter(Boolean).sort().pop())
 const busy = ref(false)
 const err = ref('')
 const note = ref('')
@@ -231,6 +259,9 @@ onUnmounted(() => clearInterval(t))
 </script>
 
 <style scoped>
+.lbl { flex: 1; min-width: 0; }
+.val { text-align: right; font-size: 14px; overflow-wrap: anywhere; max-width: 62%; }
+.block { display: block; font-size: 13px; }
 .ok { color: #34c759; }
 .dotr { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex: none; }
 .warn { border: 1px solid var(--red); }

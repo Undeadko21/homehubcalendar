@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -192,9 +193,19 @@ class CloudSync:
             payload["w"] = access.token(self.db, "widget")
         return "hhc1." + _b64(json.dumps(payload).encode())
 
+    def client_id(self) -> str:
+        value, _ = self.db.kv_get("settings:yandex_client")
+        return str((value or {}).get("id") or "")
+
+    def set_client_id(self, cid: str) -> None:
+        cid = (cid or "").strip().lower()
+        if cid and not re.fullmatch(r"[0-9a-f]{32}", cid):
+            raise CloudError("ID приложения — 32 знака из цифр и латинских букв a–f (oauth.yandex.ru → ваше приложение → ClientID)")
+        self.db.kv_set("settings:yandex_client", {"id": cid})
+
     def status(self) -> dict:
         st = self._state()
-        return {"configured": bool(self._token()), "last_ok": st.get("last_ok"), "last_error": st.get("last_error"),
+        return {"configured": bool(self._token()), "client_id": self.client_id(), "last_ok": st.get("last_ok"), "last_error": st.get("last_error"),
                 "ops_error": st.get("ops_error"), "code": self.code(),
                 # для навыка Алисы: url и ключ — чтение снимка; token — только если хотите голосовое «добавь…» (запись в папку)
                 "alice": {"url": st.get("public_url"), "key": _b64(self.key()),

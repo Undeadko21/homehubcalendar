@@ -35,6 +35,7 @@ struct HomeHubApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(model: model)
+                .onOpenURL { url in model.connect(url: url) }
         }
         .onChange(of: phase) { newPhase in
             if newPhase == .active {

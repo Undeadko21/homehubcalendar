@@ -413,3 +413,49 @@ def _checks(db: Database, cloud_status: dict, sessions_count: int, now: datetime
     add("devices", "warn" if fails >= 5 else "ok", f"Устройств с входом: {sessions_count}",
         f"неверных паролей за сутки: {fails}" if fails else "неверных паролей за сутки не было")
     return out
+
+
+# ---------- переход на свой домен ----------
+_DOMAIN_RE = re.compile(r"(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}")
+
+
+def _ips(host: str) -> set[str]:
+    import socket
+    try:
+        return {a[4][0] for a in socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)}
+    except OSError:
+        return set()
+
+
+def check_domain(db: Database, domain: str) -> dict:
+    """Готов ли домен стать публичным адресом: указывает туда же, куда текущий адрес, и отдаёт календарь по https с верным сертификатом."""
+    import httpx
+    d = (domain or "").strip().lower().removeprefix("https://").removeprefix("http://").split("/")[0]
+    if not _DOMAIN_RE.fullmatch(d):
+        return {"domain": d, "ok": False, "steps": [{"id": "name", "ok": False, "text": "Это не похоже на имя домена: нужно вроде calendar.ru"}]}
+    steps = []
+    ips = _ips(d)
+    cur = public_url(db)
+    cur_host = cur.removeprefix("https://").split("/")[0].split(":")[0] if cur else ""
+    want = _ips(cur_host) if cur_host else set()
+    if not ips:
+        steps.append({"id": "dns", "ok": False, "text": "Домен пока никуда не указывает (DNS). Добавьте у регистратора A-запись на адрес VPS и подождите до нескольких часов"})
+    elif want and not (ips & want):
+        steps.append({"id": "dns", "ok": False, "text": f"Домен указывает на {', '.join(sorted(ips))}, а сервер сейчас на {', '.join(sorted(want))}. Исправьте A-запись у регистратора"})
+    else:
+        steps.append({"id": "dns", "ok": True, "text": f"Домен указывает на {', '.join(sorted(ips))}"})
+    https_ok = False
+    if ips:
+        try:
+            r = httpx.get(f"https://{d}/api/health", timeout=8)
+            https_ok = r.status_code == 200 and bool(r.json().get("ok"))
+            steps.append({"id": "https", "ok": https_ok,
+                          "text": "Календарь открывается по https, сертификат в порядке" if https_ok else f"Сервер ответил {r.status_code}: проверьте настройку Caddy на VPS"})
+        except httpx.ConnectError as e:
+            cert = "certificate" in str(e).lower() or "ssl" in str(e).lower()
+            steps.append({"id": "https", "ok": False, "text": "Сертификат ещё не выписан или не подходит: добавьте домен в Caddyfile на VPS и перезагрузите Caddy" if cert
+                          else "Не удалось подключиться по https: на VPS не открыт порт 443 или Caddy не запущен"})
+        except Exception as e:  # noqa: BLE001
+            steps.append({"id": "https", "ok": False, "text": f"Не удалось проверить https ({type(e).__name__})"})
+    ok = all(s["ok"] for s in steps) and https_ok
+    return {"domain": d, "ok": ok, "url": f"https://{d}", "current": cur, "steps": steps}

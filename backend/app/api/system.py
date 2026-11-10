@@ -14,7 +14,7 @@ from .. import __version__
 from .. import live
 from fastapi import APIRouter
 
-from .. import core
+from .. import builds, core
 
 router = APIRouter()
 
@@ -52,6 +52,7 @@ def get_system():
     sources = core.db.sync_status()
     cl, bk = core.cloud.status(), core.backup.status()
     problems: list[str] = []
+    problems += builds.problems({"android": core.APP_DIR, "mac": core.MAC_DIR, "ios": core.IOS_DIR}, core.db)
     if core.ws.pending_count():
         problems.append(f"Не отправлено в Яндекс: {core.ws.pending_count()} (повторю сам, когда сервер ответит)")
     if core.ws.last_error():

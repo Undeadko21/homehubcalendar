@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>Подключение устройства</title>
+<style>
+  :root { --bg: #f2f2f7; --card: #fff; --ink: #1c1c1e; --ink2: #6e6e73; --line: #e5e5ea; --red: #ff3b30; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #000; --card: #1c1c1e; --ink: #f5f5f7; --ink2: #98989d; --line: #38383a; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, Roboto, sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 28px; margin: 8px 0 6px; }
+  p.lead { color: var(--ink2); margin: 0 0 24px; }
+  .group-title { font-size: 13px; color: var(--ink2); margin: 22px 16px 6px; }
+  .group { background: var(--card); border-radius: 12px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 10px 16px; position: relative; }
+  .row + .row::before { content: ''; position: absolute; top: 0; left: 16px; right: 0; border-top: .5px solid var(--line); }
+  .btn { display: block; width: 100%; text-align: center; border: 0; border-radius: 12px; padding: 14px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
+  .primary { background: var(--red); color: #fff; }
+  .plain { background: var(--card); color: var(--red); margin-top: 10px; }
+  .row a { color: var(--red); text-decoration: none; margin-left: auto; font-weight: 500; }
+  .note { font-size: 13px; color: var(--ink2); margin: 8px 16px 0; }
+  .icon { width: 64px; height: 64px; border-radius: 15px; background: var(--red); display: grid; place-items: center; color: #fff; font-size: 34px; }
+  .err { color: var(--red); }
+  ol { margin: 0; padding: 12px 16px 12px 36px; }
+  ol li + li { margin-top: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="icon" aria-hidden="true">📅</div>
+  <h1>Домашний календарь</h1>
+  <p class="lead" id="lead">Подключение нового устройства.</p>
+
+  <div id="ok" hidden>
+    <a class="btn primary" id="open" href="#">Открыть в приложении</a>
+    <button class="btn plain" id="copy" type="button">Скопировать код</button>
+    <p class="note" id="copied" hidden>Код скопирован. Вставьте его в приложении: Настройки → «Код подключения».</p>
+
+    <div class="group-title">Ещё нет приложения?</div>
+    <div class="group" id="apps"></div>
+    <div class="group-title">Если кнопка не открыла приложение</div>
+    <div class="group"><ol>
+      <li>Установите приложение по ссылке выше и откройте эту страницу снова.</li>
+      <li>Или нажмите «Скопировать код» и вставьте его в настройках приложения.</li>
+    </ol></div>
+    <p class="note">Код — как ключ от дома: не пересылайте его чужим людям. Он открыт только на этом устройстве и не уходит на сервер.</p>
+  </div>
+  <p id="bad" class="err" hidden>В ссылке нет кода подключения. Отсканируйте QR-код заново в настройках календаря: «Связь вне дома» → «Облако Яндекс.Диска».</p>
+</main>
+<script>
+  // Код лежит после «#»: эта часть адреса не отправляется на сервер.
+  var code = decodeURIComponent((location.hash || '').slice(1))
+  history.replaceState(null, '', location.pathname)   // не оставляем код в истории браузера
+  var ua = navigator.userAgent
+  var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)
+  var android = /Android/.test(ua)
+  var mac = /Macintosh/.test(ua) && !ios
+  if (!/^hhc1\.[A-Za-z0-9_-]{20,}$/.test(code)) {
+    document.getElementById('bad').hidden = false
+  } else {
+    document.getElementById('ok').hidden = false
+    document.getElementById('open').href = 'homehub://connect?c=' + encodeURIComponent(code)
+    document.getElementById('lead').textContent = 'Нажмите «Открыть в приложении» — приложение подключится само, адрес и пароль вводить не нужно.'
+    var apps = [
+      ['Android', '/app.apk', android],
+      ['iPhone (через AltStore)', '/altstore.json', ios],
+      ['Mac', '/app-mac.zip', mac],
+    ]
+    apps.sort(function (a, b) { return (b[2] ? 1 : 0) - (a[2] ? 1 : 0) })
+    var box = document.getElementById('apps')
+    apps.forEach(function (a) {
+      var row = document.createElement('div'); row.className = 'row'
+      var name = document.createElement('span'); name.textContent = a[0]
+      var link = document.createElement('a'); link.href = a[1]; link.textContent = a[1] === '/altstore.json' ? 'Источник' : 'Скачать'
+      row.appendChild(name); row.appendChild(link); box.appendChild(row)
+    })
+    document.getElementById('copy').onclick = function () {
+      var done = function () { document.getElementById('copied').hidden = false }
+      if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, function () { prompt('Скопируйте код:', code) })
+      else prompt('Скопируйте код:', code)
+    }
+  }
+</script>
+</body>
+</html>

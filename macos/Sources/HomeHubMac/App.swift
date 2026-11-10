@@ -29,6 +29,7 @@ struct HomeHubMacApp: App {
     var body: some Scene {
         Window("Домашний календарь", id: "main") {
             MainView(model: model)
+                .onOpenURL { url in model.connect(url: url) }
         }
         Window("Виджет", id: "widget") {
             DesktopWidgetView(model: model)

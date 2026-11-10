@@ -30,6 +30,9 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         UIBackgroundModes: [fetch]
+        CFBundleURLTypes:
+          - CFBundleURLName: ru.homehub.calendar.connect
+            CFBundleURLSchemes: [homehub]
         BGTaskSchedulerPermittedIdentifiers: [ru.homehub.calendar.refresh]
     dependencies:
       - target: HomeHubWidget

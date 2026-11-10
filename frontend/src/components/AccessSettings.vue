@@ -34,6 +34,30 @@
       </form>
       <p class="group-note">По этому адресу приложения заходят вне дома; он попадает в код подключения.</p>
 
+      <h3 class="group-title">Свой домен</h3>
+      <form class="group" @submit.prevent="checkDomain">
+        <div class="row stack">
+          <input v-model="domain" class="field" placeholder="например, homehubcalendar.ru" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Домен" />
+          <button class="btn" :disabled="busy || !domain.trim()">{{ dchecking ? 'Проверяю…' : 'Проверить домен' }}</button>
+        </div>
+        <template v-if="dres">
+          <div v-for="x in dres.steps" :key="x.id" class="row">
+            <i class="dot" :class="x.ok ? 'ok' : 'bad'" aria-hidden="true"></i><span class="lbl">{{ x.text }}</span>
+          </div>
+          <div v-if="dres.ok && dres.url !== st.public_url" class="row">
+            <button type="button" class="btn filled" :disabled="busy" @click="useDomain">Сделать основным адресом</button>
+          </div>
+          <div v-else-if="dres.ok" class="row"><span class="muted small">Это уже основной адрес.</span></div>
+        </template>
+      </form>
+      <Help title="Как подключить домен к VPS">
+        <p>1. У регистратора домена добавьте A-запись: имя «@», значение — IP вашего VPS. Обновление занимает от минут до нескольких часов.</p>
+        <p>2. На VPS под root добавьте домен в Caddy (старый адрес остаётся рабочим), команда целиком:</p>
+        <pre class="cmd">{{ caddyCmd }}</pre>
+        <button type="button" class="btn mini" @click="copy(caddyCmd)">Скопировать команду</button>
+        <p>3. Через минуту нажмите «Проверить домен». Когда всё зелёное — «Сделать основным адресом» и заново подключите приложения новым кодом (уже подключённые продолжат работать по старому адресу, пока он жив).</p>
+      </Help>
+
       <h3 class="group-title">Приложения и виджеты вне дома</h3>
       <div class="group">
         <label class="row">
@@ -169,6 +193,24 @@ const copied = ref(false)
 const tested = ref('')
 const qr = ref('')
 const dev = ref(null)
+const domain = ref('')
+const dres = ref(null)
+const dchecking = ref(false)
+async function checkDomain() {
+  dchecking.value = true; busy.value = true; err.value = ''
+  try { dres.value = await api.domainCheck(domain.value.trim()) } catch (e) { err.value = String(e.message || e) } finally { dchecking.value = false; busy.value = false }
+}
+async function useDomain() {
+  if (!confirm(`Сделать ${dres.value.url} основным адресом? Новые коды подключения будут вести на него.`)) return
+  await run(() => api.putAccess({ public_url: dres.value.url }))
+  publicUrl.value = st.value.public_url
+}
+const caddyCmd = computed(() => {
+  const d = (dres.value?.domain || domain.value.trim() || 'ваш-домен.ru').replace(/^https?:\/\//, '').split('/')[0]
+  const old = (st.value?.public_url || '').replace(/^https:\/\//, '')
+  const hosts = old && old !== d ? `${d}, ${old}` : d
+  return `cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak && sed -i '1s/^[^{]*{/${hosts} {/' /etc/caddy/Caddyfile && caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy`
+})
 const probed = ref('')
 const left = ref(0)
 let timer = null
@@ -255,6 +297,8 @@ onBeforeUnmount(() => clearInterval(timer))
 .err { color: var(--red); }
 .small { font-size: 13px; }
 .row.stack { flex-direction: column; align-items: stretch; gap: 8px; }
+.cmd { white-space: pre-wrap; word-break: break-all; font-size: 12px; background: var(--fill); padding: 8px 10px; border-radius: 8px; margin: 4px 0; }
+.mini { padding: 2px 8px; font-size: 13px; }
 .code { display: flex; gap: 8px; align-items: center; }
 .code code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; background: var(--fill); padding: 6px 8px; border-radius: 8px; }
 .switch {

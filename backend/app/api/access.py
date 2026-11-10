@@ -117,6 +117,15 @@ def revoke_all(body: RevokeAll, request: Request):
     return sessions(request)
 
 
+class DomainIn(BaseModel):
+    domain: str = Field(max_length=260)
+
+
+@router.post("/api/access/domain-check")
+def domain_check(body: DomainIn):
+    return access.check_domain(core.db, body.domain)
+
+
 @router.post("/api/access/ntfy-test")
 def ntfy_test():
     topic = access.ntfy_topic(core.db)

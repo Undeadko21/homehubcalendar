@@ -136,6 +136,20 @@ def put_cloud(body: CloudIn):
     return core.cloud.tick(force=True)
 
 
+class ClientIn(BaseModel):
+    client_id: str = ""
+
+
+@router.put("/api/cloud/client")
+def put_cloud_client(body: ClientIn):
+    """ID приложения на oauth.yandex.ru: с ним кнопка «Получить токен» достаёт токен сама, без копирования из адреса."""
+    try:
+        core.cloud.set_client_id(body.client_id)
+    except CloudError as e:
+        raise HTTPException(400, str(e))
+    return core.cloud.status()
+
+
 @router.post("/api/cloud/push")
 def push_cloud():
     return core.cloud.tick(force=True)

@@ -1,8 +1,10 @@
 """Раздача приложений (Android, macOS, iPhone/AltStore) и сведений об их версиях."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, FileResponse
 
 from fastapi import APIRouter
 
@@ -102,3 +104,12 @@ def altstore_source(request: Request):
             "downloadURL": version["downloadURL"]}
     return {"name": "Домашний календарь", "identifier": "ru.homehub.calendar.source", "sourceURL": f"{base}/altstore.json",
             "apps": [app_] if rel else [], "news": []}
+
+
+_CONNECT = Path(__file__).resolve().parent.parent / "connect_page.html"
+
+
+@router.get("/connect", include_in_schema=False)
+def connect_page():
+    """Страница для QR-кода подключения: код в адресе после «#» (на сервер не уходит), кнопка открывает приложение по homehub://connect."""
+    return HTMLResponse(_CONNECT.read_text(encoding="utf-8"), headers={"Cache-Control": "no-cache", "Referrer-Policy": "no-referrer"})

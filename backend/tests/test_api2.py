@@ -510,3 +510,59 @@ def test_access_checks_survive_timezone_aware_cloud_time(api):
     assert r.status_code == 200
     cloud = next(c for c in r.json()["checks"] if c["id"] == "cloud")
     assert cloud["level"] == "ok" and "назад" in cloud["detail"] or "только что" in cloud["detail"]
+
+
+def test_build_watchdog_reports_lag_after_grace(api, tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from app import builds
+    v = tmp_path / "versions"
+    v.mkdir()
+    (v / "android.properties").write_text("versionCode=18\nversionName=2.6.0\n")
+    (v / "macos.txt").write_text("1.3.0\n")
+    (v / "ios.txt").write_text("1.4.0\n")
+    monkeypatch.setenv("HOMECAL_VERSIONS_DIR", str(v))
+    dirs = {}
+    for k, body in (("android", '{"versionName": "2.6.0"}'), ("mac", '{"version": "1.2.1", "build": 8}'), ("ios", '{"version": "1.4.0"}')):
+        d = tmp_path / ("rel-" + k)
+        d.mkdir()
+        (d / "version.json").write_text(body)
+        dirs[k] = d
+    st = {b["app"]: b["behind"] for b in builds.status(dirs)}
+    assert st == {"android": False, "mac": True, "ios": False}
+    now = datetime(2026, 11, 10, 12, 0)
+    assert builds.problems(dirs, api.core.db, now) == []                       # первый час — CI ещё мог не успеть
+    late = builds.problems(dirs, api.core.db, now + timedelta(hours=2))
+    assert len(late) == 1 and "Mac" in late[0] and "1.2.1" in late[0]
+    (dirs["mac"] / "version.json").write_text('{"version": "1.3.0", "build": 11}')
+    assert builds.problems(dirs, api.core.db, now + timedelta(hours=3)) == []
+
+
+def test_cloud_client_id_and_connect_page(api):
+    assert api.put("/api/cloud/client", json={"client_id": "мусор"}).status_code == 400
+    r = api.put("/api/cloud/client", json={"client_id": "0123456789ABCDEF0123456789abcdef"})
+    assert r.status_code == 200 and r.json()["client_id"] == "0123456789abcdef0123456789abcdef"
+    page = api.get("/connect")
+    assert page.status_code == 200 and "homehub://connect" in page.text and page.headers["referrer-policy"] == "no-referrer"
+
+
+def test_domain_check(api, monkeypatch):
+    import httpx
+
+    from app import access
+    access.set_public_url(api.core.db, "https://168-113-183-46.sslip.io")
+    ips = {"168-113-183-46.sslip.io": {"168.113.183.46"}, "homehubcalendar.ru": {"168.113.183.46"}, "wrong.ru": {"1.2.3.4"}}
+    monkeypatch.setattr(access, "_ips", lambda h: ips.get(h, set()))
+
+    def fake_get(url, timeout=8):
+        if "homehubcalendar.ru" in url:
+            return httpx.Response(200, json={"ok": True}, request=httpx.Request("GET", url))
+        raise httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+    monkeypatch.setattr(httpx, "get", fake_get)
+    ok = api.post("/api/access/domain-check", json={"domain": "https://HomeHubCalendar.ru/"}).json()
+    assert ok["ok"] and ok["url"] == "https://homehubcalendar.ru" and all(s["ok"] for s in ok["steps"])
+    bad = api.post("/api/access/domain-check", json={"domain": "wrong.ru"}).json()
+    assert not bad["ok"] and "1.2.3.4" in bad["steps"][0]["text"]
+    none = api.post("/api/access/domain-check", json={"domain": "nowhere.ru"}).json()
+    assert not none["ok"] and "DNS" in none["steps"][0]["text"]
+    assert not api.post("/api/access/domain-check", json={"domain": "не домен"}).json()["ok"]
