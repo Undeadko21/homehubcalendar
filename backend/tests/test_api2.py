@@ -390,3 +390,100 @@ def test_altstore_uses_forwarded_scheme(api):
     r = api.get("/altstore.json", headers={"X-Forwarded-Proto": "https", "Host": "cal.example.ru"})
     assert r.status_code == 200
     assert r.json()["sourceURL"] == "https://cal.example.ru/altstore.json"
+
+
+def test_sessions_revoke_and_login_alerts(api, monkeypatch):
+    import time
+
+    from app import access
+    sent = []
+    monkeypatch.setattr(access, "_post_ntfy", lambda topic, title, text, priority="default": sent.append((title, text)))
+    monkeypatch.setattr(api.core.settings, "pin", "длинный пароль семьи", raising=False)
+    access.enable_ntfy(api.core.db)
+
+    def wait():
+        for _ in range(50):
+            if sent:
+                return
+            time.sleep(0.02)
+
+    ua = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17) AppleWebKit Safari/605", "X-Forwarded-For": "203.0.113.7"}
+    assert api.get("/api/lists").status_code == 401
+    assert api.post("/api/login", json={"pin": "длинный пароль семьи"}, headers=ua).status_code == 200
+    assert api.cookies.get("homecal_auth", "").startswith("s.")
+    wait()
+    assert sent and "новый вход" in sent[0][0].lower()          # первый вход с нового адреса — уведомление
+    sent.clear()
+    assert api.get("/api/lists").status_code == 200
+
+    # второе устройство
+    other = api.main.app
+    from fastapi.testclient import TestClient
+    c2 = TestClient(other)
+    assert c2.post("/api/login", json={"pin": "длинный пароль семьи"},
+                   headers={"User-Agent": "Mozilla/5.0 (Macintosh) Chrome/120", "X-Forwarded-For": "203.0.113.7"}).status_code == 200
+    assert not sent                                              # знакомый адрес — без уведомления
+    lst = api.get("/api/sessions").json()["sessions"]
+    assert len(lst) == 2 and sum(s["current"] for s in lst) == 1
+    assert {s["label"] for s in lst} == {"iPhone · Safari", "Mac · Chrome"}
+    mine = next(s for s in lst if s["current"])
+    theirs = next(s for s in lst if not s["current"])
+    assert c2.get("/api/lists").status_code == 200
+    assert api.delete(f"/api/sessions/{theirs['id']}").status_code == 200
+    assert c2.get("/api/lists").status_code == 401               # отключённое устройство вышло
+    assert api.get("/api/lists").status_code == 200              # это — нет
+    assert api.delete("/api/sessions/nope").status_code == 404
+
+    # подбор пароля: на 5-й ошибке подряд — уведомление
+    bad = {"X-Forwarded-For": "198.51.100.9"}
+    for _ in range(5):
+        api.post("/api/login", json={"pin": "x"}, headers=bad)
+    wait()
+    assert any("подбор" in t.lower() for t, _ in sent)
+    assert access.fails_last_day(api.core.db) >= 3
+
+    # «отключить все, кроме этого»: текущее остаётся
+    c3 = TestClient(other)
+    c3.post("/api/login", json={"pin": "длинный пароль семьи"}, headers={"X-Forwarded-For": "203.0.113.7"})
+    assert api.post("/api/sessions/revoke-all", json={"keep_current": True}).status_code == 200
+    assert api.get("/api/lists").status_code == 200 and c3.get("/api/lists").status_code == 401
+    assert mine["id"] in [s["id"] for s in api.get("/api/sessions").json()["sessions"]]
+
+
+def test_legacy_cookie_is_upgraded_and_can_be_revoked(api, monkeypatch):
+    import hashlib
+    import hmac
+    monkeypatch.setattr(api.core.settings, "pin", "длинный пароль семьи", raising=False)
+    legacy = hmac.new("длинный пароль семьи".encode(), b"homecal", hashlib.sha256).hexdigest()
+    api.cookies.set("homecal_auth", legacy)
+    r = api.get("/api/lists")
+    assert r.status_code == 200 and "s." in r.headers.get("set-cookie", "")   # заменили личной сессией
+    assert len(api.get("/api/sessions").json()["sessions"]) == 1
+    api.cookies.clear()
+    api.cookies.set("homecal_auth", legacy)
+    api.post("/api/sessions/revoke-all", json={"keep_current": False})
+    assert api.get("/api/lists").status_code == 401              # старый cookie больше не работает
+
+
+def test_access_checks_and_probe(api, monkeypatch):
+    from app import access
+    db = api.core.db
+    names = {c["id"]: c["level"] for c in api.get("/api/access").json()["checks"]}
+    assert names["public"] == "warn" and names["ntfy"] == "info" and names["devices"] == "ok"
+    access.set_public_url(db, "https://cal.example.ru")
+    monkeypatch.setattr(access, "probe_public", lambda db, timeout=8.0: {"ok": False, "error": "ConnectError", "at": "2026-01-01T00:00:00"})
+    sent = []
+    monkeypatch.setattr(access, "_post_ntfy", lambda topic, title, text, priority="default": sent.append(title))
+    access.enable_ntfy(db)
+    for _ in range(3):
+        access.watch(db)
+    import time
+    time.sleep(0.1)
+    assert access.WATCH["down"] and sent and "нет связи" in sent[0].lower()
+    res = api.post("/api/access/probe").json()
+    assert res["probe"]["ok"] is False
+    assert next(c for c in res["checks"] if c["id"] == "probe")["level"] == "bad"
+    monkeypatch.setattr(access, "probe_public", lambda db, timeout=8.0: {"ok": True, "ms": 40, "at": "2026-01-01T00:00:00"})
+    access.watch(db)
+    assert not access.WATCH["down"]
+    access.WATCH.update(fails=0, down=False, last=None, alerted=0.0)

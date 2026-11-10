@@ -61,6 +61,10 @@
         <span class="lbl">Уведомление «дом недоступен» <small class="muted block">приходит на телефон через бесплатное приложение ntfy, если туннель или домашний сервер не отвечают больше 10 минут</small></span>
         <input :checked="st.ntfy.enabled" type="checkbox" class="switch" @change="set({ ntfy: $event.target.checked })" />
       </label>
+      <label v-if="st.ntfy.enabled" class="row">
+        <span class="lbl">Сообщать о входах <small class="muted block">новый адрес, вход по QR и подбор пароля — сразу на телефон</small></span>
+        <input :checked="st.ntfy.login" type="checkbox" class="switch" @change="set({ login_alerts: $event.target.checked })" />
+      </label>
       <template v-if="st.ntfy.enabled">
         <div class="row stack">
           <span class="lbl">Как получать <small class="muted block">установите приложение ntfy, нажмите «+» и подпишитесь на тему:</small></span>
@@ -71,6 +75,30 @@
           <span v-if="tested" class="val muted">{{ tested }}</span></div>
       </template>
     </div>
+
+    <template v-if="dev && dev.pin">
+      <h3 class="group-title">Устройства, вошедшие в календарь</h3>
+      <div class="group">
+        <div v-for="d in dev.sessions" :key="d.id" class="row">
+          <span class="lbl">{{ d.label }}<b v-if="d.current" class="me"> · это устройство</b>
+            <small class="muted block">{{ d.via }} · был {{ fmt(d.last) }} · {{ d.ip }}</small></span>
+          <button class="btn" :disabled="busy" @click="revoke(d)">Отключить</button>
+        </div>
+        <div v-if="!dev.sessions.length" class="row"><span class="muted small">Пока никого нет.</span></div>
+        <div class="row stack">
+          <button class="btn" :disabled="busy" @click="revokeAll(true)">Отключить все, кроме этого</button>
+          <small class="muted block">Отключённому устройству придётся ввести пароль заново.{{ dev.legacy ? ' Кнопка также отключит устройства, которые входили давно и ещё не заходили после обновления.' : '' }} Смена пароля отключает все устройства.</small>
+        </div>
+      </div>
+      <template v-if="dev.log.length">
+        <h3 class="group-title">Журнал безопасности</h3>
+        <div class="group">
+          <div v-for="(e, i) in dev.log" :key="i" class="row">
+            <span class="lbl">{{ e.text }} <small class="muted block">{{ fmt(e.at) }}{{ e.ip ? ' · ' + e.ip : '' }}</small></span>
+          </div>
+        </div>
+      </template>
+    </template>
   </div>
 </template>
 
@@ -86,6 +114,8 @@ const err = ref('')
 const copied = ref(false)
 const tested = ref('')
 const qr = ref('')
+const dev = ref(null)
+const probed = ref('')
 const left = ref(0)
 let timer = null
 
@@ -96,7 +126,33 @@ const certText = computed(() => {
   return k.length ? ' · сертификат ' + k.map((n) => `${n}: ${c[n]} дн.`).join(', ') : ''
 })
 
+async function loadDevices() {
+  try { dev.value = await api.sessions() } catch { /* список устройств необязателен */ }
+}
+async function probe() {
+  busy.value = true; err.value = ''; probed.value = ''
+  try {
+    const r = await api.probeAccess()
+    st.value = { ...st.value, checks: r.checks }
+    probed.value = r.probe.ok ? `отвечает за ${r.probe.ms} мс` : `не отвечает (${r.probe.error})`
+  } catch (e) { err.value = String(e.message || e) } finally { busy.value = false }
+}
+async function revoke(d) {
+  if (!confirm(d.current ? 'Отключить это устройство? Придётся войти заново.' : `Отключить «${d.label}»?`)) return
+  busy.value = true; err.value = ''
+  try {
+    const r = await api.revokeSession(d.id)
+    if (r.was_current) location.reload()
+    dev.value = r
+  } catch (e) { err.value = String(e.message || e) } finally { busy.value = false }
+}
+async function revokeAll(keep) {
+  if (!confirm('Отключить все устройства, кроме этого?')) return
+  busy.value = true; err.value = ''
+  try { dev.value = await api.revokeAll(keep); await load() } catch (e) { err.value = String(e.message || e) } finally { busy.value = false }
+}
 async function load() {
+  loadDevices()
   try {
     st.value = await api.access()
     publicUrl.value = st.value.public_url || (location.protocol === 'https:' ? location.origin : '')
@@ -132,6 +188,11 @@ onBeforeUnmount(() => clearInterval(timer))
 </script>
 
 <style scoped>
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--ink-3); }
+.dot.ok { background: #34c759; }
+.dot.warn { background: #ff9500; }
+.dot.bad { background: #ff3b30; }
+.me { color: var(--red); font-weight: 600; }
 .qr-line { display: flex; align-items: center; gap: 12px; }
 .qr { display: block; margin: 8px 0 4px; border-radius: 10px; background: #fff; padding: 6px; }
 </style>

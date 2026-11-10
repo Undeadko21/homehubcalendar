@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from . import access, ops
+from . import sessions as sessions_mod
 from . import live
 from .perf import SLOW_MS
 from . import core
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI):
         core.scheduler.add_job(core.ws.flush, "interval", minutes=2, id="writeq", max_instances=1, coalesce=True)
         core.scheduler.add_job(core.cloud.tick, "interval", minutes=2, id="cloud", max_instances=1, coalesce=True)
         core.scheduler.add_job(poll_cloud, "interval", minutes=1, id="cloud-ops", max_instances=1, coalesce=True)
+        core.scheduler.add_job(lambda: access.watch(core.db), "interval", minutes=5, id="access-watch", max_instances=1, coalesce=True)
         core.scheduler.add_job(core.run_checks, "cron", hour=4, minute=10, id="checks", max_instances=1, coalesce=True,
                           misfire_grace_time=6 * 3600)
         core.scheduler.add_job(core.backup.run, "cron", hour=3, minute=30, id="backup", max_instances=1, coalesce=True,
@@ -93,21 +95,53 @@ async def timing(request: Request, call_next):
 _PUBLIC_API = ("/api/login", "/api/health", "/api/ready", "/api/app", "/api/app-mac", "/api/app-ios")
 
 
+def _pinfp() -> str:
+    return sessions_mod.pin_fingerprint(core.settings.pin)
+
+
+def _issue_cookie(resp, request: Request, secret: str) -> None:
+    secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"   # через HTTPS — cookie только по HTTPS
+    resp.set_cookie("homecal_auth", "s." + secret, max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax", secure=secure)
+
+
+def _new_session(request: Request, via: str) -> str:
+    return core.sessions.create(_pinfp(), sessions_mod.device_label(request.headers.get("user-agent", "")), _client_ip(request), via)
+
+
+def current_session(request: Request) -> str | None:
+    """Ключ сессии этого запроса (нужен списку устройств, чтобы пометить «это устройство»)."""
+    c = request.cookies.get("homecal_auth", "")
+    if c.startswith("s.") and core.settings.pin:
+        k = sessions_mod._key(c[2:])
+        return k if k in core.sessions._data() else None
+    return getattr(request.state, "session_key", None)
+
+
 @app.middleware("http")
 async def pin_guard(request: Request, call_next):
     path = request.url.path
+    upgrade_secret = None
     if core.settings.pin and path.startswith("/api/") and path not in _PUBLIC_API and not path.startswith("/api/login/qr/"):
-        if hmac.compare_digest(request.cookies.get("homecal_auth", ""), _token()):
+        cookie = request.cookies.get("homecal_auth", "")
+        if cookie.startswith("s.") and core.sessions.check(cookie[2:], _pinfp(), _client_ip(request)):
             pass
+        elif cookie and not cookie.startswith("s.") and core.sessions.legacy_ok() and hmac.compare_digest(cookie, _token()):
+            # Старый общий cookie: молча заменяем личной сессией, чтобы устройство появилось в списке и его можно было отключить.
+            upgrade_secret = _new_session(request, "прежний вход")
+            request.state.session_key = sessions_mod._key(upgrade_secret)
+            access.remember_ip(core.db, _client_ip(request))
         elif request.method == "GET" and path in ("/api/widget", "/api/snapshot") and \
                 access.check(core.db, "widget", request.headers.get("x-widget-token", "")):
-            pass   # токен виджета: только чтение сводки, ничего не меняет
+            access.touch_widget(core.db)   # токен виджета: только чтение сводки, ничего не меняет
         elif path in ("/api/vps/ingest", "/api/vps/install.sh") and \
                 access.check(core.db, "vps", access.bearer(request.headers.get("authorization", ""))):
             pass   # VPS-агент приходит с токеном через обратный туннель
         else:
             return JSONResponse({"detail": "auth_required"}, status_code=401)
-    return await call_next(request)
+    resp = await call_next(request)
+    if upgrade_secret:
+        _issue_cookie(resp, request, upgrade_secret)
+    return resp
 
 
 class Login(BaseModel):
@@ -144,10 +178,19 @@ def login(body: Login, request: Request, response: Response):
         _FAILS[ip] = [n, time_module.time() + (min(3600, 60 * 2 ** (n - 5)) if n >= 5 else 0)]
         if len(_FAILS) > 500:
             _FAILS.clear()
+        label = sessions_mod.device_label(request.headers.get("user-agent", ""))
+        # Событие в журнал — на каждую ошибку подряд с 3-й; уведомление на телефон — когда адрес заблокирован (5, 10, 15… ошибок).
+        if n >= 3:
+            access.event(core.db, "fail", f"Неверный пароль ({n}-я попытка подряд), {label}", ip=ip, alert=n >= 5 and n % 5 == 0,
+                         title="HomeHub: подбор пароля?", priority="high")
         raise HTTPException(401, "Неверный PIN")
     _FAILS.pop(ip, None)
-    secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"   # через HTTPS — cookie только по HTTPS
-    response.set_cookie("homecal_auth", _token(), max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax", secure=secure)
+    _issue_cookie(response, request, _new_session(request, "пароль"))
+    label = sessions_mod.device_label(request.headers.get("user-agent", ""))
+    if access.remember_ip(core.db, ip):
+        access.event(core.db, "login", f"Новый вход с нового адреса: {label}", ip=ip, alert=True, title="HomeHub: новый вход")
+    else:
+        access.event(core.db, "login", f"Вход: {label}", ip=ip)
     return {"ok": True}
 
 
@@ -168,8 +211,10 @@ def login_qr_use(link: str, request: Request):
         _FAILS.pop(ip, None)
         resp = RedirectResponse("/", status_code=303)
         if core.settings.pin:
-            secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
-            resp.set_cookie("homecal_auth", _token(), max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax", secure=secure)
+            _issue_cookie(resp, request, _new_session(request, "QR-код"))
+            access.remember_ip(core.db, ip)
+            access.event(core.db, "login", f"Вход по QR-коду: {sessions_mod.device_label(request.headers.get('user-agent', ''))}", ip=ip,
+                         alert=True, title="HomeHub: вход по QR")
         return resp
     n = (_FAILS.get(ip) or [0, 0])[0] + 1
     _FAILS[ip] = [n, time_module.time() + (min(3600, 60 * 2 ** (n - 5)) if n >= 5 else 0)]

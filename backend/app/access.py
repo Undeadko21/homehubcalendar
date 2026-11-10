@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import base64
 import hmac
+import logging
 import re
 import secrets
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -100,8 +102,20 @@ def enable_ntfy(db: Database) -> str:
     t = ntfy_topic(db)
     if not t:
         t = "homehub-" + secrets.token_hex(8)
-        db.kv_set("settings:ntfy", {"topic": t})
+        db.kv_set("settings:ntfy", {"topic": t, "login": True})
     return t
+
+
+def login_alerts(db: Database) -> bool:
+    """Сообщать ли о новых входах и подборе пароля (по умолчанию да, когда ntfy включён)."""
+    value, _ = db.kv_get("settings:ntfy")
+    return bool((value or {}).get("topic")) and (value or {}).get("login", True) is not False
+
+
+def set_login_alerts(db: Database, on: bool) -> None:
+    value, _ = db.kv_get("settings:ntfy")
+    if (value or {}).get("topic"):
+        db.kv_set("settings:ntfy", {**value, "login": bool(on)})
 
 
 def disable_ntfy(db: Database) -> None:
@@ -164,4 +178,220 @@ def problems(db: Database, now: datetime | None = None) -> list[str]:
             out.append(f"Сертификат {name} истекает через {days} дн.")
     if r.get("caddy") is False:
         out.append("На VPS не запущен Caddy")
+    return out
+
+
+# ---------- журнал безопасности и уведомления о входах ----------
+log = logging.getLogger("homecal")
+LOG_KEY = "auth:log"          # зашифрован: внутри адреса
+IPS_KEY = "auth:ips"
+_lock = threading.Lock()
+
+
+def _post_ntfy(topic: str, title: str, text: str, priority: str = "default") -> None:
+    import httpx
+    try:
+        httpx.post(f"https://ntfy.sh/{topic}", content=text.encode(), headers={"Title": title.encode("utf-8"), "Priority": priority}, timeout=15)
+    except Exception as e:  # noqa: BLE001
+        log.warning("ntfy: %s", type(e).__name__)
+
+
+def event(db: Database, kind: str, text: str, ip: str = "", alert: bool = False, title: str = "HomeHub: безопасность",
+          priority: str = "default", now: datetime | None = None) -> None:
+    """Запись в журнал безопасности; при alert — ещё и уведомление на телефон (в фоне, вход не задерживаем)."""
+    now = now or datetime.now()
+    with _lock:
+        value, _ = db.kv_get(LOG_KEY)
+        items = list(value or [])
+        items.append({"at": now.isoformat(timespec="seconds"), "kind": kind, "text": text[:200], "ip": ip[:64]})
+        db.kv_set(LOG_KEY, items[-60:])
+    if alert and login_alerts(db):
+        threading.Thread(target=_post_ntfy, args=(ntfy_topic(db), title, text, priority), daemon=True).start()
+
+
+def security_log(db: Database, limit: int = 15) -> list[dict]:
+    value, _ = db.kv_get(LOG_KEY)
+    return list(reversed(list(value or [])))[:limit]
+
+
+def fails_last_day(db: Database, now: datetime | None = None) -> int:
+    now = now or datetime.now()
+    value, _ = db.kv_get(LOG_KEY)
+    n = 0
+    for e in value or []:
+        if e.get("kind") == "fail":
+            try:
+                if now - datetime.fromisoformat(e["at"]) < timedelta(days=1):
+                    n += 1
+            except ValueError:
+                pass
+    return n
+
+
+def remember_ip(db: Database, ip: str) -> bool:
+    """Запоминает адрес входа; True, если с этого адреса ещё не входили."""
+    if not ip or ip == "?":
+        return False
+    with _lock:
+        value, _ = db.kv_get(IPS_KEY)
+        ips = list(value or [])
+        if ip in ips:
+            return False
+        ips.append(ip)
+        db.kv_set(IPS_KEY, ips[-200:])
+    return True
+
+
+# ---------- чтение виджетов по токену: когда последний раз ----------
+_seen_at = 0.0
+
+
+def touch_widget(db: Database) -> None:
+    global _seen_at
+    now = time.time()
+    if now - _seen_at < 120:
+        return
+    _seen_at = now
+    db.kv_set("settings:widget_seen", {"at": datetime.now().isoformat(timespec="seconds")})
+
+
+def widget_seen(db: Database) -> str | None:
+    value, _ = db.kv_get("settings:widget_seen")
+    return (value or {}).get("at")
+
+
+# ---------- проверка публичного адреса снаружи ----------
+WATCH = {"fails": 0, "down": False, "last": None, "alerted": 0.0}
+
+
+def probe_public(db: Database, timeout: float = 8.0) -> dict:
+    """Обращается к публичному адресу так же, как телефон вне дома: DNS → Caddy → туннель → сервер."""
+    import httpx
+    url = public_url(db)
+    if not url:
+        return {"ok": False, "error": "адрес не задан", "at": datetime.now().isoformat(timespec="seconds")}
+    t0 = time.time()
+    try:
+        r = httpx.get(url + "/api/health", timeout=timeout, follow_redirects=False)
+        ok = r.status_code == 200 and bool(r.json().get("ok"))
+        res = {"ok": ok, "status": r.status_code, "ms": int((time.time() - t0) * 1000)}
+        if not ok:
+            res["error"] = f"ответ {r.status_code}"
+    except Exception as e:  # noqa: BLE001
+        res = {"ok": False, "error": type(e).__name__}
+    res["at"] = datetime.now().isoformat(timespec="seconds")
+    return res
+
+
+def watch(db: Database) -> None:
+    """Раз в 5 минут: отвечает ли публичный адрес. Три неудачи подряд — уведомление, потом напоминание раз в 6 часов и сообщение о восстановлении.
+    Дополняет агента на VPS: если упадёт сам VPS, его агент ничего не скажет, а домашний сервер — скажет."""
+    if not public_url(db):
+        return
+    res = probe_public(db)
+    WATCH["last"] = res
+    if res["ok"]:
+        if WATCH["down"]:
+            WATCH.update(down=False, fails=0, alerted=0.0)
+            event(db, "net", "Публичный адрес снова отвечает", alert=True, title="HomeHub: связь восстановлена")
+        WATCH["fails"] = 0
+        return
+    WATCH["fails"] += 1
+    if WATCH["fails"] >= 3 and (not WATCH["down"] or time.time() - WATCH["alerted"] > 6 * 3600):
+        first = not WATCH["down"]
+        WATCH["down"] = True
+        WATCH["alerted"] = time.time()
+        event(db, "net", f"Публичный адрес не отвечает снаружи ({res.get('error')}): проверьте VPS, туннель и домен" + ("" if first else " — всё ещё"),
+              alert=True, title="HomeHub: нет связи снаружи", priority="high")
+
+
+# ---------- сводка состояния доступа ----------
+
+def _ago(iso: str | None, now: datetime) -> str:
+    if not iso:
+        return ""
+    try:
+        m = int((now - datetime.fromisoformat(iso)).total_seconds() // 60)
+    except ValueError:
+        return ""
+    if m < 1:
+        return "только что"
+    if m < 90:
+        return f"{m} мин назад"
+    if m < 48 * 60:
+        return f"{m // 60} ч назад"
+    return f"{m // 1440} дн. назад"
+
+
+def checks(db: Database, cloud_status: dict, sessions_count: int, now: datetime | None = None) -> list[dict]:
+    """Единый список «всё ли в порядке с доступом вне дома»: level = ok | warn | bad | info."""
+    now = now or datetime.now()
+    out: list[dict] = []
+
+    def add(id_: str, level: str, title: str, detail: str = "") -> None:
+        out.append({"id": id_, "level": level, "title": title, "detail": detail})
+
+    url = public_url(db)
+    if url:
+        add("public", "ok", "Публичный адрес задан", url)
+    else:
+        add("public", "warn", "Публичный адрес не задан", "приложения вне дома смогут читать только облако Яндекс.Диска")
+
+    last = WATCH.get("last")
+    if not url:
+        pass
+    elif not last:
+        add("probe", "info", "Проверка снаружи ещё не выполнялась", "делается каждые 5 минут или кнопкой ниже")
+    elif last["ok"]:
+        add("probe", "ok", "Снаружи сервер отвечает", f"{last.get('ms', '?')} мс · {_ago(last['at'], now)}")
+    else:
+        add("probe", "bad", "Снаружи сервер не отвечает", f"{last.get('error', '')} · {_ago(last['at'], now)}: проверьте VPS, туннель и домен")
+
+    if not enabled(db, "vps"):
+        add("vps", "info", "Агент на VPS не подключён", "включите «Следить за VPS» ниже — получите отчёты о диске и сертификате")
+    else:
+        r = last_report(db)
+        if not r:
+            add("vps", "warn", "От агента на VPS не было отчётов", "выполните команду установки на VPS")
+        else:
+            try:
+                old = now - datetime.fromisoformat(r["at"]) > timedelta(hours=3)
+            except ValueError:
+                old = False
+            certs = r.get("certs") or {}
+            cert = f", сертификат {min(certs.values())} дн." if certs else ""
+            detail = f"отчёт {_ago(r['at'], now)} · диск {r.get('disk_pct', 0)}%{cert}"
+            bad = old or r.get("caddy") is False or any(d < 5 for d in certs.values())
+            warn = r.get("disk_pct", 0) >= 85 or any(d < 14 for d in certs.values())
+            add("vps", "bad" if bad else "warn" if warn else "ok", "Агент на VPS", detail)
+        b = backup_info(db)
+        if b:
+            try:
+                stale = now - datetime.fromisoformat(b["at"]) > timedelta(hours=48)
+            except ValueError:
+                stale = False
+            add("vps-backup", "warn" if stale else "ok", "Копия настроек VPS", _ago(b["at"], now))
+
+    if enabled(db, "widget"):
+        seen = widget_seen(db)
+        add("widget", "ok" if seen else "info", "Виджеты читают сервер вне дома",
+            f"последнее чтение {_ago(seen, now)}" if seen else "по токену ещё ни разу не читали — переподключите приложения новым кодом")
+    else:
+        add("widget", "info", "Виджеты вне дома читают облако", "токен «только чтение» выключен: данные обновляются раз в час")
+
+    if not cloud_status.get("configured"):
+        add("cloud", "warn", "Облако Яндекс.Диска не подключено", "без него нет запасного пути и копий")
+    elif cloud_status.get("last_error"):
+        add("cloud", "bad", "Облако Яндекс.Диска: ошибка", str(cloud_status["last_error"])[:120])
+    else:
+        add("cloud", "ok", "Облако Яндекс.Диска", f"снимок записан {_ago(cloud_status.get('last_ok'), now)}")
+
+    if ntfy_topic(db):
+        add("ntfy", "ok", "Уведомления на телефон включены", "в том числе о новых входах" if login_alerts(db) else "о входах — выключены")
+    else:
+        add("ntfy", "info", "Уведомления на телефон выключены", "включите ntfy ниже, чтобы узнавать о сбоях и новых входах")
+
+    fails = fails_last_day(db, now)
+    add("devices", "warn" if fails >= 5 else "ok", f"Устройств с входом: {sessions_count}",
+        f"неверных паролей за сутки: {fails}" if fails else "неверных паролей за сутки не было")
     return out

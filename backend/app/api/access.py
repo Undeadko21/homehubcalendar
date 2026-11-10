@@ -19,6 +19,7 @@ class AccessIn(BaseModel):
     widget: bool | None = None     # включить / выключить токен «только чтение» для виджетов
     vps: bool | None = None        # включить / выключить связь с VPS-агентом
     ntfy: bool | None = None       # уведомления «дом недоступен»
+    login_alerts: bool | None = None   # сообщать о новых входах и подборе пароля
 
 
 def _state() -> dict:
@@ -32,7 +33,8 @@ def _state() -> dict:
                 "problems": access.problems(db),
                 "install": f'curl -fsS -H "Authorization: Bearer {access.token(db, "vps")}" '
                            f'http://127.0.0.1:18080/api/vps/install.sh | bash' if vps_on else None},
-        "ntfy": {"enabled": bool(topic), "topic": topic or None},
+        "ntfy": {"enabled": bool(topic), "topic": topic or None, "login": access.login_alerts(db)},
+        "checks": access.checks(db, core.cloud.status(), len(core.sessions._data())),
     }
 
 
@@ -61,6 +63,8 @@ def put_access(body: AccessIn):
         access.enable_ntfy(db)
     elif body.ntfy is False:
         access.disable_ntfy(db)
+    if body.login_alerts is not None:
+        access.set_login_alerts(db, body.login_alerts)
     core.cloud.tick(force=True)   # код подключения мог измениться — обновим снимок
     return _state()
 
@@ -72,6 +76,45 @@ def rotate(which: str):
     access.rotate(core.db, which)
     core.cloud.tick(force=True)
     return _state()
+
+
+@router.post("/api/access/probe")
+def probe():
+    """Проверка «снаружи» по кнопке: ответ виден сразу, результат попадает и в сводку."""
+    res = access.probe_public(core.db)
+    access.WATCH["last"] = res
+    return {"probe": res, "checks": _state()["checks"]}
+
+
+def _current(request: Request):
+    from ..main import current_session
+    return current_session(request)
+
+
+@router.get("/api/sessions")
+def sessions(request: Request):
+    return {"sessions": core.sessions.listing(_current(request)), "legacy": core.sessions.legacy_ok(),
+            "pin": bool(core.settings.pin), "log": access.security_log(core.db)}
+
+
+@router.delete("/api/sessions/{sid}")
+def revoke_session(sid: str, request: Request):
+    cur = _current(request)
+    if not core.sessions.revoke(sid):
+        raise HTTPException(404, "Такого устройства нет в списке")
+    access.event(core.db, "revoke", "Устройство отключено вручную", ip="")
+    return sessions(request) | {"was_current": bool(cur and cur[:12] == sid)}
+
+
+class RevokeAll(BaseModel):
+    keep_current: bool = True
+
+
+@router.post("/api/sessions/revoke-all")
+def revoke_all(body: RevokeAll, request: Request):
+    n = core.sessions.revoke_all(_current(request) if body.keep_current else None)
+    access.event(core.db, "revoke", f"Отключено устройств: {n}" + (" (кроме текущего)" if body.keep_current else ""))
+    return sessions(request)
 
 
 @router.post("/api/access/ntfy-test")

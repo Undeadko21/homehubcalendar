@@ -19,6 +19,7 @@ from .events import EventService
 from . import quick
 from . import snapshot, writer, writeq
 from .backup import BackupService
+from .sessions import Sessions
 from .perf import PerfLog
 from .cloud import CloudSync
 from .holidays import HolidayService
@@ -36,6 +37,7 @@ engine.seed_people(settings.people)
 scheduler = BackgroundScheduler(timezone=tz)
 cloud = CloudSync(db, lambda: snapshot.build(events, db, tz))
 backup = BackupService(db, cloud, tz)
+sessions = Sessions(db)
 STARTED = datetime.now(tz)
 
 # Приложение для Android: собранный APK и его версия (android/release в репозитории).
