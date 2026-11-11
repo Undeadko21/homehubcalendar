@@ -72,7 +72,7 @@ enum Notifier {
 
     /// Код подключения этого устройства (его хранит AppModel); для кнопок нужен токен записи `t`.
     static var code: ConnectionCode? {
-        UserDefaults.standard.string(forKey: "cloudCode").flatMap { ConnectionCode.parse($0) }
+        UserDefaults.standard.string(forKey: "cloudCode").flatMap { Cloud.parse($0) }
     }
 
     /// Кнопки «Отвезу я / Заберу я / Не могу» для срочного напоминания о поездке (как на Android).
