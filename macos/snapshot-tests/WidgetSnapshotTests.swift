@@ -30,6 +30,7 @@ final class WidgetSnapshotTests: XCTestCase {
             Event(id: "6", title: "День рождения бабушки", start: iso(at(1, 0)), end: iso(at(2, 0)), allDay: true, people: ["olya"]),
         ]
         let m = AppModel()
+        m.serverURL = "http://preview.invalid"    // «подключено»; данные подставляет loadPreview
         m.loadPreview(Snapshot(generated: iso(now), people: people, events: events), now: now)
         return m
     }
@@ -37,6 +38,7 @@ final class WidgetSnapshotTests: XCTestCase {
     func testRenderWidgets() throws {
         let dir = URL(fileURLWithPath: ProcessInfo.processInfo.environment["WIDGET_SNAP_DIR"] ?? NSTemporaryDirectory())
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        DesktopWidgetView.rendering = true
         let m = model()
         var written = 0
         for size in WidgetSize.allCases {

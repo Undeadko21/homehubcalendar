@@ -25,6 +25,8 @@ extension Notification.Name {
 }
 
 struct DesktopWidgetView: View {
+    /// Тесты рисуют виджет в картинку (ImageRenderer): окно-обёртка NSViewRepresentable там не рисуется, поэтому её отключают.
+    static var rendering = false
     @ObservedObject var model: AppModel
     @AppStorage("widget.scale") private var scale = 1.0
     @AppStorage("widget.opacity") private var opacity = 0.85
@@ -96,7 +98,7 @@ struct DesktopWidgetView: View {
                 .opacity(opacity)
         )
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .background(WidgetWindowConfigurator())
+        .background { if !DesktopWidgetView.rendering { WidgetWindowConfigurator() } }
         .onTapGesture(count: 2) { NSApp.activate(ignoringOtherApps: true); openWindow(id: "main") }
         .contextMenu {
             Button("Обновить") { Task { await model.refresh() } }
