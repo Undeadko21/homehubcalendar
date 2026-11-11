@@ -156,29 +156,7 @@
       <!-- Вложения и ссылки: справка, билет, запись к врачу -->
       <template v-if="!e.private && !e.birthday">
         <h3 class="group-title">Вложения и ссылки</h3>
-        <div class="group files">
-          <div v-for="f in files" :key="f.id" class="row file">
-            <span class="fi" aria-hidden="true">{{ f.url ? '🔗' : f.mime.startsWith('image/') ? '🖼' : '📄' }}</span>
-            <a :href="f.url || `/api/event-files/${f.id}/raw`" target="_blank" rel="noopener" class="val fname">
-              {{ f.name || f.url }}<small v-if="!f.url" class="faint"> · {{ sizeText(f.size) }}</small>
-            </a>
-            <button class="x" :disabled="saving" aria-label="Удалить вложение" @click="removeFile(f)">×</button>
-          </div>
-          <p v-if="!files.length && !adding" class="row faint small nofiles">Пока ничего нет.</p>
-          <form v-if="adding === 'link'" class="row linkform" @submit.prevent="saveLink">
-            <input v-model="linkUrl" class="in" type="url" placeholder="https://…" aria-label="Ссылка" required />
-            <input v-model="linkName" class="in" placeholder="Название (необязательно)" aria-label="Название ссылки" />
-            <button class="btn filled sm" :disabled="saving || !linkUrl.trim()">Добавить</button>
-            <button type="button" class="btn sm" @click="adding = null">Отмена</button>
-          </form>
-          <div class="row actions">
-            <label class="btn link" :class="{ off: saving }">
-              {{ uploading ? 'Загружаю…' : '＋ Файл или фото' }}
-              <input type="file" multiple hidden :disabled="saving" @change="upload" />
-            </label>
-            <button class="btn link" :disabled="saving" @click="adding = 'link'; linkUrl = ''; linkName = ''">＋ Ссылка</button>
-          </div>
-        </div>
+        <FilesBox :uid="e.uid" @changed="reload()" />
         <p class="group-note">{{ e.recurring ? 'Вложения общие для всех повторов. ' : '' }}Хранятся на домашнем сервере (до 15 МБ на файл), в Яндекс не попадают.</p>
       </template>
       <p v-if="e.private" class="faint small">Детали скрыты: у календаря включено «только занят».</p>
@@ -195,6 +173,7 @@ import { eventRange, formatEventTime, formatTime, relativeDayName } from '../lib
 import { api } from '../lib/api'
 import PeoplePicker from './PeoplePicker.vue'
 import ColorPick from './ColorPick.vue'
+import FilesBox from './FilesBox.vue'
 import Sheet from './Sheet.vue'
 
 const MODES = [
@@ -259,56 +238,6 @@ const shownRoles = computed(() => {
   return ROLES.filter((r) => !esc.only || esc.only === r.id)
 })
 
-// --- вложения и ссылки ---
-const files = ref([])
-const adding = ref(null)
-const uploading = ref(false)
-const linkUrl = ref('')
-const linkName = ref('')
-const sizeText = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' МБ' : Math.max(1, Math.round(n / 1024)) + ' КБ')
-async function loadFiles() {
-  const uid = e.value?.uid
-  if (!uid || e.value.private) { files.value = []; return }
-  try {
-    const list = await api.eventFiles(uid)
-    if (e.value?.uid === uid) files.value = list
-  } catch { files.value = [] }
-}
-async function upload(ev) {
-  const picked = [...(ev.target.files || [])]
-  ev.target.value = ''
-  if (!picked.length) return
-  saving.value = uploading.value = true
-  error.value = ''
-  try {
-    for (const f of picked) {
-      if (f.size > 15 * 1024 * 1024) throw new Error(`«${f.name}» больше 15 МБ`)
-      await api.uploadEventFile(e.value.uid, f)
-    }
-  } catch (err) { error.value = 'Не удалось загрузить: ' + err.message }
-  saving.value = uploading.value = false
-  await loadFiles()
-  reload()
-}
-async function saveLink() {
-  saving.value = true
-  error.value = ''
-  try {
-    await api.addEventLink(e.value.uid, linkUrl.value.trim(), linkName.value.trim())
-    adding.value = null
-  } catch (err) { error.value = err.message }
-  saving.value = false
-  await loadFiles()
-  reload()
-}
-async function removeFile(f) {
-  saving.value = true
-  try { await api.deleteEventFile(f.id) } catch (err) { error.value = err.message }
-  saving.value = false
-  await loadFiles()
-  reload()
-}
-
 // --- время в дороге по карте ---
 const routing = ref(false)
 const routeNote = ref('')
@@ -368,9 +297,7 @@ watch(() => e.value?.id, () => {
   editingPeople.value = false
   error.value = ''
   scope.value = 'series'
-  adding.value = null
   routeNote.value = ''
-  loadFiles()
 })
 
 function startEdit() {
@@ -472,16 +399,6 @@ h2 { flex: 1; margin: 0; font-size: 22px; line-height: 1.2; font-weight: 700; le
 .details { margin-top: 20px; }
 .where .val { flex: 1; min-width: 0; }
 .route { flex: none; background: var(--fill); border-radius: 999px; padding: 4px 12px; font-weight: 600; text-decoration: none; }
-.file { gap: 10px; align-items: center; }
-.fi { flex: none; width: 22px; text-align: center; }
-.fname { flex: 1; min-width: 0; }
-.files .x { border: 0; background: none; color: var(--ink-3); font-size: 20px; line-height: 1; padding: 4px 8px; flex: none; }
-.files .actions { gap: 18px; }
-.files label.btn { cursor: pointer; }
-.files label.off { opacity: .5; pointer-events: none; }
-.linkform { flex-wrap: wrap; gap: 8px; }
-.linkform .in { flex: 1 1 180px; min-width: 0; font: inherit; padding: 7px 10px; border-radius: 8px; border: .5px solid var(--line); background: var(--surface); color: var(--ink); }
-.nofiles { padding-top: 10px; padding-bottom: 4px; }
 .choice.map { box-shadow: inset 0 0 0 1px var(--tint); color: var(--tint); }
 .desc { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); }
 .src { margin-top: 14px; }

@@ -12,6 +12,7 @@
     <form class="quick" @submit.prevent="addQuick">
       <input v-model="quickText" placeholder="Быстро: «Йога завтра в 18:30», «купить молоко», «дело: …»" aria-label="Быстро добавить событие, дело или покупку"
              autocomplete="off" enterkeyhint="go" />
+      <MicButton @text="(t) => { quickText = t; addQuick() }" @error="(m) => toast(m)" />
       <button class="btn filled" :disabled="!quickText.trim()">＋</button>
     </form>
 
@@ -77,6 +78,7 @@ import EscortBadge from '../components/EscortBadge.vue'
 import WeatherNow from '../components/WeatherNow.vue'
 import DayGrid from '../components/DayGrid.vue'
 import BirthdayStrip from '../components/BirthdayStrip.vue'
+import MicButton from '../components/MicButton.vue'
 
 const now = ref(new Date())
 const daySec = ref(null)

@@ -44,8 +44,9 @@
               <span v-if="i.person_id" class="who" :style="{ '--c': colorOf(i.person_id) }"><i></i>{{ nameOf(i.person_id) }}</span>
               <span v-if="i.due" :class="{ late: !i.done && i.due < today }">до {{ dueText(i.due) }}</span>
             </small>
+            <small v-if="i.files" class="meta"><span class="clip">📎 {{ i.files }}</span></small>
           </span>
-          <button class="x" aria-label="Кому и когда" title="Кому и когда" @click="editId = editId === i.id ? null : i.id">⋯</button>
+          <button class="x" :class="{ has: i.files }" aria-label="Кому, когда и вложения" title="Кому, когда и вложения" @click="editId = editId === i.id ? null : i.id">⋯</button>
           <button class="x" aria-label="Удалить" @click="remove(i)">×</button>
           <div v-if="editId === i.id" class="edit">
             <select :value="i.person_id || ''" class="sel" aria-label="Кому" @change="setPerson(i, $event.target.value)">
@@ -53,6 +54,7 @@
               <option v-for="p in people" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
             <input :value="i.due || ''" class="sel" type="date" aria-label="Срок" @change="setDue(i, $event.target.value)" />
+            <FilesBox class="ifiles" :uid="'item:' + i.id" empty="Справка, билет, фото чека…" @changed="(n) => (i.files = n)" />
           </div>
         </div>
       </div>
@@ -74,6 +76,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../lib/api'
 import { state, people as allPeople, personById, toast } from '../lib/store'
 import { vSwipe } from '../lib/swipe'
+import FilesBox from '../components/FilesBox.vue'
 
 const lists = ref([])
 const currentId = ref(null)
@@ -185,6 +188,9 @@ async function createList() {
 .manage { display: flex; gap: 4px; flex-wrap: wrap; }
 .danger { color: var(--red); }
 .err { color: var(--red); font-size: 14px; }
+.ifiles { flex-basis: 100%; margin-top: 4px; border-radius: 10px; }
+.ifiles :deep(.row) { padding-left: 10px; }
+.clip { color: var(--ink-2); }
 .swipe-hint { margin: -6px 4px 0; font-size: 13px; }
 .item.swiping { background: var(--surface); }
 .item.swipe-go { background: color-mix(in srgb, var(--ok) 22%, var(--surface)); }

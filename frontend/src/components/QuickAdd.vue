@@ -3,6 +3,7 @@
     <form class="qa" @submit.prevent="go">
       <input ref="input" v-model="text" class="field" placeholder="Событие, дело или покупка — одной фразой"
              aria-label="Быстро добавить" autocomplete="off" enterkeyhint="go" />
+      <MicButton :disabled="busy" @text="heard" @error="(m) => (error = m)" />
       <button class="btn filled" :disabled="busy || !text.trim()">{{ busy ? '…' : 'Добавить' }}</button>
     </form>
     <p v-if="error" class="err">{{ error }}</p>
@@ -11,7 +12,7 @@
         <span class="kind" :class="x.k">{{ x.label }}</span><span class="ph">{{ x.t }}</span>
       </button>
     </div>
-    <p class="faint small note">Событие откроется в форме для проверки, дело и покупки добавятся сразу.</p>
+    <p class="faint small note">Событие откроется в форме для проверки, дело и покупки добавятся сразу. Можно сказать голосом — кнопка с микрофоном.</p>
     <div class="group">
       <button v-if="canWrite" type="button" class="row link" @click="form">Событие — заполнить форму</button>
       <button v-if="canWrite" type="button" class="row link" @click="wizard">Секция или кружок по дням недели</button>
@@ -25,6 +26,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { state, quickAdd, newEvent, setView, writableCalendars } from '../lib/store'
 import Sheet from './Sheet.vue'
+import MicButton from './MicButton.vue'
 
 const EXAMPLES = [
   { k: 'ev', label: 'Событие', t: 'Йога завтра в 18:30 у Оли' },
@@ -57,6 +59,8 @@ async function go() {
     error.value = e.message
   } finally { busy.value = false }
 }
+// Сказали голосом: фразу видно в поле, и она сразу добавляется (событие откроется в форме для проверки).
+function heard(t) { text.value = t; go() }
 function form() { close(); newEvent() }
 function wizard() { close(); state.wizard = true }
 function lists() { close(); setView('lists') }

@@ -15,7 +15,13 @@ import androidx.core.content.FileProvider
 import java.io.File
 import android.view.Gravity
 import android.view.View
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.speech.RecognizerIntent
+import java.net.HttpURLConnection
+import java.net.URL
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -144,9 +150,19 @@ class AppBridge(private val activity: MainActivity) {
 
     @JavascriptInterface
     fun pinWidget(): Boolean = Widgets.pin(activity)
+
+    /** Голосовой ввод для поля «Быстро»: системное распознавание речи, ответ — window.__hhVoice(text|null). */
+    @JavascriptInterface
+    fun canVoice(): Boolean = activity.voiceAvailable()
+
+    @JavascriptInterface
+    fun startVoice() = activity.runOnUiThread { activity.startVoice() }
 }
 
 /** Основной экран: веб-интерфейс календаря с сервера в домашней сети. */
+private const val REQ_FILE = 41
+private const val REQ_VOICE = 42
+
 class MainActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var web: WebView
@@ -168,9 +184,29 @@ class MainActivity : Activity() {
             settings.userAgentString = settings.userAgentString + " HomeHubApp/" + BuildConfig.VERSION_NAME
             setBackgroundColor(Color.TRANSPARENT)
             addJavascriptInterface(AppBridge(this@MainActivity), "HomeHubApp")
-            // WebView сам файлы не скачивает: ссылку на APK превращаем в установку обновления.
-            setDownloadListener { url, _, _, _, _ ->
-                if (url.contains("/app.apk")) startUpdate() else startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            // WebView сам файлы не скачивает: ссылку на APK превращаем в установку обновления,
+            // вложения событий и дел скачиваем с сессией WebView и открываем подходящим приложением.
+            setDownloadListener { url, _, _, mime, _ ->
+                when {
+                    url.contains("/app.apk") -> startUpdate()
+                    url.contains("/api/event-files/") -> openAttachment(url, mime)
+                    else -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                }
+            }
+            // Выбор файла или фото для <input type=file> (вложения).
+            webChromeClient = object : WebChromeClient() {
+                override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
+                    fileCallback?.onReceiveValue(null)
+                    fileCallback = callback
+                    val pick = params.createIntent().apply {
+                        if (params.mode == FileChooserParams.MODE_OPEN_MULTIPLE) putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    }
+                    return try {
+                        startActivityForResult(Intent.createChooser(pick, "Выберите файл"), REQ_FILE); true
+                    } catch (_: Exception) {
+                        fileCallback = null; false
+                    }
+                }
             }
             webViewClient = object : WebViewClient() {
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -227,6 +263,71 @@ class MainActivity : Activity() {
     }
 
     @Deprecated("Deprecated in Java")
+    private var fileCallback: ValueCallback<Array<Uri>>? = null
+
+    fun voiceAvailable(): Boolean =
+        packageManager.queryIntentActivities(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0).isNotEmpty()
+
+    fun startVoice() {
+        val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Например: врач завтра в 10 у Маши")
+        try { startActivityForResult(i, REQ_VOICE) } catch (_: Exception) { voiceResult(null) }
+    }
+
+    private fun voiceResult(text: String?) {
+        if (!::web.isInitialized) return
+        web.evaluateJavascript("window.__hhVoice && window.__hhVoice(${if (text == null) "null" else JSONObject.quote(text)})", null)
+    }
+
+    @Deprecated("Activity без AndroidX: обычный onActivityResult")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        when (requestCode) {
+            REQ_FILE -> {
+                val uris = if (resultCode != RESULT_OK || data == null) null
+                    else data.clipData?.let { c -> Array(c.itemCount) { c.getItemAt(it).uri } }
+                        ?: data.data?.let { arrayOf(it) }
+                fileCallback?.onReceiveValue(uris)
+                fileCallback = null
+            }
+            REQ_VOICE -> voiceResult(
+                if (resultCode == RESULT_OK) data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull() else null,
+            )
+        }
+    }
+
+    /** Вложение: скачать с cookie сессии во временную папку и открыть приложением для этого типа файла. */
+    private fun openAttachment(url: String, mime: String?) {
+        scope.launch {
+            val file = withContext(Dispatchers.IO) {
+                runCatching {
+                    val c = URL(url).openConnection() as HttpURLConnection
+                    c.connectTimeout = 10000; c.readTimeout = 30000
+                    CookieManager.getInstance().getCookie(url)?.let { c.setRequestProperty("Cookie", it) }
+                    try {
+                        if (c.responseCode != 200) error("HTTP ${c.responseCode}")
+                        val name = Regex("filename\\*=UTF-8''([^;]+)").find(c.getHeaderField("Content-Disposition") ?: "")
+                            ?.groupValues?.get(1)?.let { java.net.URLDecoder.decode(it, "UTF-8") } ?: "file"
+                        val dir = File(cacheDir, "files").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+                        File(dir, name.replace('/', '_')).also { f -> c.inputStream.use { inp -> f.outputStream().use { inp.copyTo(it) } } }
+                    } finally { c.disconnect() }
+                }.getOrNull()
+            }
+            if (file == null) { Toast.makeText(this@MainActivity, "Не удалось открыть файл", Toast.LENGTH_SHORT).show(); return@launch }
+            val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", file)
+            val type = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase())
+                ?: mime?.takeIf { it != "application/octet-stream" } ?: "*/*"
+            try {
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).setDataAndType(uri, type)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), file.name))
+            } catch (_: Exception) {
+                Toast.makeText(this@MainActivity, "Нет приложения, чтобы открыть этот файл", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     override fun onBackPressed() {
         if (::web.isInitialized && web.canGoBack()) web.goBack() else super.onBackPressed()
     }

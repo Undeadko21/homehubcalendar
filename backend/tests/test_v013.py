@@ -199,3 +199,23 @@ def test_trip_alert_has_action_details(api):
     assert trip["occurrence"] is None and [n["role"] for n in trip["need"]] == ["dropoff", "pickup"]
     assert trip["need"][0]["free"] == ["anna"]
     assert trip["names"] == {"anna": "Анна"}
+
+
+def test_item_files_follow_item(api):
+    c = api
+    lid = c.get("/api/lists").json()[0]["id"]
+    iid = c.post(f"/api/lists/{lid}/items", json={"text": "Справка в бассейн"}).json()["id"]
+    f = c.post("/api/event-files/upload", params={"uid": f"item:{iid}", "name": "справка.jpg"}, content=b"\xff\xd8jpeg").json()
+    c.post("/api/event-files/link", json={"uid": f"item:{iid}", "url": "https://example.com/bilet"})
+    item = next(i for i in c.get("/api/lists").json()[0]["items"] if i["id"] == iid)
+    assert item["files"] == 2
+    path = c.core.settings.data_dir / "files" / f["id"]
+    assert path.exists()
+    c.delete(f"/api/items/{iid}")
+    assert not path.exists() and c.get("/api/event-files", params={"uid": f"item:{iid}"}).json() == []
+    # «Убрать выполненные» и удаление списка тоже чистят файлы
+    iid2 = c.post(f"/api/lists/{lid}/items", json={"text": "x"}).json()["id"]
+    f2 = c.post("/api/event-files/upload", params={"uid": f"item:{iid2}", "name": "a.pdf"}, content=b"%PDF").json()
+    c.patch(f"/api/items/{iid2}", json={"done": True})
+    c.post(f"/api/lists/{lid}/clear-done")
+    assert not (c.core.settings.data_dir / "files" / f2["id"]).exists()

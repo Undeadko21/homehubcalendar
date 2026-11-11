@@ -9,6 +9,11 @@ from pydantic import BaseModel
 from fastapi import APIRouter
 
 from .. import core
+from .files import drop as drop_files
+
+
+def _item_ids(lid: int, done_only: bool = False) -> list[int]:
+    return [i["id"] for l in core.db.lists() if l["id"] == lid for i in l["items"] if i["done"] or not done_only]
 
 router = APIRouter()
 
@@ -60,6 +65,8 @@ def rename_list(lid: int, body: ListIn):
 
 @router.delete("/api/lists/{lid}")
 def delete_list(lid: int):
+    for iid in _item_ids(lid):
+        drop_files(f"item:{iid}")
     core.db.delete_list(lid)
     return {"ok": True}
 
@@ -73,6 +80,8 @@ def add_item(lid: int, body: ItemIn):
 
 @router.post("/api/lists/{lid}/clear-done")
 def clear_done(lid: int):
+    for iid in _item_ids(lid, done_only=True):
+        drop_files(f"item:{iid}")
     core.db.clear_done(lid)
     return {"ok": True}
 
@@ -88,5 +97,6 @@ def patch_item(iid: int, body: ItemPatch):
 
 @router.delete("/api/items/{iid}")
 def delete_item(iid: int):
+    drop_files(f"item:{iid}")
     core.db.delete_item(iid)
     return {"ok": True}

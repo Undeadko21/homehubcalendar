@@ -37,6 +37,19 @@ def _clean_name(name: str) -> str:
     return name[:120] or "файл"
 
 
+def drop(uid: str) -> int:
+    """Удалить все вложения события или дела (uid `item:<id>`) — вместе с файлами на диске."""
+    n = 0
+    for row in core.db.event_files(uid):
+        core.db.delete_event_file(row["id"])
+        try:
+            (files_dir() / row["id"]).unlink(missing_ok=True)
+        except OSError:
+            pass
+        n += 1
+    return n
+
+
 @router.get("/api/event-files")
 def list_files(uid: str):
     return [_public(r) for r in core.db.event_files(uid)]

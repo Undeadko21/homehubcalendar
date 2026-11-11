@@ -334,8 +334,10 @@ class Database:
     def lists(self) -> list[dict]:
         lists = self.query("SELECT * FROM lists ORDER BY sort, id")
         items = self.query("SELECT * FROM list_items ORDER BY done, id")
+        files = {int(r["uid"][5:]): r["n"] for r in self.query(
+            "SELECT uid, COUNT(*) AS n FROM event_files WHERE uid LIKE 'item:%' GROUP BY uid") if r["uid"][5:].isdigit()}
         for l in lists:
-            l["items"] = [dict(i, done=bool(i["done"])) for i in items if i["list_id"] == l["id"]]
+            l["items"] = [dict(i, done=bool(i["done"]), files=files.get(i["id"], 0)) for i in items if i["list_id"] == l["id"]]
         return lists
 
     def add_list(self, name: str) -> int:
