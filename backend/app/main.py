@@ -24,7 +24,7 @@ from . import live
 from .perf import SLOW_MS
 from . import core
 from .api import access as access_api
-from .api import apps, cloud_api, lists, planning, system, writing
+from .api import apps, cloud_api, files, lists, planning, system, writing
 
 
 def poll_cloud() -> None:
@@ -45,6 +45,7 @@ async def lifespan(app: FastAPI):
         core.scheduler.add_job(core.cloud.tick, "interval", minutes=2, id="cloud", max_instances=1, coalesce=True)
         core.scheduler.add_job(poll_cloud, "interval", minutes=1, id="cloud-ops", max_instances=1, coalesce=True)
         core.scheduler.add_job(lambda: access.watch(core.db), "interval", minutes=5, id="access-watch", max_instances=1, coalesce=True)
+        core.scheduler.add_job(core.routes_refresh, "interval", minutes=30, id="routes", max_instances=1, coalesce=True)
         core.scheduler.add_job(core.run_checks, "cron", hour=4, minute=10, id="checks", max_instances=1, coalesce=True,
                           misfire_grace_time=6 * 3600)
         core.scheduler.add_job(core.backup_drill, "cron", day=1, hour=4, minute=40, id="backup-drill", max_instances=1, coalesce=True,
@@ -246,7 +247,7 @@ def ready():
 # ---------- веб-интерфейс ----------
 
 # Маршруты по темам (app/api/*.py). Страница-заглушка SPA ниже должна идти последней.
-for _r in (system, apps, cloud_api, lists, planning, writing, access_api):
+for _r in (system, apps, cloud_api, files, lists, planning, writing, access_api):
     app.include_router(_r.router)
 
 

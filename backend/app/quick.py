@@ -18,6 +18,43 @@ REPEATS = [(r"каждый\s+день|ежедневно", "daily"), (r"кажд
            (r"каждый\s+месяц|ежемесячно", "monthly"), (r"каждый\s+год|ежегодно", "yearly")]
 
 
+_SHOP = re.compile(r"^\s*(?:купи(?:ть|те)?|докупи(?:ть)?|в\s+покупки)\s*[:,—-]?\s+(.+)$", re.I)
+_SHOP_TAIL = re.compile(r"^(.+?)\s+в\s+(?:список\s+)?покуп(?:ки|ок)\s*$", re.I)
+_TODO = re.compile(r"^\s*(?:дело|задача|сделать|надо|нужно|не\s+забыть|напомни(?:ть)?(?:\s+мне)?)\s*[:,—-]?\s+(.+)$", re.I)
+
+
+_WD_GEN = {"понедельника": "понедельник", "понедельнику": "понедельник", "вторника": "вторник", "вторнику": "вторник",
+           "среды": "среду", "среде": "среду", "четверга": "четверг", "четвергу": "четверг", "пятницы": "пятницу",
+           "пятнице": "пятницу", "субботы": "субботу", "субботе": "субботу", "воскресенья": "воскресенье", "воскресенью": "воскресенье"}
+
+
+def classify(text: str) -> tuple[str, str]:
+    """Что это за фраза: покупка («купить молоко»), дело («дело: оплатить кружок до пятницы») или событие.
+    Возвращает (kind, текст без служебного слова)."""
+    t = (text or "").strip()
+    m = _SHOP.match(t) or _SHOP_TAIL.match(t)
+    if m:
+        return "shopping", m.group(1).strip(" .")
+    m = _TODO.match(t)
+    if m:
+        return "todo", m.group(1).strip(" .")
+    return "event", t
+
+
+def parse_todo(text: str, now: datetime, people: list[dict]) -> dict:
+    """Дело: срок («до пятницы», «завтра», «15 мая») и исполнитель вырезаются из фразы тем же разбором, что у событий."""
+    body = text
+    m = re.search(r"(?<!\w)(?:до|к)\s+(" + "|".join(_WD_GEN) + r")(?!\w)", text, re.I)
+    if m:                                             # «до пятницы» → «в пятницу»
+        body = text[:m.start()] + " в " + _WD_GEN[m.group(1).lower()] + " " + text[m.end():]
+    else:                                             # «до 15 мая», «к завтра» — предлог не нужен
+        body = re.sub(r"(?<!\w)(?:до|к)\s+(?=\d|завтра|послезавтра)", " ", text, count=1, flags=re.I)
+    r = parse(body, now, people)
+    no_date = any("дата не указана" in n for n in r["notes"])
+    title = r["title"] or text.strip()
+    return {"text": title, "due": None if no_date else r["date"], "person_id": (r["people"] or [None])[0]}
+
+
 def _cut(text: str, m: re.Match) -> str:
     return (text[:m.start()] + " " + text[m.end():])
 

@@ -11,6 +11,7 @@
 
 Время в дороге: если у события (или места по правилам из настроек) задано «минут в пути»,
 окно «отвезти» = [начало − дорога − запас, начало], «забрать» = [конец, конец + дорога + запас];
+порядок: на этот день → на серию → правило по месту → время по карте (routes, если включено);
 иначе используются фиксированные before/after. Дорога события хранится как role='travel'
 (значение — число минут), правила по местам — settings:escort.places.
 
@@ -44,6 +45,20 @@ def _home_match(e: dict, words: list[str], address: str) -> str | None:
     if address and address.lower() in (e.get("location") or "").lower():
         return "место совпадает с домашним адресом"
     return None
+
+
+# Событие, которое само является поездкой: «Отвезти Марка в школу» — нужен только тот, кто отвозит,
+# «Привезти/забрать из сада» — только тот, кто забирает.
+_ONLY_DROPOFF = re.compile(r"(?<!\w)(?:отвез\w*|отвёз\w*|отвозит\w*|отвести|отвед\w*|завез\w*|завёз\w*)(?!\w)", re.I)
+_ONLY_PICKUP = re.compile(r"(?<!\w)(?:привез\w*|привёз\w*|привозит\w*|привести|привед\w*|забрать|забер\w*|забира\w*|встретить|встреч[ау]\w*)(?!\w)", re.I)
+
+
+def only_role(title: str) -> str | None:
+    """Единственная роль по названию события (или None — нужны обе)."""
+    d, p = bool(_ONLY_DROPOFF.search(title or "")), bool(_ONLY_PICKUP.search(title or ""))
+    if d == p:
+        return None          # ни одного слова или оба сразу («отвезти и забрать»)
+    return "dropoff" if d else "pickup"
 
 
 def _words(text: str) -> list[str]:
@@ -89,7 +104,7 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
              before_min: int = 30, after_min: int = 30,
              home_words: list[str] | None = None, home_address: str = "",
              templates: list[dict] | None = None, places: list[dict] | None = None,
-             travel_buffer: int = 5) -> None:
+             travel_buffer: int = 5, routes: dict[str, int] | None = None) -> None:
     """Добавляет каждому событию ребёнка поле escort и уровень проблемы escort_issue."""
     children = {pid for pid, p in people.items() if p.get("needs_escort")}
     adults = [pid for pid, p in people.items() if not p.get("needs_escort") and not p.get("hidden")]
@@ -150,9 +165,15 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
             pm = _place_minutes(e, places or [])
             if pm is not None:
                 travel, t_source = pm, "place"
+        if travel is None and routes:      # время по карте до места события (считается заранее, см. routing.py)
+            rm = routes.get(" ".join((e.get("location") or "").lower().split()))
+            if rm is not None:
+                travel, t_source = rm, "map"
         info["travel"] = {"minutes": travel, "source": t_source,
                           "buffer": travel_buffer if travel is not None else None}
         lead = timedelta(minutes=travel + travel_buffer) if travel is not None else None
+        only = only_role(e.get("title", ""))
+        info["only"] = only
 
         for role in ROLES:
             if lead is not None:
@@ -170,6 +191,8 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
             skip = value == SKIP or mode != "escort"
             if mode != "escort":
                 person = None
+            if only and role != only:      # вторая роль у такого события не нужна и в карточке не показывается
+                person, skip = None, True
             info[role] = {
                 "person": person,
                 "skip": skip,

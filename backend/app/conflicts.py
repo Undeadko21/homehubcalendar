@@ -46,7 +46,8 @@ def check(svc: EventService, *, calendar: str, title: str, start: datetime, end:
     home_words = [w.strip() for w in str(cfg.get("home_words") or "").split(",") if w.strip()]
     kw = dict(before_min=cfg["before_minutes"], after_min=cfg["after_minutes"], home_words=home_words,
               home_address=str(cfg.get("home_address") or "").strip(), templates=svc.db.templates(),
-              places=cfg.get("places") or [], travel_buffer=int(cfg.get("travel_buffer") or 0))
+              places=cfg.get("places") or [], travel_buffer=int(cfg.get("travel_buffer") or 0),
+              routes=svc.routes(cfg))
     assignments = svc.db.escorts()
 
     before = copy.deepcopy(base)

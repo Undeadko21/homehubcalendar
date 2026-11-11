@@ -7,12 +7,13 @@ import threading
 from datetime import date, datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
-from . import escorts, live, school
+from . import escorts, live, routing, school
 from .db import Database
 from .expand import expand_ics
 
 ESCORT_DEFAULTS = {"before_minutes": 30, "after_minutes": 30, "home_words": "дома", "home_address": "",
-                   "travel_buffer": 5, "places": [], "show_duties": False}
+                   "travel_buffer": 5, "places": [], "show_duties": False,
+                   "map_travel": False, "map_home": ""}
 
 UNASSIGNED = "_unassigned"
 
@@ -129,12 +130,24 @@ class EventService:
                          [w.strip() for w in str(cfg.get("home_words") or "").split(",") if w.strip()],
                          str(cfg.get("home_address") or "").strip(),
                          templates=self.db.templates(), places=cfg.get("places") or [],
-                         travel_buffer=int(cfg.get("travel_buffer") or 0))
+                         travel_buffer=int(cfg.get("travel_buffer") or 0), routes=self.routes(cfg))
         self._apply_colors(wide)
+        counts = self.db.event_file_counts()
+        if counts:
+            for e in wide:
+                n = counts.get(e.get("uid"))
+                if n and not e.get("private"):
+                    e["files"] = n
         # Поездки и «все вместе» — в календари взрослых.
         wide += escorts.add_to_adults(wide, people)
         wide.sort(key=lambda e: (e["start"][:10], not e["all_day"], e["start"], e["title"]))
         return wide
+
+    def routes(self, cfg: dict | None = None) -> dict[str, int]:
+        """Время по карте до мест событий (из кэша), если включено в настройках поездок."""
+        cfg = cfg or self.escort_settings()
+        home = str(cfg.get("map_home") or "").strip()
+        return routing.cached(self.db, home) if cfg.get("map_travel") and home else {}
 
     def shared_color(self) -> str | None:
         value, _ = self.db.kv_get("settings:shared_color")

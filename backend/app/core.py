@@ -109,6 +109,24 @@ def _warm() -> None:
         log.exception("Прогрев")
 
 
+def routes_refresh() -> int:
+    """Время в дороге по карте: досчитать новые места событий детей на две недели вперёд (если включено в настройках)."""
+    from . import routing
+    cfg = events.escort_settings()
+    home = str(cfg.get("map_home") or "").strip()
+    if not cfg.get("map_travel") or not home:
+        return 0
+    try:
+        start = _today_start()
+        found = routing.refresh(db, events.events(start, start + timedelta(days=14)), home)
+        if found:
+            events.invalidate()
+        return found
+    except Exception:  # noqa: BLE001
+        log.exception("Время в дороге по карте")
+        return 0
+
+
 def run_checks() -> list[dict]:
     """Ежедневная проверка данных (checks.py); результат — в kv, видно в «Состоянии»."""
     from . import checks

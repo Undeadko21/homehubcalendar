@@ -200,9 +200,15 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
         if not (now <= s <= now + timedelta(hours=12)):
             continue
         what = "некому отвезти или забрать" if e["escort_issue"] != "conflict" else "водитель занят в это время"
+        # Что именно не закрыто — чтобы телефон мог предложить «Отвезу я» прямо в уведомлении.
+        esc = e.get("escort") or {}
+        need = [{"role": r, "person": esc[r].get("person"), "free": esc[r].get("free", [])}
+                for r in ("dropoff", "pickup")
+                if r in esc and not esc[r].get("skip") and (not esc[r].get("person") or esc[r].get("conflicts"))]
         out.append({"id": f"alert:trip:{e['id']}:{e['start']}:{e['escort_issue']}", "kind": "alert",
                     "at": (s - timedelta(hours=12)).isoformat(timespec="seconds"), "start": e["start"],
-                    "title": f"{e['title']} в {s.astimezone(tz).strftime('%H:%M')}: {what}", "text": "Откройте календарь и назначьте водителя"})
+                    "title": f"{e['title']} в {s.astimezone(tz).strftime('%H:%M')}: {what}", "text": "Откройте календарь и назначьте водителя",
+                    "trip": {"uid": e.get("uid"), "occurrence": e["start"] if e.get("recurring") else None, "need": need}})
 
     for b in upcoming(birthdays_manual, events, today, horizon_days):
         day = date_of(b)

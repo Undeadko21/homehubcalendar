@@ -171,6 +171,8 @@ class EscortSettings(BaseModel):
     home_words: str = "дома"   # через запятую; событие с таким словом — «дома»
     home_address: str = ""     # часть адреса: событие в этом месте — «дома»
     show_duties: bool = False  # показывать «Отвезти…/Забрать…» отдельными событиями у взрослых
+    map_travel: bool = False   # считать время в дороге по карте (адреса уходят в OpenStreetMap)
+    map_home: str = ""         # полный адрес дома для карты: «Екатеринбург, Малышева 1»
 
 
 @router.put("/api/settings/escort")
@@ -291,13 +293,33 @@ def delete_birthday(bid: int):
 
 # ---------- поиск ----------
 @router.get("/api/search")
-def search(q: str):
+def search(q: str = "", people: str | None = None, calendar: str | None = None,
+           start: str | None = None, end: str | None = None):
+    """Поиск по названию, месту и описанию; фильтры — люди (через запятую), календарь и период (даты).
+    Без текста работает, если задан хотя бы один фильтр."""
     q = q.strip().lower()
-    if len(q) < 2:
+    who = {p for p in (people or "").split(",") if p}
+    if len(q) < 2 and not (who or calendar or start or end):
         return []
     today = core._today_start()
-    found = [e for e in core.events.events(today - timedelta(days=60), today + timedelta(days=330))
-             if not e.get("duty") and (q in e["title"].lower() or q in (e.get("location") or "").lower()
-                                       or q in (e.get("description") or "").lower())]
+    try:
+        a = datetime.combine(date.fromisoformat(start[:10]), time(0), core.tz) if start else today - timedelta(days=60)
+        z = datetime.combine(date.fromisoformat(end[:10]), time(0), core.tz) + timedelta(days=1) if end else today + timedelta(days=330)
+    except ValueError:
+        raise HTTPException(400, "Даты вида ГГГГ-ММ-ДД")
+    if z <= a or (z - a) > timedelta(days=800):
+        raise HTTPException(400, "Некорректный период")
+    found = []
+    for e in core.events.events(a, z):
+        if e.get("duty"):
+            continue
+        if len(q) >= 2 and not (q in e["title"].lower() or q in (e.get("location") or "").lower()
+                                or q in (e.get("description") or "").lower()):
+            continue
+        if who and not (who & set(e["people"])):
+            continue
+        if calendar and calendar not in (e.get("calendars") or []):
+            continue
+        found.append(e)
     found.sort(key=lambda e: e["start"])
     return found[:300]

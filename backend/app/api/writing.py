@@ -16,6 +16,15 @@ from .. import core
 router = APIRouter()
 
 
+def _journal_ids() -> set[str]:
+    return {e["id"] for e in core.ws.journal()}
+
+
+def _new_changes(before: set[str]) -> list[str]:
+    """Записи журнала, появившиеся за этот запрос (в порядке создания) — по ним экран предлагает «Отменить»."""
+    return [e["id"] for e in core.ws.journal() if e["id"] not in before]
+
+
 @router.get("/api/events")
 def get_events(start: str, end: str, people: str | None = None):
     s, e = core._parse_dt(start), core._parse_dt(end)
@@ -161,10 +170,11 @@ def selftest_write(body: SelfTestIn):
 
 @router.post("/api/event")
 def create_event(body: EventIn):
+    seen = _journal_ids()
     uid, sent = core._create_event(body.calendar, body.title, core._parse_dt(body.start), core._parse_dt(body.end) if body.end else None,
                               body.all_day, body.location, body.description,
                               body.repeat.model_dump() if body.repeat else None, body.people)
-    return {"ok": True, "uid": uid, "pending": not sent}
+    return {"ok": True, "uid": uid, "pending": not sent, "changes": _new_changes(seen)}
 
 
 class SectionRow(BaseModel):
@@ -248,6 +258,7 @@ def update_event(uid: str, body: EventEdit):
     cal_key, href, ics = found
     core.make_target(cal_key)
     core._check_people(body.people)
+    seen = _journal_ids()
     fields: dict = {}
     if body.title is not None:
         fields["title"] = body.title
@@ -284,7 +295,7 @@ def update_event(uid: str, body: EventEdit):
         sent = core._run_write(split_following)
         if sent is not None:
             core._after_write()
-            return {"ok": True, "pending": not sent}
+            return {"ok": True, "pending": not sent, "changes": _new_changes(seen)}
         body.scope = None   # первое вхождение: падаем в обычную правку серии
         fields.pop("occurrence", None)
     if body.scope == "once":
@@ -305,12 +316,12 @@ def update_event(uid: str, body: EventEdit):
             return ok1 and ok2
         sent = core._run_write(split)
         core._after_write()
-        return {"ok": True, "pending": not sent}
+        return {"ok": True, "pending": not sent, "changes": _new_changes(seen)}
     sent = core._run_write(lambda: core.ws.update(cal_key, href, ics, writer.apply_edit(ics, fields, core.tz)))
     if body.people_set:
         core.db.set_event_people(uid, body.people)
     core._after_write()
-    return {"ok": True, "pending": not sent}
+    return {"ok": True, "pending": not sent, "changes": _new_changes(seen)}
 
 
 @router.delete("/api/event/{uid}")
@@ -321,6 +332,7 @@ def delete_event(uid: str, calendar: str, occurrence: str | None = None):
         raise HTTPException(404, "Событие не найдено (возможно, оно удалено)")
     cal_key, href, ics = found
     core.make_target(cal_key)
+    seen = _journal_ids()
 
     def go():
         new_ics = writer.add_exdate(ics, core._parse_dt(occurrence), core.tz) if occurrence else None
@@ -331,7 +343,7 @@ def delete_event(uid: str, calendar: str, occurrence: str | None = None):
         return sent
     sent = core._run_write(go)
     core._after_write()
-    return {"ok": True, "pending": not sent}
+    return {"ok": True, "pending": not sent, "changes": _new_changes(seen)}
 
 
 class QuickIn(BaseModel):
@@ -343,7 +355,18 @@ def quick_parse(body: QuickIn):
     """Разбор фразы вроде «Йога завтра в 18:30 у Оли» в поля формы (ничего не создаёт)."""
     if not body.text.strip():
         raise HTTPException(400, "Пустая фраза")
-    return quick.parse(body.text, datetime.now(core.tz).replace(tzinfo=None), core.db.list_people())
+    now = datetime.now(core.tz).replace(tzinfo=None)
+    kind, text = quick.classify(body.text)
+    if kind == "event":
+        return {"kind": "event", **quick.parse(body.text, now, core.db.list_people())}
+    # Покупка или дело: список находим по названию («Покупки», «Дела»), иначе первый/второй по порядку.
+    lists = core.db.lists()
+    word = "покуп" if kind == "shopping" else "дел"
+    target = next((l for l in lists if word in l["name"].lower()), None) or (lists[0 if kind == "shopping" else -1] if lists else None)
+    out = {"kind": kind, "list_id": target["id"] if target else None, "list_name": target["name"] if target else None}
+    if kind == "shopping":
+        return {**out, "items": [x.strip() for x in __import__("re").split(r"\s*(?:,|;|\s+и\s+)\s*", text) if x.strip()][:20]}
+    return {**out, **quick.parse_todo(text, now, core.db.list_people())}
 
 
 @router.get("/api/changes")

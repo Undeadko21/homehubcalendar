@@ -128,6 +128,19 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE list_items ADD COLUMN due TEXT;
     """,
+    # вложения и ссылки события (по UID — на все повторы); сам файл лежит в data/files/<id>, у ссылки заполнен url
+    """
+    CREATE TABLE event_files (
+        id TEXT PRIMARY KEY,
+        uid TEXT NOT NULL,
+        name TEXT NOT NULL,
+        mime TEXT NOT NULL DEFAULT '',
+        size INTEGER NOT NULL DEFAULT 0,
+        url TEXT,
+        created TEXT NOT NULL
+    );
+    CREATE INDEX event_files_uid ON event_files (uid);
+    """,
 ]
 
 
@@ -365,6 +378,26 @@ class Database:
     def clear_done(self, lid: int) -> None:
         with self.tx() as c:
             c.execute("DELETE FROM list_items WHERE list_id=? AND done=1", (lid,))
+
+    # ---------- вложения и ссылки событий ----------
+    def event_files(self, uid: str) -> list[dict]:
+        return self.query("SELECT * FROM event_files WHERE uid=? ORDER BY rowid", (uid,))
+
+    def event_file(self, fid: str) -> dict | None:
+        rows = self.query("SELECT * FROM event_files WHERE id=?", (fid,))
+        return rows[0] if rows else None
+
+    def event_file_counts(self) -> dict[str, int]:
+        return {r["uid"]: r["n"] for r in self.query("SELECT uid, COUNT(*) AS n FROM event_files GROUP BY uid")}
+
+    def add_event_file(self, fid: str, uid: str, name: str, mime: str = "", size: int = 0, url: str | None = None) -> None:
+        with self.tx() as c:
+            c.execute("INSERT INTO event_files (id, uid, name, mime, size, url, created) VALUES (?,?,?,?,?,?,?)",
+                      (fid, uid, name, mime, size, url, now_iso()))
+
+    def delete_event_file(self, fid: str) -> None:
+        with self.tx() as c:
+            c.execute("DELETE FROM event_files WHERE id=?", (fid,))
 
     # ---------- участники отдельных событий ----------
     def event_people(self) -> dict[str, list[str]]:
