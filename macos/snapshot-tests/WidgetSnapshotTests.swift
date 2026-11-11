@@ -18,9 +18,9 @@ final class WidgetSnapshotTests: XCTestCase {
         func at(_ day: Int, _ h: Int, _ m: Int = 0) -> Date {
             cal.date(bySettingHour: h, minute: m, second: 0, of: cal.date(byAdding: .day, value: day, to: now)!)!
         }
-        let people = [Person(id: "olya", name: "Оля", color: "#ff2d55", emoji: nil),
-                      Person(id: "masha", name: "Маша", color: "#34c759", emoji: nil),
-                      Person(id: "papa", name: "Папа", color: "#007aff", emoji: nil)]
+        let people = try! JSONDecoder().decode([Person].self, from: Data("""
+        [{"id":"olya","name":"Оля","color":"#ff2d55"},{"id":"masha","name":"Маша","color":"#34c759"},{"id":"papa","name":"Папа","color":"#007aff"}]
+        """.utf8))
         let events = [
             Event(id: "1", title: "Созвон с командой", start: iso(at(0, 12)), end: iso(at(0, 13, 30)), people: ["papa"]),
             Event(id: "2", title: "Танцы", start: iso(at(0, 16)), end: iso(at(0, 17, 30)), location: "ДК Урал", people: ["masha"]),
