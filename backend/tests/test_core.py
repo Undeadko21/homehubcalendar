@@ -1194,3 +1194,19 @@ def test_school_events_hidden_during_break(db):
     assert not hide({"start": "2026-11-05T08:30:00+05:00", "title": "Отвезти в школу"})
     school.save_settings(db, False, None)
     assert school.hidden_filter(db) is None
+
+
+def test_urgent_trip_alert_reminder():
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from app import reminders
+    tz = ZoneInfo("Asia/Yekaterinburg")
+    now = datetime(2026, 10, 29, 12, 0, tzinfo=tz)
+    soon = {"id": "e1", "title": "Танцы", "start": (now + timedelta(hours=3)).isoformat(), "all_day": False, "people": ["masha"],
+            "escort_issue": "unassigned"}
+    far = {**soon, "id": "e2", "start": (now + timedelta(hours=30)).isoformat()}
+    out = reminders.build([soon, far], [], now, tz, None, None, 2)
+    al = [r for r in out if r["kind"] == "alert" and r["id"].startswith("alert:trip:")]
+    assert len(al) == 1 and "Танцы" in al[0]["title"] and "некому" in al[0]["title"]
+    again = reminders.build([soon, far], [], now + timedelta(minutes=2), tz, None, None, 2)
+    assert [r for r in again if r["id"].startswith("alert:trip:")][0]["at"] == al[0]["at"]    # снимок не «дрожит»

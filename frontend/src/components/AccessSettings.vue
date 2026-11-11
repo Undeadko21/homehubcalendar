@@ -136,6 +136,11 @@
             <a v-if="st.vps.backup" class="btn" href="/api/access/vps-backup" download>Скачать</a>
           </div>
           <div class="row">
+            <span class="lbl">Копия базы на VPS <small class="muted block">зашифрована ключом облака, хранится 14 последних</small></span>
+            <span v-if="st.vps.report && st.vps.report.db_copy" class="val muted">{{ fmt(st.vps.report.db_copy.at) }} · {{ st.vps.report.db_copy.count }} шт.</span>
+            <span v-else class="val muted">{{ st.vps.report && st.vps.report.agent >= '2' ? 'ещё нет' : 'обновите агента (команда ниже)' }}</span>
+          </div>
+          <div class="row">
             <span class="lbl">Токен VPS</span>
             <button class="btn" :disabled="busy" @click="rotate('vps')">Выпустить новый</button>
           </div>

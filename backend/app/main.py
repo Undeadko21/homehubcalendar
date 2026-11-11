@@ -51,6 +51,8 @@ async def lifespan(app: FastAPI):
                                misfire_grace_time=6 * 3600)
         core.scheduler.add_job(lambda: deploywatch.check(core.db, core.settings.data_dir, __version__), "interval", minutes=10,
                                id="deploy-watch", max_instances=1, coalesce=True, next_run_time=datetime.now() + timedelta(seconds=30))
+        core.scheduler.add_job(core.selftest_weekly, "cron", day_of_week="sun", hour=5, minute=20, id="selftest", max_instances=1,
+                               coalesce=True, misfire_grace_time=3600)
         core.scheduler.add_job(core.backup.run, "cron", hour=3, minute=30, id="backup", max_instances=1, coalesce=True,
                           misfire_grace_time=6 * 3600)
         core.scheduler.start()

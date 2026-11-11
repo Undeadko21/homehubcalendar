@@ -257,6 +257,88 @@ def _ops_move(op: dict) -> None:
                                      occurrence=e["start"] if e.get("recurring") else None, scope="once" if e.get("recurring") else None))
 
 
+def run_selftest(calendar: str, scheduled: bool = False) -> dict:
+    """Проверка записи в живой календарь: создать → перенести → прочитать с сервера → серия с исключением → удалить.
+    Идёт мимо локальной базы и журнала (семья ничего не увидит), тестовые события живут секунды."""
+    from time import perf_counter
+    from . import access, writer
+    target = make_target(calendar)
+    rid = _remote_id(calendar)
+    steps: list[dict] = []
+    day = datetime.now(tz).date() + timedelta(days=30)
+    s0 = datetime.combine(day, time(3, 0), tz)
+
+    def step(name: str, fn):
+        t0 = perf_counter()
+        try:
+            out = fn()
+            steps.append({"name": name, "ok": True, "ms": round((perf_counter() - t0) * 1000)})
+            return out
+        except Exception as e:  # noqa: BLE001
+            steps.append({"name": name, "ok": False, "error": writer.friendly(e), "ms": round((perf_counter() - t0) * 1000)})
+            raise
+
+    hrefs: list[str] = []
+    try:
+        uid, ics = writer.build_ics("Проверка HomeHub (можно удалить)", s0, s0 + timedelta(minutes=30), False, tz)
+        href = step("Создать событие", lambda: target.create(rid, ics))
+        hrefs.append(href)
+        back = step("Прочитать его с сервера", lambda: target.read(rid, href) or (_ for _ in ()).throw(writer.WriteError("Событие не нашлось")))
+        if "Проверка HomeHub" not in back:
+            raise writer.WriteError("Сервер вернул не то событие")
+        moved = writer.apply_edit(ics, {"title": "Проверка HomeHub — перенос", "start": s0 + timedelta(hours=1),
+                                        "end": s0 + timedelta(hours=1, minutes=30), "all_day": False}, tz)
+        step("Перенести и переименовать", lambda: target.update(rid, href, moved))
+        back = step("Проверить перенос", lambda: target.read(rid, href) or "")
+        if "перенос" not in back or "T040000" not in back:
+            raise writer.WriteError("После переноса на сервере прежнее время или название")
+        uid2, series = writer.build_ics("Проверка серии HomeHub", s0, s0 + timedelta(minutes=30), False, tz,
+                                        repeat={"freq": "weekly", "byday": [writer._DAYS[s0.weekday()]], "count": 4})
+        h2 = step("Создать повторяющееся событие", lambda: target.create(rid, series))
+        hrefs.append(h2)
+        cut = writer.add_exdate(series, s0 + timedelta(days=7), tz)
+        step("Убрать одно вхождение (EXDATE)", lambda: target.update(rid, h2, cut))
+        if "EXDATE" not in (target.read(rid, h2) or ""):
+            raise writer.WriteError("Сервер не сохранил исключение из серии")
+    except Exception as e:  # noqa: BLE001
+        if not steps or steps[-1]["ok"]:
+            steps.append({"name": "Проверка", "ok": False, "error": writer.friendly(e)})
+    finally:
+        for h in hrefs:
+            try:
+                target.delete(rid, h)
+                steps.append({"name": "Удалить тестовое событие", "ok": True})
+            except Exception as e:  # noqa: BLE001
+                steps.append({"name": "Удалить тестовое событие", "ok": False, "error": writer.friendly(e) + f" ({h})"})
+    ok = all(x["ok"] for x in steps)
+    log.info("Самопроверка записи %s: %s", calendar, "успешно" if ok else steps)
+    res = {"ok": ok, "steps": steps, "calendar": calendar, "at": datetime.now(tz).isoformat(timespec="seconds"), "scheduled": scheduled}
+    prev = (db.kv_get("selftest:last")[0] or {})
+    db.kv_set("selftest:last", {k: res[k] for k in ("ok", "at", "calendar", "scheduled")} |
+              {"failed": next((x for x in steps if not x["ok"]), None)})
+    if scheduled and not ok:
+        bad = next((x for x in steps if not x["ok"]), {})
+        access.notify(db, "HomeHub: запись в Яндекс не работает",
+                      f"Еженедельная проверка не прошла на шаге «{bad.get('name', '')}»: {bad.get('error', '')}. Правки из приложения могут не доходить.", priority="high")
+    elif scheduled and ok and prev.get("ok") is False:
+        access.notify(db, "HomeHub: запись в Яндекс снова работает", "Еженедельная проверка прошла.", priority="default")
+    return res
+
+
+def selftest_weekly() -> dict | None:
+    """Раз в неделю: самопроверка записи в первый пишущий календарь (или выбранный в settings:selftest.calendar)."""
+    cfg = db.kv_get("settings:selftest")[0] or {}
+    if cfg.get("enabled") is False:
+        return None
+    cal = cfg.get("calendar")
+    if not cal or not _writable(cal):
+        cals = [c for c in db.list_calendars() if _writable(c["key"])]
+        if not cals:
+            return None
+        cal = cals[0]["key"]
+    return run_selftest(cal, scheduled=True)
+
+
 def backup_drill() -> dict:
     """Раз в месяц: учебное восстановление свежей копии; результат — на телефон (если включён ntfy) и в журнал."""
     from . import access

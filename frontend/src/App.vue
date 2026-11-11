@@ -74,6 +74,7 @@
           <TimelineView v-else-if="state.view === 'timeline'" />
           <MonthPhone v-else-if="state.view === 'month' && screen.narrow" />
           <CalendarView v-else-if="state.view === 'week' || state.view === 'month'" :mode="state.view" />
+          <FamilyWeek v-else-if="state.view === 'family'" />
           <AgendaView v-else-if="state.view === 'agenda'" />
           <FreeView v-else-if="state.view === 'free'" />
           <ListsView v-else-if="state.view === 'lists'" />
@@ -126,6 +127,7 @@ import CalendarView from './views/CalendarView.vue'
 import MonthPhone from './views/MonthPhone.vue'
 import KitchenView from './views/KitchenView.vue'
 import AgendaView from './views/AgendaView.vue'
+import FamilyWeek from './views/FamilyWeek.vue'
 import FreeView from './views/FreeView.vue'
 import SettingsView from './views/SettingsView.vue'
 import ListsView from './views/ListsView.vue'
@@ -135,6 +137,7 @@ const VIEWS = [
   { id: 'today', label: 'Сегодня' },
   { id: 'timeline', label: 'Лента' },
   { id: 'week', label: 'Неделя' },
+  { id: 'family', label: 'Семья' },
   { id: 'month', label: 'Месяц' },
   { id: 'agenda', label: 'Список' },
 ]
@@ -172,6 +175,7 @@ function shift(dir) {
   const c = new Date(state.cursor)
   if (state.view === 'month') { const d = c.getDate(); c.setDate(1); c.setMonth(c.getMonth() + dir); c.setDate(Math.min(d, new Date(c.getFullYear(), c.getMonth() + 1, 0).getDate())) }
   else if (state.view === 'today') c.setDate(c.getDate() + dir)
+  else if (state.view === 'family') c.setDate(c.getDate() + 7 * dir)
   else if (state.view === 'timeline') c.setDate(c.getDate() + state.timelineDays * dir)
   else c.setDate(c.getDate() + weekDays() * dir)
   state.cursor = c
@@ -198,7 +202,7 @@ const title = computed(() => {
     case 'agenda':
       return { main: monthName(c), sub: String(c.getFullYear()) }
     default: {
-      const days = state.view === 'timeline' ? state.timelineDays : weekDays()
+      const days = state.view === 'timeline' ? state.timelineDays : state.view === 'family' ? 7 : weekDays()
       const s = days !== 7 ? c : startOfWeek(c)
       const e = addDays(s, days - 1)
       const main = s.getMonth() === e.getMonth() ? monthName(s) : `${monthName(s)} – ${monthName(e)}`

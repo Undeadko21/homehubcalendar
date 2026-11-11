@@ -56,6 +56,10 @@ def get_system():
     dr = (core.db.kv_get("backup:state")[0] or {}).get("drill")
     if dr and not dr.get("ok"):
         problems.append(f"Учебное восстановление копии не удалось: {dr.get('error', '')}")
+    st = core.db.kv_get("selftest:last")[0]
+    if st and st.get("ok") is False:
+        f_ = st.get("failed") or {}
+        problems.append(f"Проверка записи в Яндекс не прошла ({f_.get('name', '')}): {f_.get('error', '')}")
     problems += builds.problems({"android": core.APP_DIR, "mac": core.MAC_DIR, "ios": core.IOS_DIR}, core.db)
     if core.ws.pending_count():
         problems.append(f"Не отправлено в Яндекс: {core.ws.pending_count()} (повторю сам, когда сервер ответит)")
@@ -101,7 +105,7 @@ def get_system():
         "sources": sources, "sync_interval": core.settings.sync.interval_minutes, "syncing": core.engine.running,
         "cloud": {k: cl[k] for k in ("configured", "last_ok", "last_error", "ops_error")},
         "backup": bk, "jobs": jobs, "client_errors": len(core.CLIENT_LOG), "slow_requests": core.perf.slow_count(),
-        "last_client_error": core.CLIENT_LOG[-1] if core.CLIENT_LOG else None, "problems": problems,
+        "last_client_error": core.CLIENT_LOG[-1] if core.CLIENT_LOG else None, "problems": problems, "selftest": st,
         "checks": chk,
     }
 

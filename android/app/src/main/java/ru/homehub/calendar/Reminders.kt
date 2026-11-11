@@ -107,7 +107,9 @@ object Reminders {
                 }
                 parse(r.optString("at"))
             }
-            if (at == null || now - at > 3 * 3_600_000L) continue  // давно прошло или не разобрали
+            // Срочные предупреждения (поездка без водителя, дайджест) приходят, когда «пора» уже наступило, — им даём сутки.
+            val urgent = r.optString("kind") in setOf("alert", "digest")
+            if (at == null || now - at > (if (urgent) 24 else 3) * 3_600_000L) continue  // давно прошло или не разобрали
             val title = r.optString("title")
             val text = r.optString("text")
             if (at <= now) {

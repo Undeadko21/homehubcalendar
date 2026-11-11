@@ -18,7 +18,9 @@ cat > /usr/local/bin/homehub-agent <<'AGENT'
 # homehub-agent watch|report
 . /etc/homehub-agent.env
 STATE=/var/lib/homehub-agent
-VERSION=1
+VERSION=2
+COPIES=/var/backups/homehub
+KEEP=14
 
 notify() {
   [ -n "${NTFY_URL:-}" ] || return 0
@@ -51,7 +53,23 @@ watch() {
   fi
 }
 
+dbcopy() {   # раз в сутки забираем с домашнего сервера зашифрованную копию базы (расшифровка — backend/tools/restore_backup.py)
+  install -d -m 700 "$COPIES"
+  if once_a_day dbcopy; then
+    local name="db-$(date +%Y%m%d-%H%M).bin"
+    if curl -fsS -m 120 -H "Authorization: Bearer $TOKEN" "$BASE/api/vps/db-backup" -o "$COPIES/$name.part" 2>/dev/null \
+        && [ -s "$COPIES/$name.part" ]; then
+      mv "$COPIES/$name.part" "$COPIES/$name"
+      ls -1t "$COPIES"/db-*.bin 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+    else
+      rm -f "$COPIES/$name.part"; rm -f "$STATE/dbcopy"   # не вышло — попробуем при следующем отчёте
+      notify "Не удалось забрать копию базы с домашнего сервера" default
+    fi
+  fi
+}
+
 report() {
+  dbcopy
   local tmp; tmp=$(mktemp -d)
   python3 - "$tmp" <<'PY'
 import json, os, re, subprocess, sys, time, shutil
@@ -79,7 +97,11 @@ for d in domains[:6]:
             pass
 rep = {"disk_pct": disk, "certs": certs, "caddy": sh("systemctl is-active caddy").strip() == "active",
        "load": sh("cut -d' ' -f1-3 /proc/loadavg").strip(),
-       "uptime_days": int(float(open("/proc/uptime").read().split()[0]) // 86400), "agent": "1"}
+       "uptime_days": int(float(open("/proc/uptime").read().split()[0]) // 86400), "agent": "2"}
+import glob
+cp = sorted(glob.glob("/var/backups/homehub/db-*.bin"))
+if cp:
+    rep["db_copy"] = {"at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(os.path.getmtime(cp[-1]))), "count": len(cp), "size": os.path.getsize(cp[-1])}
 json.dump(rep, open(os.path.join(tmp, "report.json"), "w"))
 PY
   python3 - "$tmp" "$STATE" <<'PY'

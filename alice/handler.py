@@ -296,6 +296,101 @@ def answer_escort(snap, person, now, whose_gen, words=()):
     return _ans(". ".join(out_t) + ".", ". ".join(out_s) + ".")
 
 
+# --------------------------------------------------------------------------- выходные и свободное время
+
+_WD_STEMS = ("понедельник", "вторник", "сред", "четверг", "пятниц", "суббот", "воскресень")
+_WD_NOM = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+
+
+def parse_days(words: list[str], now: datetime) -> tuple[list, str] | None:
+    """Какие дни имеются в виду: «на выходных» (сб+вс), «в субботу», «сегодня/завтра/послезавтра». None — день не назван."""
+    if any(w.startswith("выходн") for w in words):
+        d = now.date()
+        sat = d + timedelta(days=(5 - d.weekday()) % 7) if d.weekday() < 5 else d - timedelta(days=d.weekday() - 5)
+        return [sat, sat + timedelta(days=1)], "на выходных"
+    for w in words:
+        if w in _DAYS:
+            return [(now + timedelta(days=_DAYS[w])).date()], w
+        for i, stem in enumerate(_WD_STEMS):
+            if w.startswith(stem):
+                d = now.date() + timedelta(days=(i - now.weekday()) % 7)
+                return [d], WEEKDAY_IN[i]
+    return None
+
+
+def is_free_question(words: list[str]) -> bool:
+    return any(w.startswith("свобод") for w in words)
+
+
+def _busy(snap: dict, pids: set, day) -> list[tuple[datetime, datetime]]:
+    out = []
+    for e in snap.get("events", []):
+        if e.get("all_day") or not pids & set(e.get("people", [])):
+            continue
+        s, en = _dt(e["start"]), _dt(e["end"])
+        lo = datetime.combine(day, datetime.min.time(), tzinfo=s.tzinfo)
+        hi = lo + timedelta(days=1)
+        if s < hi and en > lo:
+            out.append((max(s, lo), min(en, hi)))
+    return sorted(out)
+
+
+def free_windows(snap: dict, pids: set, day, now: datetime, from_h=8, to_h=22, min_min=60) -> list[tuple[datetime, datetime]]:
+    tz = now.tzinfo
+    start = datetime.combine(day, datetime.min.time(), tzinfo=tz).replace(hour=from_h)
+    end = start.replace(hour=to_h)
+    cur = max(start, now.replace(second=0, microsecond=0)) if day == now.date() else start
+    out = []
+    for s, e in _busy(snap, pids, day):
+        if s > cur and (s - cur) >= timedelta(minutes=min_min):
+            out.append((cur, min(s, end)))
+        cur = max(cur, e)
+    if end - cur >= timedelta(minutes=min_min):
+        out.append((cur, end))
+    return [w for w in out if w[1] > w[0] and w[1] - w[0] >= timedelta(minutes=min_min)]
+
+
+def _hm(d: datetime) -> str:
+    return f"{d:%H:%M}"
+
+
+def answer_free(snap: dict, person: dict | None, days: tuple | None, now: datetime) -> tuple[str, str]:
+    """«Когда мы все свободны в субботу» — окна, когда у всех нет встреч; с человеком — только у него."""
+    dates, label = days or ([now.date()], "сегодня")
+    people = [person] if person else snap.get("people", [])
+    pids = {p["id"] for p in people}
+    who = f"{'у ' + genitive(person['name']) if person else 'у всех'}"
+    lines, spoken = [], []
+    for d in dates:
+        ws = free_windows(snap, pids, d, now)
+        name = label if len(dates) == 1 else _WD_NOM[d.weekday()]
+        if not ws:
+            lines.append(f"{name} свободных окон нет")
+            spoken.append(f"{name} свободных окон нет")
+        else:
+            lines.append(f"{name} с " + ", с ".join(f"{_hm(a)} до {_hm(b)}" for a, b in ws[:3]))
+            spoken.append(f"{name} с " + ", с ".join(f"{a.hour}:{a:%M} до {b.hour}:{b:%M}" for a, b in ws[:3]))
+    far = max(dates) > now.date() + timedelta(days=6)
+    tail = " Дальше недели календарь мне ещё не показывает." if far else ""
+    return _ans(f"Свободно {who}: " + "; ".join(lines) + "." + tail, f"Свободно {who}: " + "; ".join(spoken) + "." + tail)
+
+
+def answer_range(snap, person, days, now, whose_gen) -> tuple[str, str]:
+    """«Что на выходных у Оли»: события на несколько дней подряд."""
+    dates, label = days
+    out, spoken = [], []
+    for d in dates:
+        evs = [e for e in _events_of(snap, person["id"]) if _dt(e["start"]).date() == d]
+        name = _WD_NOM[d.weekday()]
+        if not evs:
+            nothing = "ничего нет" if len(dates) == 1 else f"{name.lower()} ничего нет"
+            out.append(nothing if len(dates) == 1 else f"{name} ничего нет"); spoken.append(out[-1]); continue
+        out.append((f"{name}: " if len(dates) > 1 else "") + ", ".join(("весь день " if e.get("all_day") else f"в {_dt(e['start']):%H:%M} ") + e["title"] for e in evs[:4]))
+        spoken.append((f"{name}: " if len(dates) > 1 else "") + ", ".join(("весь день " if e.get("all_day") else f"в {_dt(e['start']).hour} {_dt(e['start']).minute:02d} ") + e["title"] for e in evs[:4]))
+    head = f"{_cap(label)} {whose_gen}: "
+    return _ans(head + "; ".join(out) + ".", head + "; ".join(spoken) + ".")
+
+
 # --------------------------------------------------------------------------- покупки
 
 _LIST_WORDS = ("покупк", "магазин")
@@ -446,7 +541,7 @@ def answer_add(req: dict, send=send_command) -> dict:
 # --------------------------------------------------------------------------- Алиса
 
 HELP = ("Я знаю расписание семьи. Спросите: когда следующая встреча Оли, что завтра у Маши, "
-        "кто сегодня забирает Машу, что купить. Скажите «я Оля», и я запомню, что «мои» встречи — ваши. "
+        "кто сегодня забирает Машу, что на выходных у Оли, когда мы все свободны в субботу, что купить. Скажите «я Оля», и я запомню, что «мои» встречи — ваши. "
         "А ещё могу записать: «добавь на завтра в 18:00 врача Марку», «добавь молоко в покупки», «перенеси йогу на завтра».")
 
 
@@ -472,6 +567,11 @@ def respond(req: dict, snap: dict, now: datetime | None = None) -> dict:
     if is_shopping_question(words):
         return answer_shopping(snap)
 
+    if is_free_question(words):
+        who = find_person(snap, [w for w in words if w not in ("мне", "я")])
+        text, tts = answer_free(snap, who, parse_days(words, now), now)
+        return _reply(text, tts)
+
     # «я Оля», «меня зовут Оля» — запоминаем, кто говорит
     if words and (words[0] == "я" or words[:2] == ["меня", "зовут"] or words[0] == "запомни"):
         me = find_person(snap, words[1:] if words[0] != "я" else words[1:])
@@ -495,6 +595,10 @@ def respond(req: dict, snap: dict, now: datetime | None = None) -> dict:
         text, tts = answer_escort(snap, person, now, whose_esc, words)
         return _reply(text, tts)
     whose_gen = "у вас" if mine else genitive(person["name"])
+    days = parse_days(words, now)
+    if days and (len(days[0]) > 1 or any(w.startswith(_WD_STEMS) for w in words)):
+        text, tts = answer_range(snap, person, days, now, whose)
+        return _reply(text, tts)
     intent = _intent(words, command)
     if intent == "now":
         text, tts = answer_now(snap, person, now, whose, whose)

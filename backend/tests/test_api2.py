@@ -620,3 +620,46 @@ def test_ops_event_move_by_voice(api):
     rej = m.db.kv_get("ops:rejected")[0]["items"]
     assert any("Танцы" in r["why"] for r in rej)
     assert w
+
+
+def test_weekly_selftest_notifies_on_failure_and_recovery(api, monkeypatch):
+    sent = []
+    from app import access
+    monkeypatch.setattr(access, "notify", lambda db, title, text, priority="default": sent.append((title, text)) or True)
+    core = api.core
+    r = core.selftest_weekly()
+    assert r and r["ok"] and r["scheduled"] and not sent
+    assert core.db.kv_get("selftest:last")[0]["ok"] is True
+    api.fake.update = lambda rid, href, ics: (_ for _ in ()).throw(RuntimeError("403 Forbidden"))
+    r = core.selftest_weekly()
+    assert not r["ok"] and len(sent) == 1 and "не работает" in sent[0][0] and "Перенести" in sent[0][1]
+    st = api.get("/api/system")
+    if st.status_code == 200:
+        assert any("Проверка записи" in p for p in st.json()["problems"])
+    del api.fake.update    # снова работает: сообщение о восстановлении
+    r = core.selftest_weekly()
+    assert r["ok"] and len(sent) == 2 and "снова работает" in sent[1][0]
+
+
+def test_vps_db_copy_endpoint_and_problems(api):
+    from datetime import datetime, timedelta
+    from app import access, backup
+    api.post("/api/login", json={"pin": "длинный пароль семьи"})
+    api.put("/api/access", json={"public_url": "https://cal.example.ru", "vps": True})
+    vtoken = access.token(api.core.db, "vps")
+    api.cookies.clear()
+    assert api.get("/api/vps/db-backup").status_code == 401
+    r = api.get("/api/vps/db-backup", headers={"Authorization": f"Bearer {vtoken}"})
+    assert r.status_code == 200
+    raw = backup.unseal(api.core.cloud.key(), r.content)            # тот же формат, что и на Диске
+    assert backup.check_db(raw)
+    now = datetime.now()
+    access.save_report(api.core.db, {"disk_pct": 10, "agent": "2"}, None)
+    assert any("ещё нет копии базы" in p for p in access.problems(api.core.db))
+    access.save_report(api.core.db, {"disk_pct": 10, "agent": "2", "db_copy": {"at": now.isoformat(timespec="seconds"), "count": 3, "size": 1000}}, None)
+    assert not [p for p in access.problems(api.core.db) if "копи" in p]
+    old = (now - timedelta(days=5)).isoformat(timespec="seconds")
+    access.save_report(api.core.db, {"disk_pct": 10, "agent": "2", "db_copy": {"at": old, "count": 3, "size": 1000}}, None)
+    assert any("старше" in p for p in access.problems(api.core.db))
+    access.save_report(api.core.db, {"disk_pct": 10, "agent": "1"}, None)    # старый агент — про копии не ругаемся
+    assert not [p for p in access.problems(api.core.db) if "копи" in p]

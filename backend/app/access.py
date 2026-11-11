@@ -134,6 +134,9 @@ def save_report(db: Database, report: dict, backup: bytes | None) -> None:
         "uptime_days": int(report.get("uptime_days") or 0),
         "agent": str(report.get("agent") or "")[:20],
     }
+    dc = report.get("db_copy")
+    if isinstance(dc, dict) and dc.get("at"):
+        clean["db_copy"] = {"at": str(dc["at"])[:25], "count": int(dc.get("count") or 0), "size": int(dc.get("size") or 0)}
     db.kv_set("vps:report", clean)
     if backup:
         if len(backup) > MAX_BACKUP:
@@ -178,6 +181,16 @@ def problems(db: Database, now: datetime | None = None) -> list[str]:
             out.append(f"Сертификат {name} истекает через {days} дн.")
     if r.get("caddy") is False:
         out.append("На VPS не запущен Caddy")
+    if str(r.get("agent") or "0") >= "2":
+        dc = r.get("db_copy")
+        try:
+            dage = now - (_naive(dc["at"]) or now) if dc else None
+        except (ValueError, KeyError):
+            dage = None
+        if not dc:
+            out.append("На VPS ещё нет копии базы (агент заберёт её в течение суток)")
+        elif dage is not None and dage > timedelta(days=3):
+            out.append(f"Копия базы на VPS старше {dage.days} дн.")
     return out
 
 

@@ -3,8 +3,14 @@
     <div v-if="!s" class="group"><div class="row"><span class="muted">Загружаю…</span></div></div>
     <template v-else>
       <template v-if="part === 'overview'">
+      <h3 v-if="s.problems.length" class="group-title">Что требует внимания · {{ s.problems.length }}</h3>
       <div v-if="s.problems.length" class="group warn">
-        <div v-for="p in s.problems" :key="p" class="row"><span class="dotr"></span><span class="lbl">{{ p }}</span></div>
+        <component :is="target(p) ? 'button' : 'div'" v-for="p in s.problems" :key="p" class="row" :class="{ 'menu-row': target(p) }"
+                   @click="target(p) && emit('goto', target(p).page)">
+          <span class="dotr"></span>
+          <span class="lbl">{{ p }}<small v-if="target(p)" class="muted block">{{ target(p).label }}</small></span>
+          <span v-if="target(p)" class="chev" aria-hidden="true">›</span>
+        </component>
       </div>
       <div v-else class="group"><div class="row"><span class="ok">●</span><span class="lbl">Всё в порядке</span></div></div>
 
@@ -41,6 +47,10 @@
         <div class="row between"><label for="st-cal">Календарь</label>
           <select id="st-cal" v-model="testCal"><option v-for="c in writable" :key="c.key" :value="c.key">{{ c.name }}</option></select></div>
         <div class="row"><button class="btn link" :disabled="busy || !testCal" @click="selftest">{{ testing ? 'Проверяю…' : 'Проверить запись' }}</button></div>
+        <div v-if="s && s.selftest" class="row">
+          <span class="lbl">Еженедельная проверка (вс, 05:20)</span>
+          <span :class="s.selftest.ok ? 'val ok' : 'val err'">{{ s.selftest.ok ? 'прошла' : 'не прошла' }} · {{ new Date(s.selftest.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }}</span>
+        </div>
         <div v-for="(x, i) in testSteps" :key="i" class="row">
           <span :class="x.ok ? 'ok' : 'err'">{{ x.ok ? '✓' : '✕' }}</span><span class="lbl">{{ x.name }}</span>
           <span v-if="x.error" class="val err">{{ x.error }}</span><span v-else-if="x.ms != null" class="val muted">{{ x.ms }} мс</span>
@@ -215,6 +225,19 @@ function ago(d) {
   if (m < 1440) return Math.round(m / 60) + ' ч назад'
   return fmt(d)
 }
+const emit = defineEmits(['goto'])
+// Куда вести по строке из «что требует внимания» (по началу текста; тексты задаёт бэкенд).
+const TARGETS = [
+  [/VPS|Сертификат|копия базы|Копия базы/, 'vps', 'Связь вне дома → Сервер и уведомления'],
+  [/нет связи снаружи|публичн|ntfy|вход/i, 'address', 'Адрес и доступ приложений'],
+  [/Облако|Команды с телефона|Диск/, 'cloud', 'Облако Яндекс.Диска'],
+  [/Резервн|Учебное восстановление|копи/, 'sys-backup', 'Состояние → Резервные копии'],
+  [/Проверка записи|Проверка данных|водител|дубл/i, 'sys-checks', 'Состояние → Проверки'],
+  [/Не отправлено|отклонена/, 'changes', 'Журнал изменений'],
+  [/Синхронизация|давно не обновлялся/, 'sources', 'Яндекс и другие календари'],
+  [/обновлени|откат|journalctl|сборк|Android|Mac|iPhone|медленн/i, 'sys-server', 'Состояние → Сервер и скорость'],
+]
+const target = (text) => { const t = TARGETS.find(([re]) => re.test(text)); return t ? { page: t[1], label: t[2] } : null }
 const load = () => api.system().then((r) => { s.value = r }).catch((e) => { err.value = e.message })
 async function backup() {
   busy.value = true

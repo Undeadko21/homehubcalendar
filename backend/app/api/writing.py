@@ -155,59 +155,8 @@ class SelfTestIn(BaseModel):
 
 @router.post("/api/selftest/write")
 def selftest_write(body: SelfTestIn):
-    """Проверка записи в живой календарь: создать → перенести → прочитать с сервера → серия с исключением → удалить.
-    Идёт мимо локальной базы и журнала (семья ничего не увидит), тестовые события живут секунды."""
-    target = core.make_target(body.calendar)
-    rid = core._remote_id(body.calendar)
-    steps: list[dict] = []
-    day = datetime.now(core.tz).date() + timedelta(days=30)
-    s0 = datetime.combine(day, time(3, 0), core.tz)
-
-    def step(name: str, fn):
-        t0 = perf_counter()
-        try:
-            out = fn()
-            steps.append({"name": name, "ok": True, "ms": round((perf_counter() - t0) * 1000)})
-            return out
-        except Exception as e:  # noqa: BLE001
-            steps.append({"name": name, "ok": False, "error": writer.friendly(e), "ms": round((perf_counter() - t0) * 1000)})
-            raise
-
-    hrefs: list[str] = []
-    try:
-        uid, ics = writer.build_ics("Проверка HomeHub (можно удалить)", s0, s0 + timedelta(minutes=30), False, core.tz)
-        href = step("Создать событие", lambda: target.create(rid, ics))
-        hrefs.append(href)
-        back = step("Прочитать его с сервера", lambda: target.read(rid, href) or (_ for _ in ()).throw(writer.WriteError("Событие не нашлось")))
-        if "Проверка HomeHub" not in back:
-            raise writer.WriteError("Сервер вернул не то событие")
-        moved = writer.apply_edit(ics, {"title": "Проверка HomeHub — перенос", "start": s0 + timedelta(hours=1),
-                                        "end": s0 + timedelta(hours=1, minutes=30), "all_day": False}, core.tz)
-        step("Перенести и переименовать", lambda: target.update(rid, href, moved))
-        back = step("Проверить перенос", lambda: target.read(rid, href) or "")
-        if "перенос" not in back or "T040000" not in back:
-            raise writer.WriteError("После переноса на сервере прежнее время или название")
-        uid2, series = writer.build_ics("Проверка серии HomeHub", s0, s0 + timedelta(minutes=30), False, core.tz,
-                                        repeat={"freq": "weekly", "byday": [writer._DAYS[s0.weekday()]], "count": 4})
-        h2 = step("Создать повторяющееся событие", lambda: target.create(rid, series))
-        hrefs.append(h2)
-        cut = writer.add_exdate(series, s0 + timedelta(days=7), core.tz)
-        step("Убрать одно вхождение (EXDATE)", lambda: target.update(rid, h2, cut))
-        if "EXDATE" not in (target.read(rid, h2) or ""):
-            raise writer.WriteError("Сервер не сохранил исключение из серии")
-    except Exception as e:  # noqa: BLE001
-        if not steps or steps[-1]["ok"]:
-            steps.append({"name": "Проверка", "ok": False, "error": writer.friendly(e)})
-    finally:
-        for h in hrefs:
-            try:
-                target.delete(rid, h)
-                steps.append({"name": "Удалить тестовое событие", "ok": True})
-            except Exception as e:  # noqa: BLE001
-                steps.append({"name": "Удалить тестовое событие", "ok": False, "error": writer.friendly(e) + f" ({h})"})
-    ok = all(x["ok"] for x in steps)
-    core.log.info("Самопроверка записи %s: %s", body.calendar, "успешно" if ok else steps)
-    return {"ok": ok, "steps": steps}
+    """Проверка записи в живой календарь (шаги — в core.run_selftest); результат запоминается для «Состояния»."""
+    return core.run_selftest(body.calendar)
 
 
 @router.post("/api/event")

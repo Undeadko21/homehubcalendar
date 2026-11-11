@@ -53,7 +53,7 @@ export const state = reactive({
   personSheet: null, // id человека, чей профиль открыт
 })
 
-export const CAL_VIEWS = ['timeline', 'week', 'month', 'agenda']
+export const CAL_VIEWS = ['timeline', 'week', 'family', 'month', 'agenda']
 
 // Узкий экран (телефон): «Неделя» показывает 3 дня, как iPhone в портретной ориентации.
 const mq = typeof matchMedia === 'function' ? matchMedia('(max-width: 599px)') : null

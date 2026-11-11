@@ -162,6 +162,17 @@ def vps_install(request: Request):
     return PlainTextResponse(text)
 
 
+@router.get("/api/vps/db-backup")
+def vps_db_backup(request: Request):
+    """Свежая копия базы, зашифрованная ключом облака (тот же формат, что на Диске): агент VPS забирает её раз в сутки."""
+    from .. import backup as backup_mod
+    if not access.check(core.db, "vps", access.bearer(request.headers.get("authorization", ""))):
+        raise HTTPException(401, "auth_required")
+    raw = backup_mod.snapshot_db(Path(core.db.path), core.db)
+    blob = backup_mod.seal(core.cloud.key(), raw)
+    return Response(blob, media_type="application/octet-stream")
+
+
 class Report(BaseModel):
     report: dict
     backup: str | None = None

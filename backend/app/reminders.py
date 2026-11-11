@@ -191,6 +191,19 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
             out.append({"id": f"digest:{day.isoformat()}", "kind": "digest", "at": at.isoformat(timespec="seconds"),
                         "title": f"Завтра: проблемы с поездками ({len(problems)})", "text": "\n".join(problems)})
 
+    # Срочно: поездка в ближайшие 12 часов без водителя или с занятым водителем — сразу, не дожидаясь вечернего дайджеста.
+    # `at` считаем от начала события (а не от «сейчас»), чтобы снимок не менялся между пересборками.
+    for e in events:
+        if e.get("duty") or e["all_day"] or e.get("private") or not e.get("escort_issue"):
+            continue
+        s = datetime.fromisoformat(e["start"])
+        if not (now <= s <= now + timedelta(hours=12)):
+            continue
+        what = "некому отвезти или забрать" if e["escort_issue"] != "conflict" else "водитель занят в это время"
+        out.append({"id": f"alert:trip:{e['id']}:{e['start']}:{e['escort_issue']}", "kind": "alert",
+                    "at": (s - timedelta(hours=12)).isoformat(timespec="seconds"), "start": e["start"],
+                    "title": f"{e['title']} в {s.astimezone(tz).strftime('%H:%M')}: {what}", "text": "Откройте календарь и назначьте водителя"})
+
     for b in upcoming(birthdays_manual, events, today, horizon_days):
         day = date_of(b)
         age = f" ({b['turns']})" if b.get("turns") else ""

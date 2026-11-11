@@ -166,3 +166,21 @@ def test_move_command(monkeypatch):
     assert r["response"]["end_session"]
     r = h.answer_move({"request": {"command": "перенеси йогу"}}, send=sent.append)
     assert len(sent) == 1 and not r["response"]["end_session"]          # без дня — переспрашиваем
+
+
+def test_weekend_and_free():
+    # NOW — вторник 27.10.2026; суббота 31.10
+    snap = {**SNAP, "events": SNAP["events"] + [
+        ev("7", "Дача", "2026-10-31T10:00:00+05:00", "2026-10-31T14:00:00+05:00", ["papa", "mama"]),
+        ev("8", "Кино", "2026-10-31T18:00:00+05:00", "2026-10-31T20:00:00+05:00", ["masha"]),
+    ]}
+
+    def ask2(cmd):
+        req = {"request": {"command": cmd, "nlu": {"tokens": cmd.lower().split()}}, "state": {"user": {}}}
+        return h.respond(req, snap, NOW)["response"]["text"]
+
+    assert ask2("что на выходных у маши") == "На выходных у Маши: Суббота: в 18:00 Кино; Воскресенье ничего нет."
+    assert ask2("что в субботу у папы") == "В субботу у Папы: в 10:00 Дача."
+    t = ask2("когда мы все свободны в субботу")
+    assert t.startswith("Свободно у всех: в субботу с 08:00 до 10:00, с 14:00 до 18:00, с 20:00 до 22:00")
+    assert ask2("когда свободна мама в субботу").startswith("Свободно у Мамы: в субботу с 08:00 до 10:00, с 14:00 до 22:00")

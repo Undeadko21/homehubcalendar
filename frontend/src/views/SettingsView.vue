@@ -322,7 +322,7 @@
     <StatsPanel />
     </template>
     <template v-if="page === 'system'">
-    <SystemPanel part="overview" />
+    <SystemPanel part="overview" @goto="open" />
     <h3 class="group-title">Подробнее</h3>
     <div class="group menu">
       <button v-for="m in systemItems" :key="m.id" class="row menu-row" @click="open(m.id)">

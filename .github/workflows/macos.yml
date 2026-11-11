@@ -33,3 +33,29 @@ jobs:
           git commit -m "macOS: сборка ${GITHUB_RUN_NUMBER} [skip ci]" || exit 0
           git pull --rebase origin main
           git push origin HEAD:main
+
+  # Снимки экрана виджета (светлая/тёмная тема, все размеры) — смотреть в артефакте «widget-snapshots».
+  # Отдельная задача: сбой здесь не мешает выпуску приложения.
+  widget-snapshots:
+    runs-on: macos-15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Нарисовать виджет
+        run: |
+          cd macos
+          # Тест подключаем только здесь, чтобы он не попадал в обычную сборку и тесты выпуска.
+          mkdir -p Tests/WidgetSnapshotTests && cp snapshot-tests/*.swift Tests/WidgetSnapshotTests/
+          python3 - <<'PY'
+          p = open("Package.swift").read()
+          key = '.testTarget(name: "HomeHubCoreTests", dependencies: ["HomeHubCore"]),'
+          p = p.replace(key, key + '\n        .testTarget(name: "WidgetSnapshotTests", dependencies: ["HomeHubMac", "HomeHubCore"]),')
+          open("Package.swift", "w").write(p)
+          PY
+          WIDGET_SNAP_DIR="$PWD/widget-snapshots" swift test --filter WidgetSnapshotTests
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: widget-snapshots
+          path: macos/widget-snapshots/*.png
+          if-no-files-found: warn

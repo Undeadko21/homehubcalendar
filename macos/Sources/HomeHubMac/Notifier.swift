@@ -24,6 +24,9 @@ enum Notifier {
             guard enabled else { return }
             let now = Date()
             var items: [(Date, Reminder)] = []
+            let defaults = UserDefaults.standard
+            var shown = Set(defaults.stringArray(forKey: "hh.shownAlerts") ?? [])
+            var fresh: [String] = []
             for r in reminders {
                 var fire: Date?
                 if r.kind == "duty" {
@@ -37,6 +40,16 @@ enum Notifier {
                     fire = DateParse.parse(at)
                 }
                 if let f = fire, f > now { items.append((f, r)) }
+                else if let f = fire, ["alert", "digest"].contains(r.kind), now.timeIntervalSince(f) < 24 * 3600,
+                        !shown.contains(r.id) {
+                    // Срочные предупреждения (поездка без водителя, дайджест, молчащая синхронизация) приходят, когда уже
+                    // «пора»: показываем сразу, один раз на устройство.
+                    items.append((now.addingTimeInterval(2), r)); fresh.append(r.id)
+                }
+            }
+            if !fresh.isEmpty {
+                shown.formUnion(fresh)
+                defaults.set(Array(shown.suffix(200)), forKey: "hh.shownAlerts")
             }
             items.sort { $0.0 < $1.0 }
             for (fire, r) in items.prefix(60) {

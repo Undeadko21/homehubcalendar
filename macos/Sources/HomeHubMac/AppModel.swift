@@ -58,6 +58,13 @@ final class AppModel: ObservableObject {
         start()
     }
 
+    #if DEBUG
+    /// Для снимков экрана в тестах: подставить готовый снимок и «текущее время».
+    func loadPreview(_ snap: Snapshot, now: Date, people: Set<String> = []) {
+        snapshot = snap; source = .server; self.now = now; menuPeople = people
+    }
+    #endif
+
     private func start() {
         Task { await loop() }
         #if os(macOS)
