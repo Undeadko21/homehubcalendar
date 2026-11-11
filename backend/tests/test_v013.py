@@ -193,8 +193,9 @@ def test_trip_alert_has_action_details(api):
     core = c.core
     evs = core.events.events(core._parse_dt("2026-11-03T00:00:00"), core._parse_dt("2026-11-04T00:00:00"))
     now = core._parse_dt("2026-11-03T09:00:00")
-    out = [r for r in reminders.build(evs, [], now, core.tz, None) if r["id"].startswith("alert:trip")]
+    out = [r for r in reminders.build(evs, [], now, core.tz, None, names={'anna': 'Анна'}) if r["id"].startswith("alert:trip")]
     assert len(out) == 1
     trip = out[0]["trip"]
     assert trip["occurrence"] is None and [n["role"] for n in trip["need"]] == ["dropoff", "pickup"]
     assert trip["need"][0]["free"] == ["anna"]
+    assert trip["names"] == {"anna": "Анна"}

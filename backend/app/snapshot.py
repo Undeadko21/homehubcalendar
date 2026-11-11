@@ -40,7 +40,8 @@ def build(events: EventService, db: Database, tz: ZoneInfo, now: datetime | None
         # lead=None: «за сколько минут» и «чьи поездки» выбирает каждый телефон сам
         "reminders": reminders.build(evs, db.birthdays(), now, tz, None, None, HORIZON_DAYS,
                                     reminders.load_rules(db), reminders.load_allday(db),
-                                    [i for l in db.lists() for i in l["items"]], db.sync_status()),
+                                    [i for l in db.lists() for i in l["items"]], db.sync_status(),
+                                    names={pid: p["name"] for pid, p in people.items()}),
         # --- для офлайн-экрана и команд с телефона (этап 2) ---
         "people": [{k: p.get(k) for k in ("id", "name", "color", "emoji", "needs_escort", "keywords")} for p in people.values()],
         "events": [_compact(e) for e in shown],

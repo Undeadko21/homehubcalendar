@@ -77,7 +77,7 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
           people: set[str] | None, lead: int | None = 30, horizon_days: int = 2,
           event_rules: dict[str, list[int]] | None = None,
           allday: dict | None = None, todos: list[dict] | None = None,
-          sync_statuses: list[dict] | None = None) -> list[dict]:
+          sync_statuses: list[dict] | None = None, names: dict[str, str] | None = None) -> list[dict]:
     now = now.astimezone(tz)
     today = now.date()
     out: list[dict] = []
@@ -193,6 +193,7 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
 
     # Срочно: поездка в ближайшие 12 часов без водителя или с занятым водителем — сразу, не дожидаясь вечернего дайджеста.
     # `at` считаем от начала события (а не от «сейчас»), чтобы снимок не менялся между пересборками.
+    names = names or {}
     for e in events:
         if e.get("duty") or e["all_day"] or e.get("private") or not e.get("escort_issue"):
             continue
@@ -208,7 +209,8 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
         out.append({"id": f"alert:trip:{e['id']}:{e['start']}:{e['escort_issue']}", "kind": "alert",
                     "at": (s - timedelta(hours=12)).isoformat(timespec="seconds"), "start": e["start"],
                     "title": f"{e['title']} в {s.astimezone(tz).strftime('%H:%M')}: {what}", "text": "Откройте календарь и назначьте водителя",
-                    "trip": {"uid": e.get("uid"), "occurrence": e["start"] if e.get("recurring") else None, "need": need}})
+                    "trip": {"uid": e.get("uid"), "occurrence": e["start"] if e.get("recurring") else None, "need": need,
+                             "names": {pid: names[pid] for n in need for pid in [*n["free"], n["person"]] if pid in names}}})
 
     for b in upcoming(birthdays_manual, events, today, horizon_days):
         day = date_of(b)

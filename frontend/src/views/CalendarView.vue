@@ -16,7 +16,7 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import ruLocale from '@fullcalendar/core/locales/ru'
-import { state, openEvent, eventColor, screen, weekDays, setWeekDays, setView, setTimelineDays } from '../lib/store'
+import { state, openEvent, eventColor, personMark, screen, weekDays, setWeekDays, setView, setTimelineDays } from '../lib/store'
 import { canMove, moveEvent } from '../lib/moveEvent'
 import { useRange } from '../lib/useRange'
 import { addDays, startOfDay, startOfWeek, startOfMonth, isoDate } from '../lib/dates'
@@ -49,12 +49,15 @@ async function moved(info) {
   if (r !== true) info.revert()   // повторяющееся: пока человек не выбрал, событие остаётся на месте
 }
 
+// Буквы людей перед названием (настройка «Буквы на плашках»).
+const marksText = (e) => { const m = e.people.map((id) => personMark.value[id]).filter(Boolean).join('·'); return m ? m + ' ' : '' }
+
 const fcEvents = computed(() =>
   events.value.map((e) => {
     const c = eventColor(e)
     return {
       id: e.id,
-      title: e.title + (e.people.length > 1 ? ` (${e.people.length})` : ''),
+      title: (state.initials ? marksText(e) : '') + e.title + (e.people.length > 1 && !state.initials ? ` (${e.people.length})` : ''),
       start: e.start,
       end: e.end,
       allDay: e.all_day,

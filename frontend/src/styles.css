@@ -203,3 +203,10 @@ select.sel { border: 0; background: var(--fill); border-radius: 8px; padding: 6p
   }
   :root:not([data-theme='light']) .pill.past, :root:not([data-theme='light']) .block.past, :root:not([data-theme='light']) .blk.past { opacity: .7; }
 }
+
+/* Буквы людей на плашках (настройка «Буквы на плашках»): различать людей не только по цвету. */
+.marks { display: inline-flex; gap: 2px; margin-right: 5px; vertical-align: 1px; }
+.marks b {
+  --c: #8e8e93; display: inline-grid; place-items: center; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box;
+  border-radius: 5px; background: var(--c); color: #fff; font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: 0;
+}

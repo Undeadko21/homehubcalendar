@@ -22,7 +22,7 @@
       <li v-for="e in dayEvents" :key="e.id" class="row" :style="{ '--c': eventColor(e) }" @click="openEvent(e)">
         <span class="bar"></span>
         <span class="mid">
-          <span class="t">{{ e.title }}</span>
+          <span class="t"><span v-if="state.initials" class="marks" aria-hidden="true"><b v-for="id in e.people.filter((x) => personMark[x])" :key="id" :style="{ '--c': personById[id]?.color }">{{ personMark[id] }}</b></span>{{ e.title }}</span>
           <span v-if="e.location" class="loc">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0113 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.2"/></svg>{{ e.location }}
           </span>
@@ -30,14 +30,14 @@
         <span class="tm" v-if="e.all_day">весь день</span>
         <span class="tm" v-else><b>{{ hm(e.start) }}</b><span>{{ hm(e.end) }}</span></span>
       </li>
-      <li v-if="!dayEvents.length" class="none">Нет событий</li>
+      <li v-if="!dayEvents.length" class="none">В этот день свободно<template v-if="nextInMonth"> — ближайшее {{ nextInMonth }}</template></li>
     </ul>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import { state, openEvent, eventColor } from '../lib/store'
+import { state, openEvent, eventColor, personById, personMark } from '../lib/store'
 import { useRange } from '../lib/useRange'
 import { addDays, startOfWeek, startOfMonth, startOfDay, isoDate, sameDay, eventRange } from '../lib/dates'
 
@@ -92,6 +92,15 @@ function isoWeek(d) {
 const dayEvents = computed(() =>
   [...(byDay.value[isoDate(state.cursor)] || [])].sort((a, b) => (b.all_day ? 1 : 0) - (a.all_day ? 1 : 0) || String(a.start).localeCompare(String(b.start))),
 )
+
+// Пустой день: ближайший день с событиями в показанной сетке после выбранного.
+const nextInMonth = computed(() => {
+  const cur = isoDate(state.cursor)
+  const key = Object.keys(byDay.value).filter((k) => k > cur && byDay.value[k].length).sort()[0]
+  if (!key) return ''
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' })
+})
 
 const hm = (iso) => new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 const pick = (d) => { state.cursor = d }

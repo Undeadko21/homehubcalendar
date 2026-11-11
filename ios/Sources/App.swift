@@ -18,6 +18,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         completionHandler([.banner, .sound])
     }
+
+    // Кнопки «Отвезу я / Не могу» в уведомлении о поездке.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        Notifier.handle(response, done: completionHandler)
+    }
 }
 
 func scheduleBackgroundRefresh() {

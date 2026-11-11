@@ -10,7 +10,8 @@ function loadPrefs() {
 }
 function savePrefs() {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify({ hiddenPeople: state.hiddenPeople, view: state.view, calView: state.calView, timelineDays: state.timelineDays, weekDays: state.weekDaysPref }))
+    localStorage.setItem(LS_KEY, JSON.stringify({ hiddenPeople: state.hiddenPeople, view: state.view, calView: state.calView, timelineDays: state.timelineDays, weekDays: state.weekDaysPref,
+      textSize: state.textSize, initials: state.initials, onboarded: state.onboarded }))
   } catch {}
 }
 
@@ -51,7 +52,56 @@ export const state = reactive({
   editor: null, // { event } — правка, {} — новое событие
   peopleSheet: false, // лист «Люди» на телефоне
   personSheet: null, // id человека, чей профиль открыт
+  toast: null, // { text, undo } — плашка внизу с «Отменить»
+  quickAdd: false, // лист единого «+»
+  listsRev: 0, // списки изменились не на странице списков — перечитать
+  textSize: params.get('size') || prefs.textSize || 'normal', // compact | normal | large
+  initials: params.has('initials') ? params.get('initials') !== '0' : !!prefs.initials, // буква человека на плашке (не только цвет)
+  onboarded: !!prefs.onboarded, // знакомство пройдено на этом устройстве
+  onboarding: false,
 })
+
+// Внешний вид: размер текста — множитель --fs (сборка переводит все font-size в calc(… * var(--fs))).
+const SIZES = { compact: 0.9, normal: 1, large: 1.15, xlarge: 1.3 }
+export function applyLook() {
+  if (typeof document === 'undefined') return
+  const k = SIZES[state.textSize] || 1
+  document.documentElement.style.setProperty('--fs', String(k))
+  document.documentElement.dataset.size = state.textSize
+}
+export function setTextSize(v) { state.textSize = v; savePrefs(); applyLook() }
+export function setInitials(v) { state.initials = !!v; savePrefs() }
+export function finishOnboarding() { state.onboarded = true; state.onboarding = false; savePrefs() }
+applyLook()
+
+// Плашка внизу экрана: «Перенесено · Отменить». undo — функция или пусто.
+let toastTimer = 0
+export function toast(text, undo) {
+  clearTimeout(toastTimer)
+  state.toast = { text, undo: undo || null, busy: false }
+  toastTimer = setTimeout(() => { state.toast = null }, undo ? 6000 : 3500)
+}
+export function hideToast() { clearTimeout(toastTimer); state.toast = null }
+export async function runToastUndo() {
+  const t = state.toast
+  if (!t?.undo || t.busy) return
+  clearTimeout(toastTimer)
+  t.busy = true
+  try {
+    await t.undo()
+    toast('Отменено')
+  } catch (err) {
+    toast('Не удалось отменить: ' + err.message)
+  }
+}
+// Отмена записи в календарь по номерам журнала, которые вернул сервер (в обратном порядке).
+export function undoOf(changes) {
+  if (!changes?.length) return null
+  return async () => {
+    for (const id of [...changes].reverse()) await api.undoChange(id)
+    await reload()
+  }
+}
 
 export const CAL_VIEWS = ['timeline', 'week', 'family', 'month', 'agenda']
 
@@ -86,6 +136,51 @@ export async function refreshSelected() {
   const fresh = list.find((x) => x.id === e.id) || list.find((x) => x.uid === e.uid && x.start === e.start)
   if (fresh && state.selected?.id === e.id) state.selected = fresh
 }
+
+// Перейти к дню на ленте (из поиска, пустых состояний).
+export function goToDay(date) {
+  state.cursor = new Date(date)
+  state.selected = null
+  setView('timeline')
+}
+
+// Единое «Быстро»: сервер решает, событие это, дело или покупка. Событие открывается в форме для проверки,
+// дело и покупки добавляются сразу (с «Отменить»). Возвращает вид того, что получилось.
+export async function quickAdd(text, date) {
+  const r = await api.quick(text)
+  if (r.kind === 'event') {
+    if (!writableCalendars().length) throw new Error('Нет календаря, в который можно записать событие')
+    state.editor = { date: date || state.cursor, quick: text }
+    return 'event'
+  }
+  if (!r.list_id) throw new Error('Сначала создайте список в разделе «Списки»')
+  const ids = []
+  if (r.kind === 'shopping') {
+    for (const item of r.items) ids.push((await api.addItem(r.list_id, item)).id)
+    toast(`В «${r.list_name}»: ${r.items.join(', ')}`, undoItems(ids))
+  } else {
+    ids.push((await api.addItem(r.list_id, r.text, r.person_id, r.due)).id)
+    const due = r.due ? ' · до ' + new Date(r.due + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : ''
+    toast(`В «${r.list_name}»: ${r.text}${due}`, undoItems(ids))
+  }
+  state.listsRev++
+  return r.kind
+}
+function undoItems(ids) {
+  return async () => {
+    for (const id of ids) await api.deleteItem(id)
+    state.listsRev++
+  }
+}
+
+// Буква человека для плашек: первая буква имени, а если у двоих совпадает — две.
+export const personMark = computed(() => {
+  const list = (state.config?.people || []).filter((p) => !p.id.startsWith('_'))
+  const first = (p) => (p.name || '?').trim().slice(0, 1).toUpperCase()
+  const count = {}
+  for (const p of list) count[first(p)] = (count[first(p)] || 0) + 1
+  return Object.fromEntries(list.map((p) => [p.id, count[first(p)] > 1 ? (p.name || '?').trim().slice(0, 2) : first(p)]))
+})
 
 export const people = computed(() => (state.config?.people || []).filter((p) => !p.hidden))
 export const personById = computed(() => Object.fromEntries((state.config?.people || []).map((p) => [p.id, p])))

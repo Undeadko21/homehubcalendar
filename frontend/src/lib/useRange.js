@@ -7,6 +7,7 @@ export function useRange(rangeFn) {
   const raw = ref([])
   const holidays = ref([])
   const loading = ref(false)
+  const loaded = ref(false)   // свежий ответ сервера получен хотя бы раз (для пустых состояний)
   const error = ref(null)
   const range = computed(rangeFn)
 
@@ -24,6 +25,7 @@ export function useRange(rangeFn) {
       if (same()) {
         raw.value = evs
         error.value = null
+        loaded.value = true
       }
     } catch (e) {
       error.value = e.message
@@ -37,5 +39,5 @@ export function useRange(rangeFn) {
 
   const events = computed(() => raw.value.filter(isEventVisible))
   const holidayMap = computed(() => Object.fromEntries(holidays.value.map((h) => [h.date, h])))
-  return { events, holidays, holidayMap, loading, error, range, reload: load }
+  return { events, holidays, holidayMap, loading, loaded, error, range, reload: load }
 }

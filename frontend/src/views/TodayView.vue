@@ -10,7 +10,7 @@
     </section>
 
     <form class="quick" @submit.prevent="addQuick">
-      <input v-model="quickText" placeholder="Быстро: «Йога завтра в 18:30 у Оли»" aria-label="Быстро добавить событие"
+      <input v-model="quickText" placeholder="Быстро: «Йога завтра в 18:30», «купить молоко», «дело: …»" aria-label="Быстро добавить событие, дело или покупку"
              autocomplete="off" enterkeyhint="go" />
       <button class="btn filled" :disabled="!quickText.trim()">＋</button>
     </form>
@@ -35,6 +35,13 @@
       </div>
     </section>
 
+    <!-- Пустой день: что ближайшее и когда -->
+    <button v-if="freeDay" class="free-day" :disabled="!nextUp" @click="nextUp && goToDay(nextUp.date)">
+      <strong>{{ isToday ? 'Сегодня' : 'В этот день' }} свободно</strong>
+      <span v-if="nextUp">Ближайшее — {{ nextUp.when }}: {{ nextUp.title }} ›</span>
+      <span v-else-if="nextLoaded">В ближайший месяц событий нет</span>
+    </button>
+
     <section ref="daySec" class="day-section">
       <DayGrid v-if="columns.length" :columns="columns" :day="day" :now="now" />
       <p v-else class="empty">Выберите хотя бы одного человека в списке «Люди».</p>
@@ -51,17 +58,20 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { state, visiblePeople, openEvent, newEvent } from '../lib/store'
+import { state, visiblePeople, openEvent, quickAdd, toast, goToDay, isEventVisible } from '../lib/store'
+import { api } from '../lib/api'
 
 const quickText = ref('')
-function addQuick() {
+async function addQuick() {
   const t = quickText.value.trim()
   if (!t) return
-  quickText.value = ''
-  newEvent(state.cursor, t)
+  try {
+    await quickAdd(t, state.cursor)
+    quickText.value = ''
+  } catch (err) { toast(err.message) }
 }
 import { useRange } from '../lib/useRange'
-import { addDays, startOfDay, overlaps, isoDate, eventRange, sameDay, relativeDayName, formatTime } from '../lib/dates'
+import { addDays, startOfDay, overlaps, isoDate, isoLocal, eventRange, sameDay, relativeDayName, formatTime } from '../lib/dates'
 import EventPill from '../components/EventPill.vue'
 import EscortBadge from '../components/EscortBadge.vue'
 import WeatherNow from '../components/WeatherNow.vue'
@@ -76,7 +86,7 @@ onUnmounted(() => clearInterval(t))
 
 const day = computed(() => startOfDay(state.cursor))
 const isToday = computed(() => sameDay(day.value, now.value))
-const { events, holidayMap } = useRange(() => ({ start: day.value, end: addDays(day.value, 2) }))
+const { events, holidayMap, loaded } = useRange(() => ({ start: day.value, end: addDays(day.value, 2) }))
 
 // На телефоне при открытии «Сегодня» сразу показываем сетку дня, а не часы и погоду над ней.
 let scrolled = false
@@ -106,6 +116,30 @@ const columns = computed(() =>
     })
     .filter((c) => c.events.length || !c.person.id.startsWith('_')),
 )
+
+// День без событий у выбранных людей: показываем, что ближайшее (ищем на месяц вперёд).
+const freeDay = computed(() => loaded.value && visiblePeople.value.length > 0 && !todays.value.some(isEventVisible))
+const upcoming = ref([])
+const nextLoaded = ref(false)
+watch([freeDay, day, () => state.revision], async ([free]) => {
+  nextLoaded.value = false
+  upcoming.value = []
+  if (!free) return
+  const from = addDays(day.value, 1)
+  try {
+    upcoming.value = await api.events(isoLocal(from), isoLocal(addDays(from, 31)))
+  } catch { /* подсказка необязательна */ }
+  nextLoaded.value = true
+}, { immediate: true })
+const nextUp = computed(() => {
+  const e = upcoming.value.find((x) => !x.duty && isEventVisible(x))
+  if (!e) return null
+  const r = eventRange(e)
+  const rel = relativeDayName(r.start, now.value)
+  const dayText = ['Сегодня', 'Завтра'].includes(rel) ? rel.toLowerCase()
+    : r.start.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' })
+  return { date: r.start, title: e.title, when: e.all_day ? dayText : `${dayText} в ${formatTime(r.start)}` }
+})
 
 const nextDay = computed(() => addDays(day.value, 1))
 const nextLabel = computed(() => relativeDayName(nextDay.value, now.value))
@@ -143,6 +177,13 @@ const trips = computed(() =>
 .hm { font-family: var(--font-display); font-size: clamp(64px, 9vw, 112px); font-weight: 200; letter-spacing: -0.04em; line-height: .9; }
 .holiday { color: var(--red); font-weight: 600; font-size: 17px; }
 .vacation { color: #34c759; font-weight: 600; font-size: 17px; }
+.free-day {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; border: 0; font: inherit; color: var(--ink);
+  background: var(--surface-2); border-radius: var(--radius-m); padding: 12px 16px; max-width: 760px;
+}
+.free-day strong { font-size: 17px; }
+.free-day span { color: var(--ink-2); font-size: 14px; }
+.free-day:not(:disabled):hover { background: var(--fill); }
 .sec { font-size: 20px; font-weight: 700; margin: 0 0 10px; letter-spacing: -0.01em; }
 
 .trips .group { background: var(--surface-2); max-width: 760px; }

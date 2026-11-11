@@ -1,5 +1,5 @@
 // Перенос события (перетаскиванием в любом виде): общая логика отправки на сервер.
-import { state, reload, writableCalendars } from './store'
+import { state, reload, writableCalendars, toast, undoOf } from './store'
 import { api } from './api'
 import { isoDate, isoLocal, addDays } from './dates'
 import { problems } from './report'
@@ -26,7 +26,8 @@ function bodyFor(e, cal, start, end) {
 async function send(e, cal, start, end, scope) {
   const body = bodyFor(e, cal, start, end)
   if (e.recurring) { body.occurrence = e.start; body.scope = scope }
-  await api.updateEvent(e.uid, body)
+  const r = await api.updateEvent(e.uid, body)
+  toast('Перенесено: ' + e.title, undoOf(r.changes))
 }
 
 // Проверка перед переносом: если на новом месте что-то не сходится, спрашиваем, переносить ли.

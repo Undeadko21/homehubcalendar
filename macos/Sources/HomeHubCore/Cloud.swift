@@ -90,9 +90,41 @@ public enum Cloud {
         return try decrypt(key: key, blob: blob)
     }
 
+    /// Одна команда (как с офлайн-экрана Android) в отдельном файле ops-once-<id>.bin в папке приложения на Диске:
+    /// сервер применит её в течение минуты и удалит файл. Нужен токен записи (`t` в коде подключения).
+    public static func sendOp(_ code: ConnectionCode, op: [String: Any], session: URLSession = .shared) async throws {
+        guard let token = code.token, let key = base64url(code.key) else { throw CloudError.badCode }
+        var full = op
+        let id = "apple-" + UUID().uuidString.lowercased()
+        full["id"] = id
+        full["t"] = Int(Date().timeIntervalSince1970 * 1000)
+        let plain = try JSONSerialization.data(withJSONObject: [full])
+        let blob = try encrypt(key: key, plain: plain)
+        var comps = URLComponents(string: "https://cloud-api.yandex.net/v1/disk/resources/upload")!
+        comps.queryItems = [URLQueryItem(name: "path", value: "app:/ops-once-\(id).bin"),
+                            URLQueryItem(name: "overwrite", value: "true")]
+        var req = URLRequest(url: comps.url!)
+        req.timeoutInterval = 12
+        req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
+        let meta = try await get(req, session)
+        guard let obj = try JSONSerialization.jsonObject(with: meta) as? [String: Any],
+              let href = obj["href"] as? String, let url = URL(string: href) else { throw CloudError.badCode }
+        var put = URLRequest(url: url)
+        put.httpMethod = "PUT"
+        put.timeoutInterval = 15
+        let (_, resp) = try await session.upload(for: put, from: blob)
+        if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw CloudError.badResponse(http.statusCode)
+        }
+    }
+
     static func get(_ url: URL, _ session: URLSession) async throws -> Data {
         var req = URLRequest(url: url)
         req.timeoutInterval = 12
+        return try await get(req, session)
+    }
+
+    static func get(_ req: URLRequest, _ session: URLSession) async throws -> Data {
         let (data, resp) = try await session.data(for: req)
         if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw CloudError.badResponse(http.statusCode)

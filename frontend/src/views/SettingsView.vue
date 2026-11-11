@@ -138,6 +138,22 @@
         <input v-model="escort.show_duties" type="checkbox" class="switch" @change="saveEscort" />
       </label>
     </div>
+    <h3 class="group-title">Время в дороге по карте</h3>
+    <div class="group">
+      <label class="row">
+        <span class="lbl">Считать по карте <small class="muted block">Если у события ребёнка указано место, а время в пути не задано — посчитать дорогу от дома на машине.</small></span>
+        <input v-model="escort.map_travel" type="checkbox" class="switch" @change="saveEscort" />
+      </label>
+      <label class="row">
+        <span class="lbl">Адрес дома для карты</span>
+        <input v-model="escort.map_home" class="inline" placeholder="город, улица, дом" @change="saveEscort" />
+      </label>
+    </div>
+    <Help title="Как считается и что уходит в интернет">
+      <p>Адрес дома и место события отправляются в открытые сервисы OpenStreetMap (поиск адреса и маршрут). Пробок они не знают, поэтому ко времени добавляется 30% и оно округляется вверх до 5 минут.</p>
+      <p>Порядок: время, заданное в карточке события → правило по словам ниже → карта → обычные «минут до начала». В карточке события есть кнопка «По карте» — она работает и без этого переключателя, достаточно адреса дома.</p>
+    </Help>
+
     <h3 class="group-title">Время в дороге</h3>
     <div class="group">
       <label class="row">
@@ -299,6 +315,35 @@
     </template>
 
     <!-- Экран на стене -->
+    <!-- Внешний вид -->
+    <template v-if="page === 'look'">
+    <h3 class="group-title">Размер текста</h3>
+    <div class="group">
+      <div class="row">
+        <div class="seg look-seg" role="radiogroup" aria-label="Размер текста">
+          <button v-for="o in TEXT_SIZES" :key="o.id" role="radio" :aria-checked="state.textSize === o.id"
+                  :class="{ on: state.textSize === o.id }" @click="setTextSize(o.id)">{{ o.label }}</button>
+        </div>
+      </div>
+      <div class="row look-sample"><span>Пример: Бассейн, 17:00–18:00</span></div>
+    </div>
+    <p class="group-note">Запоминается на этом устройстве. Для экрана на стене — добавьте к ссылке <code>&amp;size=large</code> или <code>&amp;size=xlarge</code>.</p>
+
+    <h3 class="group-title">Различать людей не только по цвету</h3>
+    <div class="group">
+      <label class="row">
+        <span class="lbl">Буквы на плашках <small class="muted block">Перед названием события — первая буква имени каждого участника. Удобно, если цвета трудно различать.</small></span>
+        <input :checked="state.initials" type="checkbox" class="switch" @change="setInitials($event.target.checked)" />
+      </label>
+    </div>
+
+    <h3 class="group-title">Знакомство</h3>
+    <div class="group">
+      <button class="row linkrow" @click="state.onboarding = true">Показать знакомство заново</button>
+    </div>
+    <p class="group-note">Четыре шага для нового члена семьи: чьи события показывать, напоминания, связь вне дома, виджет.</p>
+    </template>
+
     <template v-if="page === 'wall'">
     <h3 class="group-title">Сегодня</h3>
     <div class="group">
@@ -402,7 +447,9 @@
 import { copyToClipboard } from '../lib/clipboard'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from '../lib/api'
-import { state, reload, syncNow, UI_BUILD } from '../lib/store'
+import { state, reload, syncNow, UI_BUILD, setTextSize, setInitials } from '../lib/store'
+
+const TEXT_SIZES = [{ id: 'compact', label: 'Мельче' }, { id: 'normal', label: 'Обычно' }, { id: 'large', label: 'Крупнее' }, { id: 'xlarge', label: 'Максимум' }]
 import PeoplePicker from '../components/PeoplePicker.vue'
 import Sheet from '../components/Sheet.vue'
 import TemplatesEditor from '../components/TemplatesEditor.vue'
@@ -517,6 +564,8 @@ const groups = computed(() => {
     { title: 'Приложения и экраны', items: [
       { id: 'app', title: 'Приложения и виджеты', color: '#5856d6', sub: inApp ? 'версия ' + appVersionInstalled : 'Android, Mac, iPhone',
         icon: ico('<rect x="7" y="2.500" width="10" height="19" rx="2"/><path d="M11 18.500h2"/>') },
+      { id: 'look', title: 'Внешний вид', color: '#ff9500', sub: 'размер текста, буквы на плашках, знакомство',
+        kw: 'шрифт размер крупно компактно плотность буквы инициалы цвет дальтонизм знакомство мастер первый запуск' },
       { id: 'wall', title: 'Экран на стене', color: '#af52de', sub: 'планшет на кухне, ссылки',
         icon: ico('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>') },
     ] },
@@ -555,7 +604,7 @@ async function saveShared(c) {
   try { await api.setSharedColor(c || null); await reload() } catch (e) { alert(e.message) }
 }
 const editing = ref(null)
-const escort = reactive({ before_minutes: 30, after_minutes: 30, home_words: 'дома', home_address: '', travel_buffer: 5, places: [], show_duties: false })
+const escort = reactive({ before_minutes: 30, after_minutes: 30, home_words: 'дома', home_address: '', travel_buffer: 5, places: [], show_duties: false, map_travel: false, map_home: '' })
 
 watch(() => state.config, (c) => {
   editPeople.value = (c?.people || []).filter((p) => !p.id.startsWith('_'))
@@ -669,6 +718,8 @@ async function saveEscort() {
     home_address: escort.home_address || '',
     travel_buffer: Number(escort.travel_buffer) || 0,
     show_duties: !!escort.show_duties,
+    map_travel: !!escort.map_travel,
+    map_home: (escort.map_home || '').trim(),
     places: (escort.places || []).filter((p) => (p.words || '').trim()).map((p) => ({ words: p.words.trim(), minutes: Number(p.minutes) || 0 })),
   })
   await reload()
@@ -764,4 +815,8 @@ a.btn.filled { text-decoration: none; }
 @media (max-width: 899px) { .settings { padding: 0 12px 36px; } }
 .code { display: flex; gap: 8px; align-items: center; }
 .code code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; background: var(--fill); padding: 6px 8px; border-radius: 8px; }
+.look-seg { width: 100%; }
+.look-seg button { flex: 1; padding-left: 4px; padding-right: 4px; min-width: 0; }
+.look-sample span { font-size: 16px; font-weight: 600; }
+.linkrow { width: 100%; border: 0; background: none; text-align: left; font: inherit; color: var(--tint); }
 </style>

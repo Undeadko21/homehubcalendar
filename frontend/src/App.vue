@@ -43,7 +43,7 @@
               <button v-for="v in VIEWS" :key="v.id" role="tab" :aria-selected="state.view === v.id"
                       :class="{ on: state.view === v.id }" @click="setView(v.id)">{{ v.label }}</button>
             </div>
-            <button v-if="writableCalendars().length" class="btn icon add-btn" aria-label="Новое событие" @click="newEvent()">+</button>
+            <button class="btn icon add-btn" aria-label="Добавить событие, дело или покупку" @click="state.quickAdd = true">+</button>
             <button class="btn icon search-btn" aria-label="Поиск" @click="setView('search')"><IconSearch /></button>
             <span class="m-sync" :title="syncTitle"><span :class="['sync-dot', syncState]"></span></span>
           </div>
@@ -102,19 +102,25 @@
       <SectionWizard />
       <MoveScope />
       <MoveWarn />
+      <QuickAdd />
+      <Onboarding />
+      <Toast />
     </template>
   </div>
 </template>
 
 <script setup>
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
-import { state, newEvent, writableCalendars, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen } from './lib/store'
+import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen } from './lib/store'
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
 import EventDialog from './components/EventDialog.vue'
 import EventEditor from './components/EventEditor.vue'
 import SectionWizard from './components/SectionWizard.vue'
 import MoveScope from './components/MoveScope.vue'
 import MoveWarn from './components/MoveWarn.vue'
+import QuickAdd from './components/QuickAdd.vue'
+import Onboarding from './components/Onboarding.vue'
+import Toast from './components/Toast.vue'
 import LoginScreen from './components/LoginScreen.vue'
 import MiniMonth from './components/MiniMonth.vue'
 import PeopleList from './components/PeopleList.vue'

@@ -7,7 +7,7 @@
       </h2>
       <button v-for="e in g.events" :key="e.id" class="item" :style="{ '--c': eventColor(e) }"
               :class="{ past: isPast(e), duty: e.duty, conflict: e.duty && e.escort_issue === 'conflict' }" @click="openEvent(e)"
-              @pointerdown="down($event, e)">
+              v-swipe="canMove(e) ? { left: () => toTomorrow(e) } : {}" @pointerdown="down($event, e)">
         <span class="time">
           <template v-if="e.all_day">весь день</template>
           <template v-else>{{ startText(e, g.date) }}<br /><span class="faint">{{ endText(e, g.date) }}</span></template>
@@ -24,7 +24,11 @@
         </span>
       </button>
     </section>
-    <p v-if="!groups.length" class="empty">В ближайшие {{ total }} дней событий нет.</p>
+    <p v-if="touch && groups.length" class="faint swipe-hint">Проведите по событию влево — перенести на завтра.</p>
+    <div v-if="!groups.length && loaded" class="empty-box">
+      <strong>В ближайшие {{ total }} дней свободно</strong>
+      <span>Событий у выбранных людей нет. Добавьте новое кнопкой «+» или посмотрите дальше.</span>
+    </div>
     <button class="btn more" @click="extra += 30">Показать ещё 30 дней</button>
   </div>
 </template>
@@ -37,13 +41,21 @@ import { addDays, startOfDay, overlaps, isoDate, sameDay, eventRange, formatTime
 import EscortBadge from '../components/EscortBadge.vue'
 import { canMove, moveEvent } from '../lib/moveEvent'
 import { startDrag, dayUnder } from '../lib/drag'
+import { vSwipe } from '../lib/swipe'
+
+const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+// Свайп влево по событию — перенести на следующий день (время то же); у повторяющихся спросит «только это / вся серия».
+function toTomorrow(e) {
+  const r = eventRange(e)
+  return moveEvent(e, addDays(r.start, 1), addDays(r.end, 1))
+}
 
 const DAYS = 30
 const extra = ref(0)
 const now = new Date()
 const start = computed(() => startOfDay(state.cursor))
 const total = computed(() => DAYS + extra.value)
-const { events, holidayMap } = useRange(() => ({ start: start.value, end: addDays(start.value, total.value) }))
+const { events, holidayMap, loaded } = useRange(() => ({ start: start.value, end: addDays(start.value, total.value) }))
 
 const isPast = (e) => !e.all_day && eventRange(e).end <= now
 const startText = (e, d) => (eventRange(e).start < d ? '…' : formatTime(eventRange(e).start))
@@ -119,6 +131,11 @@ const groups = computed(() => {
 .who { font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .who i { width: 7px; height: 7px; border-radius: 50%; }
 .more { margin: 20px auto 0; display: flex; }
+.swipe-hint { font-size: 13px; margin: 10px 0 0; }
+.item.swipe-go { background: color-mix(in srgb, var(--tint) 18%, var(--surface)); }
+.empty-box { display: flex; flex-direction: column; gap: 4px; margin: 28px 0 0; padding: 18px; border-radius: var(--radius-m); background: var(--surface-2); }
+.empty-box strong { font-size: 17px; }
+.empty-box span { color: var(--ink-2); font-size: 14px; }
 @media (max-width: 899px) {
   .agenda { padding: 0 12px 30px; }
   .item { grid-template-columns: 52px 4px 1fr; gap: 0 10px; }

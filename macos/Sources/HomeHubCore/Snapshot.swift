@@ -47,6 +47,21 @@ public struct Event: Codable, Hashable, Identifiable {
     }
 }
 
+/// Что не закрыто в поездке (срочное напоминание): роль, кто назначен, кто свободен.
+public struct TripNeed: Codable, Hashable {
+    public let role: String
+    public let person: String?
+    public let free: [String]
+}
+
+/// Данные для кнопок «Отвезу я / Не могу» в уведомлении о поездке без водителя.
+public struct Trip: Codable, Hashable {
+    public let uid: String?
+    public let occurrence: String?
+    public let need: [TripNeed]
+    public let names: [String: String]?
+}
+
 public struct Reminder: Codable, Hashable, Identifiable {
     public let id: String
     public let kind: String
@@ -55,6 +70,7 @@ public struct Reminder: Codable, Hashable, Identifiable {
     public let people: [String]?
     public let title: String
     public let text: String?
+    public let trip: Trip?
 }
 
 public struct Snapshot: Codable {

@@ -6,10 +6,13 @@
     @click="openEvent(e)"
   >
     <span class="t">
-      <span v-if="others.length" class="dots" aria-hidden="true">
+      <span v-if="state.initials && marks.length" class="marks" aria-hidden="true">
+        <b v-for="m in marks" :key="m.id" :style="{ '--c': m.color }">{{ m.mark }}</b>
+      </span>
+      <span v-else-if="others.length" class="dots" aria-hidden="true">
         <i v-for="p in others" :key="p.id" :style="{ '--c': p.color }"></i>
       </span>
-      {{ e.title }}
+      {{ e.title }}<span v-if="e.files" class="clip" :title="'Вложений: ' + e.files" aria-label="есть вложения">📎</span>
     </span>
     <span v-if="!hideMeta && meta" class="s">{{ meta }}</span>
     <EscortBadge v-if="e.escort && !hideEscort" :e="e" class="esc" />
@@ -18,7 +21,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { openEvent, eventColor, personById } from '../lib/store'
+import { state, openEvent, eventColor, personById, personMark } from '../lib/store'
 import { eventRange, formatEventTime } from '../lib/dates'
 import EscortBadge from './EscortBadge.vue'
 
@@ -40,6 +43,9 @@ const others = computed(() =>
     ? props.e.people.filter((id) => id !== props.ownerId).map((id) => personById.value[id]).filter(Boolean)
     : [],
 )
+// Буквы людей (включается в настройках): человека видно не только по цвету.
+const marks = computed(() => props.e.people.filter((id) => id !== props.ownerId && personMark.value[id])
+  .map((id) => ({ id, mark: personMark.value[id], color: personById.value[id]?.color })))
 const r = computed(() => eventRange(props.e))
 const past = computed(() => props.now && !props.e.all_day && r.value.end <= props.now)
 const current = computed(() => props.now && !props.e.all_day && r.value.start <= props.now && r.value.end > props.now)
@@ -56,5 +62,6 @@ const meta = computed(() => {
 .pill.conflict { box-shadow: inset 0 0 0 1.5px var(--red); }
 .pill.issue { padding-bottom: 6px; }
 .dots { margin-right: 4px; }
+.clip { font-size: 11px; margin-left: 4px; opacity: .75; }
 .esc { margin-top: 4px; }
 </style>

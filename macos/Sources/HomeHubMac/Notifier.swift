@@ -52,14 +52,84 @@ enum Notifier {
                 defaults.set(Array(shown.suffix(200)), forKey: "hh.shownAlerts")
             }
             items.sort { $0.0 < $1.0 }
+            var categories: Set<UNNotificationCategory> = []
             for (fire, r) in items.prefix(60) {
                 let content = UNMutableNotificationContent()
                 content.title = r.title
                 content.body = r.text ?? ""
                 content.sound = .default
+                if let (cat, ops) = tripCategory(r, tripPeople: tripPeople) {
+                    categories.insert(cat)
+                    content.categoryIdentifier = cat.identifier
+                    content.userInfo = ["ops": ops]
+                }
                 let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, fire.timeIntervalSinceNow), repeats: false)
                 center.add(UNNotificationRequest(identifier: "hh:" + r.id, content: content, trigger: trigger))
             }
+            center.setNotificationCategories(categories)
+        }
+    }
+
+    /// Код подключения этого устройства (его хранит AppModel); для кнопок нужен токен записи `t`.
+    static var code: ConnectionCode? {
+        UserDefaults.standard.string(forKey: "cloudCode").flatMap { ConnectionCode.parse($0) }
+    }
+
+    /// Кнопки «Отвезу я / Заберу я / Не могу» для срочного напоминания о поездке (как на Android).
+    /// «Я» — если на устройстве выбран один человек для напоминаний; иначе кнопки по имени свободных взрослых.
+    /// Команда кладётся в облако одноразовым файлом, сервер применит её за минуту. Без токена записи кнопок нет.
+    static func tripCategory(_ r: Reminder, tripPeople: Set<String>) -> (UNNotificationCategory, [String: [String: String]])? {
+        guard r.kind == "alert", let trip = r.trip, let uid = trip.uid, code?.token != nil else { return nil }
+        let me = tripPeople.count == 1 ? tripPeople.first : nil
+        var actions: [UNNotificationAction] = []
+        var ops: [String: [String: String]] = [:]
+        var cantRole: String?
+        func op(_ role: String, _ person: String?) -> [String: String] {
+            var o = ["type": "escort", "uid": uid, "role": role]
+            if let occ = trip.occurrence { o["occurrence"] = occ }
+            if let p = person { o["person"] = p }
+            return o
+        }
+        for n in trip.need where actions.count < 2 {
+            let drop = n.role == "dropoff"
+            if let me = me, n.person == me { cantRole = cantRole ?? n.role }
+            var who: String?
+            var label = ""
+            if let me = me {
+                if n.free.contains(me) && n.person != me { who = me; label = drop ? "Отвезу я" : "Заберу я" }
+            } else if let p = n.free.first(where: { $0 != n.person }) {
+                let name = trip.names?[p] ?? p
+                who = p; label = drop ? "Отвезёт \(name)" : "Заберёт \(name)"
+            }
+            guard let person = who else { continue }
+            let aid = "hh.a\(actions.count)"
+            actions.append(UNNotificationAction(identifier: aid, title: label, options: []))
+            ops[aid] = op(n.role, person)
+        }
+        if let role = cantRole {
+            actions.append(UNNotificationAction(identifier: "hh.cant", title: "Не могу", options: [.destructive]))
+            ops["hh.cant"] = op(role, nil)   // снять назначение: остальные увидят, что везти некому
+        }
+        guard !actions.isEmpty else { return nil }
+        let cat = UNNotificationCategory(identifier: "hh.trip." + String(r.id.hashValue, radix: 36),
+                                         actions: actions, intentIdentifiers: [], options: [])
+        return (cat, ops)
+    }
+
+    /// Нажали кнопку в уведомлении: отправить команду и показать короткий итог.
+    static func handle(_ response: UNNotificationResponse, done: @escaping () -> Void) {
+        let info = response.notification.request.content.userInfo
+        guard let ops = info["ops"] as? [String: [String: String]], let op = ops[response.actionIdentifier],
+              let code = code else { done(); return }
+        Task {
+            var body = "Отправлено, календарь обновится в течение минуты"
+            do { try await Cloud.sendOp(code, op: op) } catch { body = "Не удалось отправить: \(error.localizedDescription)" }
+            let content = UNMutableNotificationContent()
+            content.title = op["person"] == nil ? "Назначение снято" : "Готово"
+            content.body = body
+            try? await UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: "hh-done-" + UUID().uuidString, content: content, trigger: nil))
+            done()
         }
     }
 }

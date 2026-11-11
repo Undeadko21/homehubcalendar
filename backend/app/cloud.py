@@ -232,7 +232,7 @@ class CloudSync:
                 if isinstance(ops, list) and apply(ops):
                     changed = True
                 seen[f["name"]] = f.get("md5")
-                if f["name"].startswith("ops-alice-"):   # одноразовые файлы Алисы: применили — убираем
+                if f["name"].startswith(("ops-alice-", "ops-once-")):   # одноразовые файлы (Алиса, кнопки в уведомлениях iPhone/Mac)
                     try:
                         disk.rm(f"app:/{f['name']}")
                         seen.pop(f["name"], None)

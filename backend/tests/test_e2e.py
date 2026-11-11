@@ -75,7 +75,10 @@ def page(stack):
         except Exception as e:  # noqa: BLE001
             pytest.skip(f"нет браузера: {e}")
         # Часовой пояс браузера = пояс календаря, иначе в CI (UTC) 10:00 по Екатеринбургу уходит за границу шкалы недели
-        pg = b.new_context(viewport={"width": 1200, "height": 900}, timezone_id="Asia/Yekaterinburg").new_page()
+        ctx = b.new_context(viewport={"width": 1200, "height": 900}, timezone_id="Asia/Yekaterinburg")
+        # знакомство для нового устройства в тестах не нужно
+        ctx.add_init_script("try { localStorage.setItem('homecal.prefs', JSON.stringify({ onboarded: true })) } catch (e) {}")
+        pg = ctx.new_page()
         pg.goto(stack["url"])
         pg.wait_for_selector("text=Сегодня")
         # «+» рисуется только после загрузки настроек (есть пишущий календарь) — ждём именно его, а не первую надпись
@@ -85,7 +88,8 @@ def page(stack):
 
 
 def _open_new(pg):
-    pg.click('button[aria-label="Новое событие"]')
+    pg.click("button.add-btn")                       # единое «+» → форма события
+    pg.click("text=Событие — заполнить форму")
     pg.wait_for_selector("input[placeholder='Название']")
 
 

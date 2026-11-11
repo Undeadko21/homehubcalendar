@@ -87,7 +87,23 @@ export const api = {
   birthdays: (days = 60) => request('GET', `/api/birthdays?days=${days}`),
   saveBirthday: (b) => request('PUT', '/api/birthdays', b),
   deleteBirthday: (id) => request('DELETE', `/api/birthdays/${id}`),
-  search: (text) => request('GET', `/api/search?${q({ q: text })}`),
+  search: (params) => request('GET', `/api/search?${q(params)}`),
+  eventFiles: (uid) => request('GET', `/api/event-files?${q({ uid })}`),
+  addEventLink: (uid, url, name) => request('POST', '/api/event-files/link', { uid, url, name: name || '' }),
+  deleteEventFile: (id) => request('DELETE', `/api/event-files/${id}`),
+  uploadEventFile: async (uid, file) => {
+    const res = await fetch(`/api/event-files/upload?${q({ uid, name: file.name })}`, {
+      method: 'POST', body: file, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Client-Id': CLIENT_ID },
+    })
+    if (!res.ok) {
+      let detail = res.statusText
+      try { detail = (await res.json()).detail || detail } catch {}
+      throw new Error(detail)
+    }
+    return res.json()
+  },
+  route: (location) => request('POST', '/api/route', { location }),
   lists: () => request('GET', '/api/lists'),
   addList: (name) => request('POST', '/api/lists', { name }),
   renameList: (id, name) => request('PUT', `/api/lists/${id}`, { name }),

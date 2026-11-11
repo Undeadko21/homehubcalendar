@@ -33,9 +33,9 @@
         <div class="row"><button type="button" class="btn link" @click="extra = !extra">{{ extra ? 'Скрыть' : 'Кому и до какого числа' }}</button></div>
       </form>
 
-      <p v-if="!current.items.length" class="empty">Список пуст.</p>
+      <p v-if="!current.items.length" class="empty">{{ isShopping ? 'Покупать нечего. Добавьте первую покупку выше или скажите Алисе «добавь молоко в покупки».' : 'Список пуст — добавьте первое дело выше.' }}</p>
       <div v-else class="group items">
-        <div v-for="i in current.items" :key="i.id" class="row item" :class="{ done: i.done }">
+        <div v-for="i in current.items" :key="i.id" v-swipe="{ right: () => toggle(i), left: () => toggle(i) }" class="row item" :class="{ done: i.done }">
           <button class="check" :aria-label="i.done ? 'Вернуть в список' : 'Отметить выполненным'" :aria-pressed="i.done" @click="toggle(i)">
             <svg v-if="i.done" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9" /></svg>
           </button>
@@ -57,6 +57,8 @@
         </div>
       </div>
 
+      <p v-if="touch && current.items.some((i) => !i.done)" class="faint small swipe-hint">Проведите по строке — {{ isShopping ? 'куплено' : 'готово' }}.</p>
+
       <div class="manage">
         <button v-if="current.items.some((i) => i.done)" class="btn" @click="clearDone">Убрать выполненные</button>
         <button class="btn" @click="rename">Переименовать</button>
@@ -70,7 +72,8 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../lib/api'
-import { state, people as allPeople, personById } from '../lib/store'
+import { state, people as allPeople, personById, toast } from '../lib/store'
+import { vSwipe } from '../lib/swipe'
 
 const lists = ref([])
 const currentId = ref(null)
@@ -109,7 +112,9 @@ async function load() {
 let timer
 onMounted(() => { load(); timer = setInterval(load, 20000) })
 onUnmounted(() => clearInterval(timer))
-watch(() => state.revision, load)
+watch(() => [state.revision, state.listsRev], load)
+const isShopping = computed(() => /покуп/i.test(current.value?.name || ''))
+const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 
 async function guard(fn) {
   try { await fn(); error.value = '' } catch (e) { error.value = 'Не удалось сохранить: ' + e.message }
@@ -127,7 +132,11 @@ function toggle(i) {
   i.done = !i.done
   return guard(() => api.patchItem(i.id, { done: i.done }))
 }
-function remove(i) { return guard(() => api.deleteItem(i.id)) }
+async function remove(i) {
+  const lid = current.value.id
+  await guard(() => api.deleteItem(i.id))
+  toast(`Удалено: ${i.text}`, async () => { await api.addItem(lid, i.text, i.person_id, i.due); await load() })
+}
 function clearDone() { return guard(() => api.clearDone(current.value.id)) }
 function rename() {
   const name = prompt('Название списка', current.value.name)
@@ -176,4 +185,7 @@ async function createList() {
 .manage { display: flex; gap: 4px; flex-wrap: wrap; }
 .danger { color: var(--red); }
 .err { color: var(--red); font-size: 14px; }
+.swipe-hint { margin: -6px 4px 0; font-size: 13px; }
+.item.swiping { background: var(--surface); }
+.item.swipe-go { background: color-mix(in srgb, var(--ok) 22%, var(--surface)); }
 </style>

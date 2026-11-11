@@ -180,6 +180,8 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
                 w0, w1 = (s - lead, s) if role == "dropoff" else (en, en + lead)
             else:
                 w0, w1 = (s - before, s) if role == "dropoff" else (en, en + after)
+            if only == role:               # событие само и есть поездка — взрослый занят на его время
+                w0, w1 = s, en
             once = assignments.get((e["uid"], e["start"], role))
             series = assignments.get((e["uid"], "*", role))
             value = once if once is not None else series

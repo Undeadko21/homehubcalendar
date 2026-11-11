@@ -73,6 +73,8 @@
                 <template v-if="(e.escort.together_people || []).length">Событие показано у: {{ e.escort.together_people.map(personName).join(', ') }} (поменять — в «Чьё событие»).</template>
               </template>
               <template v-else-if="e.escort.mode === 'home'">Событие дома — везти никуда не нужно.</template>
+              <template v-else-if="e.escort.only === 'dropoff'">Это событие — сама поездка «отвезти»: выберите, кто отвозит.</template>
+              <template v-else-if="e.escort.only === 'pickup'">Это событие — сама поездка «забрать»: выберите, кто забирает.</template>
               <template v-else>Кто-то отвозит и забирает — выберите кто ниже. Поездка появится в календаре у этого взрослого.</template>
               <template v-if="e.escort.mode_auto && e.escort.mode_reason"> Определено само: {{ e.escort.mode_reason }}.</template>
               <template v-if="!e.escort.mode_auto">
@@ -81,7 +83,7 @@
               </template>
             </p>
           </div>
-          <div v-for="role in (e.escort.mode === 'escort' ? ROLES : [])" :key="role.id" class="row stack">
+          <div v-for="role in shownRoles" :key="role.id" class="row stack">
             <div class="row-head">
               <span class="label">{{ role.label }} <span class="faint win">{{ windowText(role.id) }}</span></span>
               <button v-if="e.escort[role.id].scope === 'once'" class="btn link" :disabled="saving"
@@ -113,7 +115,7 @@
               Конфликтов нет{{ e.escort[role.id].scope === 'once' ? ', замена только на этот день' : e.escort[role.id].scope === 'template' ? ', назначено по шаблону дня недели' : '' }}.
             </p>
           </div>
-          <div v-if="e.escort.mode === 'escort'" class="row stack">
+          <div v-if="e.escort.mode === 'escort' && !e.escort.only" class="row stack">
             <div class="row-head">
               <span class="label">В пути <span class="faint win">{{ travelText }}</span></span>
             </div>
@@ -124,10 +126,12 @@
               <button v-for="m in TRAVEL" :key="m" class="choice skip" role="radio"
                       :aria-checked="travelOwn === m" :class="{ on: travelOwn === m }" :disabled="saving"
                       @click="setTravel(m)">{{ m }} мин</button>
+              <button v-if="e.location" class="choice skip map" :disabled="saving || routing" @click="byMap">{{ routing ? 'Считаю…' : 'По карте' }}</button>
             </div>
+            <p v-if="routeNote" class="hint" :class="routeOk ? 'ok' : 'warn'">{{ routeNote }}</p>
           </div>
         </div>
-        <p v-if="e.escort.mode === 'escort'" class="group-note">
+        <p v-if="e.escort.mode === 'escort' && !e.escort.only" class="group-note">
           <template v-if="e.escort.travel.minutes != null">
             Дорога {{ e.escort.travel.minutes }} мин + запас {{ e.escort.travel.buffer }} мин в каждую сторону.
           </template>
@@ -137,16 +141,46 @@
       </template>
 
       <div v-if="e.location || e.url || e.description" class="group details">
-        <div v-if="e.location" class="row">
+        <div v-if="e.location" class="row where">
           <span class="label">Где</span>
           <a :href="mapUrl" target="_blank" rel="noopener" class="val">{{ e.location }}</a>
+          <a :href="routeUrl" target="_blank" rel="noopener" class="btn sm route">Маршрут</a>
         </div>
         <div v-if="e.url" class="row">
           <span class="label">Ссылка</span>
           <a :href="e.url" target="_blank" rel="noopener" class="val">{{ e.url }}</a>
         </div>
-        <div v-if="e.description" class="row stack desc">{{ e.description }}</div>
+        <div v-if="e.description" class="row stack desc"><template v-for="(part, i) in descParts" :key="i"><a v-if="part.url" :href="part.url" target="_blank" rel="noopener">{{ part.text }}</a><template v-else>{{ part.text }}</template></template></div>
       </div>
+
+      <!-- Вложения и ссылки: справка, билет, запись к врачу -->
+      <template v-if="!e.private && !e.birthday">
+        <h3 class="group-title">Вложения и ссылки</h3>
+        <div class="group files">
+          <div v-for="f in files" :key="f.id" class="row file">
+            <span class="fi" aria-hidden="true">{{ f.url ? '🔗' : f.mime.startsWith('image/') ? '🖼' : '📄' }}</span>
+            <a :href="f.url || `/api/event-files/${f.id}/raw`" target="_blank" rel="noopener" class="val fname">
+              {{ f.name || f.url }}<small v-if="!f.url" class="faint"> · {{ sizeText(f.size) }}</small>
+            </a>
+            <button class="x" :disabled="saving" aria-label="Удалить вложение" @click="removeFile(f)">×</button>
+          </div>
+          <p v-if="!files.length && !adding" class="row faint small nofiles">Пока ничего нет.</p>
+          <form v-if="adding === 'link'" class="row linkform" @submit.prevent="saveLink">
+            <input v-model="linkUrl" class="in" type="url" placeholder="https://…" aria-label="Ссылка" required />
+            <input v-model="linkName" class="in" placeholder="Название (необязательно)" aria-label="Название ссылки" />
+            <button class="btn filled sm" :disabled="saving || !linkUrl.trim()">Добавить</button>
+            <button type="button" class="btn sm" @click="adding = null">Отмена</button>
+          </form>
+          <div class="row actions">
+            <label class="btn link" :class="{ off: saving }">
+              {{ uploading ? 'Загружаю…' : '＋ Файл или фото' }}
+              <input type="file" multiple hidden :disabled="saving" @change="upload" />
+            </label>
+            <button class="btn link" :disabled="saving" @click="adding = 'link'; linkUrl = ''; linkName = ''">＋ Ссылка</button>
+          </div>
+        </div>
+        <p class="group-note">{{ e.recurring ? 'Вложения общие для всех повторов. ' : '' }}Хранятся на домашнем сервере (до 15 МБ на файл), в Яндекс не попадают.</p>
+      </template>
       <p v-if="e.private" class="faint small">Детали скрыты: у календаря включено «только занят».</p>
       <p v-if="error" class="conflict">{{ error }}</p>
       <p class="faint small src">Календари: {{ calNames }}</p>
@@ -202,6 +236,97 @@ const dayLabel = computed(() => {
   return ['Сегодня', 'Завтра', 'Вчера'].includes(rel) ? `${rel}, ${full}` : full.charAt(0).toUpperCase() + full.slice(1)
 })
 const shortDay = computed(() => (e.value ? eventRange(e.value).start.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : ''))
+// «Маршрут»: Яндекс Карты строят путь от текущего места до адреса события.
+const routeUrl = computed(() => 'https://yandex.ru/maps/?rtt=auto&rtext=~' + encodeURIComponent(e.value?.location || ''))
+// Ссылки в описании — кликабельные.
+const descParts = computed(() => {
+  const text = e.value?.description || ''
+  const out = []
+  let last = 0
+  for (const m of text.matchAll(/https?:\/\/[^\s<>"']+/g)) {
+    if (m.index > last) out.push({ text: text.slice(last, m.index) })
+    const url = m[0].replace(/[.,;:!?)]+$/, '')
+    out.push({ text: url, url })
+    last = m.index + url.length
+  }
+  if (last < text.length) out.push({ text: text.slice(last) })
+  return out
+})
+// Событие-поездка («Отвезти…», «Забрать…») показывает только свою роль.
+const shownRoles = computed(() => {
+  const esc = e.value?.escort
+  if (!esc || esc.mode !== 'escort') return []
+  return ROLES.filter((r) => !esc.only || esc.only === r.id)
+})
+
+// --- вложения и ссылки ---
+const files = ref([])
+const adding = ref(null)
+const uploading = ref(false)
+const linkUrl = ref('')
+const linkName = ref('')
+const sizeText = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' МБ' : Math.max(1, Math.round(n / 1024)) + ' КБ')
+async function loadFiles() {
+  const uid = e.value?.uid
+  if (!uid || e.value.private) { files.value = []; return }
+  try {
+    const list = await api.eventFiles(uid)
+    if (e.value?.uid === uid) files.value = list
+  } catch { files.value = [] }
+}
+async function upload(ev) {
+  const picked = [...(ev.target.files || [])]
+  ev.target.value = ''
+  if (!picked.length) return
+  saving.value = uploading.value = true
+  error.value = ''
+  try {
+    for (const f of picked) {
+      if (f.size > 15 * 1024 * 1024) throw new Error(`«${f.name}» больше 15 МБ`)
+      await api.uploadEventFile(e.value.uid, f)
+    }
+  } catch (err) { error.value = 'Не удалось загрузить: ' + err.message }
+  saving.value = uploading.value = false
+  await loadFiles()
+  reload()
+}
+async function saveLink() {
+  saving.value = true
+  error.value = ''
+  try {
+    await api.addEventLink(e.value.uid, linkUrl.value.trim(), linkName.value.trim())
+    adding.value = null
+  } catch (err) { error.value = err.message }
+  saving.value = false
+  await loadFiles()
+  reload()
+}
+async function removeFile(f) {
+  saving.value = true
+  try { await api.deleteEventFile(f.id) } catch (err) { error.value = err.message }
+  saving.value = false
+  await loadFiles()
+  reload()
+}
+
+// --- время в дороге по карте ---
+const routing = ref(false)
+const routeNote = ref('')
+const routeOk = ref(false)
+async function byMap() {
+  routing.value = true
+  routeNote.value = ''
+  try {
+    const r = await api.route(e.value.location)
+    routeOk.value = true
+    routeNote.value = `По карте от дома около ${r.minutes} мин (с запасом на пробки) — записано для этого события.`
+    await setTravel(r.minutes)
+  } catch (err) {
+    routeOk.value = false
+    routeNote.value = err.message
+  } finally { routing.value = false }
+}
+
 const mapUrl = computed(() => 'https://yandex.ru/maps/?text=' + encodeURIComponent(e.value?.location || ''))
 const calNames = computed(() => {
   const all = state.config?.calendars || []
@@ -225,7 +350,7 @@ const travelOwn = computed(() => {
 const travelText = computed(() => {
   const t = e.value?.escort?.travel
   if (!t || t.minutes == null) return 'не задано'
-  const src = { once: 'на этот день', series: 'для события', place: 'по месту из настроек' }[t.source]
+  const src = { once: 'на этот день', series: 'для события', place: 'по месту из настроек', map: 'по карте' }[t.source]
   return `${t.minutes} мин, ${src}`
 })
 function setTravel(minutes) {
@@ -243,6 +368,9 @@ watch(() => e.value?.id, () => {
   editingPeople.value = false
   error.value = ''
   scope.value = 'series'
+  adding.value = null
+  routeNote.value = ''
+  loadFiles()
 })
 
 function startEdit() {
@@ -342,6 +470,19 @@ h2 { flex: 1; margin: 0; font-size: 22px; line-height: 1.2; font-weight: 700; le
 .hint.warn { color: var(--warn); }
 .hint.ok { color: var(--ok); }
 .details { margin-top: 20px; }
+.where .val { flex: 1; min-width: 0; }
+.route { flex: none; background: var(--fill); border-radius: 999px; padding: 4px 12px; font-weight: 600; text-decoration: none; }
+.file { gap: 10px; align-items: center; }
+.fi { flex: none; width: 22px; text-align: center; }
+.fname { flex: 1; min-width: 0; }
+.files .x { border: 0; background: none; color: var(--ink-3); font-size: 20px; line-height: 1; padding: 4px 8px; flex: none; }
+.files .actions { gap: 18px; }
+.files label.btn { cursor: pointer; }
+.files label.off { opacity: .5; pointer-events: none; }
+.linkform { flex-wrap: wrap; gap: 8px; }
+.linkform .in { flex: 1 1 180px; min-width: 0; font: inherit; padding: 7px 10px; border-radius: 8px; border: .5px solid var(--line); background: var(--surface); color: var(--ink); }
+.nofiles { padding-top: 10px; padding-bottom: 4px; }
+.choice.map { box-shadow: inset 0 0 0 1px var(--tint); color: var(--tint); }
 .desc { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); }
 .src { margin-top: 14px; }
 </style>
