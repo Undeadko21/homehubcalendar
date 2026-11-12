@@ -170,6 +170,7 @@ def vps_db_backup(request: Request):
         raise HTTPException(401, "auth_required")
     raw = backup_mod.snapshot_db(Path(core.db.path), core.db)
     blob = backup_mod.seal(core.cloud.key(), raw)
+    access.mark_dbcopy_served(core.db)
     return Response(blob, media_type="application/octet-stream")
 
 

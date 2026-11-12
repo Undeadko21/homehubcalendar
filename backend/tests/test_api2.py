@@ -654,6 +654,10 @@ def test_vps_token_passes_pin_guard(api, monkeypatch):
     assert api.get("/api/vps/db-backup", headers=h).status_code == 200
     assert api.get("/api/vps/install.sh", headers=h).status_code == 200
     assert api.get("/api/events", headers=h).status_code == 401       # токен VPS не открывает остальное
+    # время копии — по часам сервера (на VPS может быть другой пояс)
+    served = api.core.db.kv_get("vps:dbcopy_served")[0]["at"]
+    access.save_report(api.core.db, {"agent": "2", "db_copy": {"at": "2000-01-01T00:00:00", "count": 1, "size": 5}}, None)
+    assert access.last_report(api.core.db)["db_copy"]["at"] == served
 
 
 def test_vps_db_copy_endpoint_and_problems(api):
@@ -674,6 +678,7 @@ def test_vps_db_copy_endpoint_and_problems(api):
     access.save_report(api.core.db, {"disk_pct": 10, "agent": "2", "db_copy": {"at": now.isoformat(timespec="seconds"), "count": 3, "size": 1000}}, None)
     assert not [p for p in access.problems(api.core.db) if "копи" in p]
     old = (now - timedelta(days=5)).isoformat(timespec="seconds")
+    api.core.db.kv_set("vps:dbcopy_served", {"at": old})     # последняя удачная отдача копии была 5 дней назад
     access.save_report(api.core.db, {"disk_pct": 10, "agent": "2", "db_copy": {"at": old, "count": 3, "size": 1000}}, None)
     assert any("старше" in p for p in access.problems(api.core.db))
     access.save_report(api.core.db, {"disk_pct": 10, "agent": "1"}, None)    # старый агент — про копии не ругаемся

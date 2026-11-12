@@ -136,12 +136,19 @@ def save_report(db: Database, report: dict, backup: bytes | None) -> None:
     }
     dc = report.get("db_copy")
     if isinstance(dc, dict) and dc.get("at"):
-        clean["db_copy"] = {"at": str(dc["at"])[:25], "count": int(dc.get("count") or 0), "size": int(dc.get("size") or 0)}
+        # Время копии агент берёт по часам VPS (там может быть другой пояс) — надёжнее время, когда сервер её отдал.
+        served = (db.kv_get("vps:dbcopy_served")[0] or {}).get("at")
+        clean["db_copy"] = {"at": served or str(dc["at"])[:25], "count": int(dc.get("count") or 0), "size": int(dc.get("size") or 0)}
     db.kv_set("vps:report", clean)
     if backup:
         if len(backup) > MAX_BACKUP:
             raise ValueError("Копия настроек слишком большая")
         db.kv_set("vps:backup", {"at": clean["at"], "size": len(backup), "data": base64.b64encode(backup).decode()})
+
+
+def mark_dbcopy_served(db: Database) -> None:
+    """Агент забрал копию базы (GET /api/vps/db-backup) — запоминаем время по часам сервера."""
+    db.kv_set("vps:dbcopy_served", {"at": datetime.now().isoformat(timespec="seconds")})
 
 
 def last_report(db: Database) -> dict | None:
