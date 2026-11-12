@@ -22,7 +22,7 @@
       <li v-for="e in dayEvents" :key="e.id" class="row" :style="{ '--c': eventColor(e) }" @click="openEvent(e)">
         <span class="bar"></span>
         <span class="mid">
-          <span class="t"><span v-if="state.initials" class="marks" aria-hidden="true"><b v-for="id in e.people.filter((x) => personMark[x])" :key="id" :style="{ '--c': personById[id]?.color }">{{ personMark[id] }}</b></span>{{ e.title }}</span>
+          <span class="t"><span v-if="state.initials" class="marks" aria-hidden="true"><b v-for="id in e.people.filter((x) => personMark[x])" :key="id" :style="{ '--c': personById[id]?.color }">{{ personMark[id] }}</b></span>{{ titleWithIcon(e) }}</span>
           <span v-if="e.location" class="loc">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0113 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.2"/></svg>{{ e.location }}
           </span>
@@ -30,12 +30,15 @@
         <span class="tm" v-if="e.all_day">весь день</span>
         <span class="tm" v-else><b>{{ hm(e.start) }}</b><span>{{ hm(e.end) }}</span></span>
       </li>
-      <li v-if="!dayEvents.length" class="none">В этот день свободно<template v-if="nextInMonth"> — ближайшее {{ nextInMonth }}</template></li>
+      <li v-if="!dayEvents.length && !loaded" class="none"><Skeleton :rows="2" /></li>
+      <li v-else-if="!dayEvents.length" class="none">В этот день свободно<template v-if="nextInMonth"> — ближайшее {{ nextInMonth }}</template></li>
     </ul>
   </div>
 </template>
 
 <script setup>
+import Skeleton from '../components/Skeleton.vue'
+import { titleWithIcon } from '../lib/icons'
 import { computed } from 'vue'
 import { state, openEvent, eventColor, personById, personMark } from '../lib/store'
 import { useRange } from '../lib/useRange'
@@ -45,7 +48,7 @@ const WD = ['п', 'в', 'с', 'ч', 'п', 'с', 'в']
 
 const gridStart = () => startOfWeek(startOfMonth(state.cursor))
 const range = () => ({ start: gridStart(), end: addDays(gridStart(), 42) })
-const { events, holidayMap } = useRange(range)
+const { events, holidayMap, loaded } = useRange(range)
 
 // События по дням (многодневные — на каждый день).
 const byDay = computed(() => {

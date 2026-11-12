@@ -1,5 +1,5 @@
 <template>
-  <div class="picker" role="group" :aria-label="label">
+  <div class="picker" :class="{ faces }" role="group" :aria-label="label">
     <button
       v-for="p in options"
       :key="p.id"
@@ -11,9 +11,15 @@
       :disabled="disabled"
       @click="toggle(p.id)"
     >
-      <span class="mark" aria-hidden="true">{{ modelValue.includes(p.id) ? '✓' : '' }}</span>
-      <span v-if="p.emoji">{{ p.emoji }}</span>
-      {{ p.name }}
+      <template v-if="faces">
+        <span class="face" aria-hidden="true">{{ p.emoji || p.name.slice(0, 1) }}<i class="tick">✓</i></span>
+        <span class="fname">{{ p.name }}</span>
+      </template>
+      <template v-else>
+        <span class="mark" aria-hidden="true">{{ modelValue.includes(p.id) ? '✓' : '' }}</span>
+        <span v-if="p.emoji">{{ p.emoji }}</span>
+        {{ p.name }}
+      </template>
     </button>
   </div>
 </template>
@@ -27,6 +33,7 @@ const props = defineProps({
   modelValue: { type: Array, default: () => [] },
   label: { type: String, default: 'Люди' },
   disabled: Boolean,
+  faces: Boolean, // крупные кружки-лица с именем под ними (форма события, карточка)
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -57,4 +64,22 @@ function toggle(id) {
 .opt.on { background: color-mix(in srgb, var(--c) 14%, var(--surface)); border-color: color-mix(in srgb, var(--c) 50%, var(--line)); color: var(--ink); font-weight: 600; }
 .opt.on .mark { background: var(--c); box-shadow: none; }
 .opt:disabled { opacity: .6; cursor: default; }
+
+/* лица */
+.faces { gap: 4px 10px; }
+.faces .opt { flex-direction: column; gap: 4px; border: 0; background: none; padding: 2px 2px 0; border-radius: 12px; color: var(--ink-2); width: 64px; }
+.face {
+  position: relative; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; font-size: 25px;
+  background: color-mix(in srgb, var(--c) 14%, var(--surface)); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--c) 35%, var(--line));
+  filter: grayscale(.6); opacity: .75; transition: filter .15s, opacity .15s, transform .15s;
+}
+.tick {
+  position: absolute; right: -2px; bottom: -2px; width: 18px; height: 18px; border-radius: 50%; display: none; place-items: center;
+  background: var(--c); color: #fff; font-size: 11px; font-weight: 800; font-style: normal; box-shadow: 0 0 0 2px var(--surface);
+}
+.fname { font-size: 12px; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.faces .opt.on { background: none; color: var(--ink); font-weight: 600; }
+.faces .opt.on .face { filter: none; opacity: 1; box-shadow: inset 0 0 0 2.5px var(--c); }
+.faces .opt.on .tick { display: grid; }
+.faces .opt:active .face { transform: scale(.94); }
 </style>

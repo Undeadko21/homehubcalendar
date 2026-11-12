@@ -1,3 +1,5 @@
+import { haptic } from './haptic'
+
 // Свайп по строке списка пальцем: v-swipe="{ right: fn, left: fn }".
 // Работает на касаниях (мышь не трогаем), вертикальная прокрутка остаётся; строка едет за пальцем и подсвечивается,
 // когда отпускание уже сработает. Перетаскивание долгим нажатием (lib/drag.js) не мешает: оно отменяется при движении.
@@ -30,7 +32,9 @@ function attach(el, binding) {
     if ((dx > 0 && !opts().right) || (dx < 0 && !opts().left)) dx = 0
     if (e.cancelable) e.preventDefault()
     el.style.transform = `translateX(${dx}px)`
-    el.classList.toggle('swipe-go', Math.abs(dx) >= THRESHOLD)
+    const go = Math.abs(dx) >= THRESHOLD
+    if (go && !el.classList.contains('swipe-go')) haptic('tap')
+    el.classList.toggle('swipe-go', go)
   }
   const end = () => {
     if (mode !== 'swipe') { mode = null; return }

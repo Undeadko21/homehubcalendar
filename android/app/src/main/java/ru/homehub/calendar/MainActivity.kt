@@ -152,6 +152,10 @@ class AppBridge(private val activity: MainActivity) {
     fun pinWidget(): Boolean = Widgets.pin(activity)
 
     /** Голосовой ввод для поля «Быстро»: системное распознавание речи, ответ — window.__hhVoice(text|null). */
+    /** Лёгкий отклик на важные нажатия (без разрешения VIBRATE — системный haptic feedback WebView). */
+    @JavascriptInterface
+    fun haptic(kind: String) = activity.runOnUiThread { activity.haptic(kind) }
+
     @JavascriptInterface
     fun canVoice(): Boolean = activity.voiceAvailable()
 
@@ -264,6 +268,16 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+
+    fun haptic(kind: String) {
+        if (!::web.isInitialized) return
+        val c = when (kind) {
+            "success" -> if (Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.VIRTUAL_KEY
+            "warn" -> if (Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.REJECT else android.view.HapticFeedbackConstants.LONG_PRESS
+            else -> if (Build.VERSION.SDK_INT >= 27) android.view.HapticFeedbackConstants.KEYBOARD_TAP else android.view.HapticFeedbackConstants.VIRTUAL_KEY
+        }
+        web.performHapticFeedback(c)
+    }
 
     fun voiceAvailable(): Boolean =
         packageManager.queryIntentActivities(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0).isNotEmpty()

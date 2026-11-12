@@ -1,5 +1,5 @@
 // Общее состояние приложения: настройки, фильтр людей, загрузка событий.
-import { reactive, computed } from 'vue'
+import { reactive, computed, nextTick } from 'vue'
 import { api, CLIENT_ID, setAuthHandler } from './api'
 import { isoLocal, isoDate } from './dates'
 
@@ -8,10 +8,10 @@ const LS_KEY = 'homecal.prefs'
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') } catch { return {} }
 }
-function savePrefs() {
+export function savePrefs() {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify({ hiddenPeople: state.hiddenPeople, view: state.view, calView: state.calView, timelineDays: state.timelineDays, weekDays: state.weekDaysPref,
-      textSize: state.textSize, initials: state.initials, onboarded: state.onboarded }))
+      textSize: state.textSize, initials: state.initials, onboarded: state.onboarded, haptics: state.haptics, icons: state.icons, weekDense: state.weekDense }))
   } catch {}
 }
 
@@ -59,6 +59,11 @@ export const state = reactive({
   initials: params.has('initials') ? params.get('initials') !== '0' : !!prefs.initials, // буква человека на плашке (не только цвет)
   onboarded: !!prefs.onboarded, // знакомство пройдено на этом устройстве
   onboarding: false,
+  haptics: prefs.haptics !== false, // отклик (вибрация) на важные нажатия
+  icons: params.has('icons') ? params.get('icons') !== '0' : !!prefs.icons, // значки по словам в названии: 🏊 🩺 🎂
+  weekDense: prefs.weekDense !== false, // «Неделя» на компьютере плотнее (час ниже)
+  datePicker: false, // лист «Перейти к дате» (нажатие на заголовок)
+  navDir: 0, // направление последнего сдвига дня/недели — для анимации
 })
 
 // Внешний вид: размер текста — множитель --fs (сборка переводит все font-size в calc(… * var(--fs))).
@@ -71,6 +76,8 @@ export function applyLook() {
 }
 export function setTextSize(v) { state.textSize = v; savePrefs(); applyLook() }
 export function setInitials(v) { state.initials = !!v; savePrefs() }
+export function setHaptics(v) { state.haptics = !!v; savePrefs() }
+export function setIcons(v) { state.icons = !!v; savePrefs() }
 export function finishOnboarding() { state.onboarded = true; state.onboarding = false; savePrefs() }
 applyLook()
 
@@ -148,6 +155,7 @@ export function goToDay(date) {
 // дело и покупки добавляются сразу (с «Отменить»). Возвращает вид того, что получилось.
 export async function quickAdd(text, date) {
   const r = await api.quick(text)
+  if (r.kind !== 'event') import('./haptic').then((m) => m.haptic('success'))
   if (r.kind === 'event') {
     if (!writableCalendars().length) throw new Error('Нет календаря, в который можно записать событие')
     state.editor = { date: date || state.cursor, quick: text }
@@ -191,10 +199,24 @@ export function setTimelineDays(n) {
   savePrefs()
 }
 
+// Плавная смена экрана/дня: View Transitions API там, где он есть (Chrome/Android WebView 111+, Safari 18+);
+// направление (−1 назад, 1 вперёд, 0 — смена вида) задаёт анимацию в styles.css. Без поддержки — как раньше, сразу.
+export function animate(dir, fn) {
+  const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (typeof document === 'undefined' || !document.startViewTransition || reduce || state.kiosk) { fn(); return }
+  document.documentElement.dataset.nav = dir > 0 ? 'fwd' : dir < 0 ? 'back' : 'fade'
+  try {
+    document.startViewTransition(async () => { fn(); await nextTick() })
+  } catch { fn() }
+}
+
 export function setView(v) {
-  state.view = v
-  if (CAL_VIEWS.includes(v)) state.calView = v
-  savePrefs()
+  if (v === state.view) return
+  animate(0, () => {
+    state.view = v
+    if (CAL_VIEWS.includes(v)) state.calView = v
+    savePrefs()
+  })
 }
 
 export function togglePerson(id) {

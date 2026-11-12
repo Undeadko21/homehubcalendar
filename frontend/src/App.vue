@@ -48,8 +48,14 @@
             <span class="m-sync" :title="syncTitle"><span :class="['sync-dot', syncState]"></span></span>
           </div>
           <h1 class="title">
-            <span class="t-main">{{ title.main }}</span>
-            <span v-if="title.sub" class="t-sub">{{ title.sub }}</span>
+            <button v-if="navigable" class="t-btn" aria-label="Перейти к дате" @click="state.datePicker = true">
+              <span class="t-main">{{ title.main }}<span class="t-chev" aria-hidden="true">▾</span></span>
+              <span v-if="title.sub" class="t-sub">{{ title.sub }}</span>
+            </button>
+            <template v-else>
+              <span class="t-main">{{ title.main }}</span>
+              <span v-if="title.sub" class="t-sub">{{ title.sub }}</span>
+            </template>
           </h1>
           <div v-if="isCalTab" class="seg cal-seg" role="tablist" aria-label="Вид календаря">
             <button v-for="v in CAL_TABS" :key="v.id" role="tab" :aria-selected="state.view === v.id"
@@ -62,10 +68,33 @@
           <button class="btn filled" @click="setView('settings')">Подключить</button>
         </div>
 
+        <!-- Нет связи: спокойная полоса, данные остаются на экране -->
+        <div v-if="net.offline && !state.kiosk" class="netbar" role="status">
+          <span class="nb-ico" aria-hidden="true">⚠︎</span>
+          <span class="nb-txt">
+            <strong>{{ net.server ? 'Сервер дома не отвечает' : 'Нет связи с домом' }}</strong>
+            <small>Показываю сохранённое{{ savedText ? ', обновлено ' + savedText : '' }}. Изменения сейчас не сохранятся.</small>
+          </span>
+          <button class="btn sm filled" :disabled="retrying" @click="retry">{{ retrying ? '…' : 'Повторить' }}</button>
+        </div>
+
         <div v-if="problems.list.length" class="problem" role="alert">
-          <strong>Что-то пошло не так</strong>
-          <span v-for="(p, i) in problems.list" :key="i">{{ p }}</span>
-          <button class="btn sm" @click="problems.list.splice(0)">Скрыть</button>
+          <span class="pb-txt">
+            <strong>Не получилось: {{ friendly(problems.list[problems.list.length - 1]) }}</strong>
+            <small>Можно повторить действие или обновить экран. Если повторяется — подробности в «Состоянии и копиях».</small>
+          </span>
+          <span class="pb-btns">
+            <button class="btn sm" @click="reloadPage">Обновить</button>
+            <button class="btn sm gray" @click="showDetails = !showDetails">{{ showDetails ? 'Скрыть детали' : 'Детали' }}</button>
+            <button class="btn sm" aria-label="Закрыть" @click="problems.list.splice(0); showDetails = false">×</button>
+          </span>
+          <code v-if="showDetails" class="pb-det">{{ problems.list.join('\n') }}</code>
+        </div>
+
+        <!-- Потянуть вниз — обновить -->
+        <div class="ptr" :class="{ ready: pull.ready, busy: pull.busy }" :style="{ height: pull.h + 'px' }" aria-hidden="true">
+          <span class="ptr-ico">{{ pull.busy ? '' : '↓' }}</span>
+          <span>{{ pull.busy ? 'Обновляю…' : pull.ready ? 'Отпустите, чтобы обновить' : 'Потяните, чтобы обновить' }}</span>
         </div>
 
         <main class="main">
@@ -97,6 +126,14 @@
         <PeopleList />
       </Sheet>
       <PersonSheet />
+      <Sheet :open="state.datePicker" title="Перейти к дате" @close="state.datePicker = false">
+        <MiniMonth class="dp-month" @picked="state.datePicker = false" />
+        <div class="dp-btns">
+          <button class="btn filled" @click="goToday(); state.datePicker = false">Сегодня</button>
+          <button class="btn" @click="jump(1)">Завтра</button>
+          <button class="btn" @click="jump(7)">Через неделю</button>
+        </div>
+      </Sheet>
       <EventDialog />
       <EventEditor />
       <SectionWizard />
@@ -110,8 +147,10 @@
 </template>
 
 <script setup>
-import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
-import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen } from './lib/store'
+import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen, animate, toast } from './lib/store'
+import { net } from './lib/api'
+import { haptic } from './lib/haptic'
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
 import EventDialog from './components/EventDialog.vue'
 import EventEditor from './components/EventEditor.vue'
@@ -178,6 +217,9 @@ const syncing = ref(false)
 const night = ref(false)
 
 function shift(dir) {
+  animate(dir, () => shiftNow(dir))
+}
+function shiftNow(dir) {
   const c = new Date(state.cursor)
   if (state.view === 'month') { const d = c.getDate(); c.setDate(1); c.setMonth(c.getMonth() + dir); c.setDate(Math.min(d, new Date(c.getFullYear(), c.getMonth() + 1, 0).getDate())) }
   else if (state.view === 'today') c.setDate(c.getDate() + dir)
@@ -186,7 +228,75 @@ function shift(dir) {
   else c.setDate(c.getDate() + weekDays() * dir)
   state.cursor = c
 }
-function goToday() { state.cursor = new Date() }
+function goToday() {
+  const now = new Date()
+  animate(now > state.cursor ? 1 : -1, () => { state.cursor = now })
+}
+function jump(days) {
+  const d = new Date(); d.setDate(d.getDate() + days)
+  animate(1, () => { state.cursor = d })
+  state.datePicker = false
+}
+
+// --- связь и ошибки ---
+const retrying = ref(false)
+const showDetails = ref(false)
+const savedText = computed(() => net.lastOk ? new Date(net.lastOk).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '')
+async function retry() {
+  retrying.value = true
+  try { await reload() } catch { /* полоса останется */ } finally { retrying.value = false }
+  if (!net.offline) toast('Связь восстановлена')
+}
+// Техническую строку — в понятную фразу; подробности по кнопке «Детали».
+function friendly(msg) {
+  const m = String(msg || '')
+  if (/загрузить события/i.test(m)) return 'загрузить события'
+  if (/перенести/i.test(m)) return 'перенести событие'
+  if (/сохранить/i.test(m)) return 'сохранить изменения'
+  if (/\(.*(render|setup|hook|watcher)/i.test(m) || /undefined|null|is not a function/i.test(m)) return 'показать часть экрана'
+  return m.length > 80 ? m.slice(0, 80) + '…' : m
+}
+function reloadPage() { problems.list.splice(0); location.reload() }
+
+// --- потянуть вниз, чтобы обновить (телефон) ---
+const pull = reactive({ h: 0, ready: false, busy: false })
+const PULL_AT = 70
+let py0 = null, pulling = false
+function scrolledParent(el) {
+  for (let n = el; n && n !== document.body; n = n.parentElement) {
+    if (n.scrollTop > 0) return true
+    if (n.classList?.contains('no-pull') || n.closest?.('.sheet, .fc-scroller, .dg-scroll')) return true
+  }
+  return false
+}
+function onTouchStart(e) {
+  if (state.kiosk || pull.busy || e.touches.length !== 1 || window.scrollY > 0 || document.querySelector('.backdrop')) { py0 = null; return }
+  if (scrolledParent(e.target)) { py0 = null; return }
+  py0 = e.touches[0].clientY
+  pulling = false
+}
+function onTouchMove(e) {
+  if (py0 == null) return
+  const dy = e.touches[0].clientY - py0
+  if (dy <= 0 || window.scrollY > 0) { if (pulling) { pull.h = 0; pull.ready = false } py0 = dy < -10 ? null : py0; return }
+  pulling = true
+  pull.h = Math.min(110, dy * 0.5)
+  const ready = pull.h >= PULL_AT * 0.8
+  if (ready && !pull.ready) haptic('tap')
+  pull.ready = ready
+}
+async function onTouchEnd() {
+  if (py0 == null) return
+  py0 = null
+  if (!pulling) return
+  pulling = false
+  if (!pull.ready) { pull.h = 0; return }
+  pull.busy = true
+  pull.h = 44
+  try { await syncNow(); haptic('success') } catch { /* полоса связи покажет */ } finally {
+    pull.busy = false; pull.ready = false; pull.h = 0
+  }
+}
 
 const monthName = (d) => cap(d.toLocaleDateString('ru-RU', { month: 'long' }))
 const title = computed(() => {
@@ -262,6 +372,10 @@ function tickNight() {
 }
 
 onMounted(async () => {
+  window.addEventListener('touchstart', onTouchStart, { passive: true })
+  window.addEventListener('touchmove', onTouchMove, { passive: true })
+  window.addEventListener('touchend', onTouchEnd)
+  window.addEventListener('touchcancel', onTouchEnd)
   await loadConfig()
   await refreshStatus()
   connectLive()
@@ -277,7 +391,13 @@ onMounted(async () => {
     }, rotate * 1000))
   }
 })
-onUnmounted(() => { timers.forEach(clearInterval); ro?.disconnect() })
+onUnmounted(() => {
+  timers.forEach(clearInterval); ro?.disconnect()
+  window.removeEventListener('touchstart', onTouchStart)
+  window.removeEventListener('touchmove', onTouchMove)
+  window.removeEventListener('touchend', onTouchEnd)
+  window.removeEventListener('touchcancel', onTouchEnd)
+})
 </script>
 
 <style scoped>
@@ -327,6 +447,31 @@ onUnmounted(() => { timers.forEach(clearInterval); ro?.disconnect() })
 .search-btn :deep(.ico) { width: 20px; height: 20px; color: var(--tint); }
 .title { grid-area: title; margin: 0; font-family: var(--font-display); font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; white-space: nowrap; }
 .t-main { font-weight: 700; }
+.t-btn { all: unset; cursor: pointer; display: inline; border-radius: 8px; }
+.t-btn:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
+.t-chev { font-size: .5em; color: var(--tint); margin-left: 6px; vertical-align: .35em; }
+.netbar {
+  display: flex; align-items: center; gap: 12px; margin: 10px 20px 0; padding: 10px 12px 10px 14px; border-radius: 12px;
+  background: color-mix(in srgb, #ff9500 14%, var(--surface)); border: .5px solid color-mix(in srgb, #ff9500 40%, var(--line));
+}
+.nb-ico { color: #ff9500; font-size: 18px; }
+.nb-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.nb-txt strong { font-size: 15px; }
+.nb-txt small, .pb-txt small { color: var(--ink-2); font-size: 13px; }
+.pb-txt { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 2px; }
+.pb-btns { display: flex; gap: 6px; align-items: center; }
+.pb-det { flex-basis: 100%; white-space: pre-wrap; font-size: 12px; color: var(--ink-2); background: var(--surface); padding: 8px; border-radius: 8px; overflow-wrap: anywhere; }
+.ptr {
+  display: flex; align-items: flex-end; justify-content: center; gap: 8px; overflow: hidden; color: var(--ink-2); font-size: 13px;
+  transition: height .2s; padding-bottom: 8px; box-sizing: border-box;
+}
+.ptr[style*="height: 0px"] { padding: 0; }
+.ptr-ico { display: inline-block; transition: transform .2s; font-size: 16px; }
+.ptr.ready .ptr-ico { transform: rotate(180deg); color: var(--tint); }
+.ptr.busy .ptr-ico { width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--tint); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.dp-month { margin: 0 -4px; }
+.dp-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .t-sub { font-weight: 400; margin-left: 8px; color: var(--ink-2); }
 .cal-seg { display: none; }
 
@@ -339,10 +484,9 @@ onUnmounted(() => { timers.forEach(clearInterval); ro?.disconnect() })
 .problem {
   margin: 10px 20px 0; padding: 10px 14px; border-radius: var(--radius-m);
   background: var(--surface-2); background: color-mix(in srgb, var(--red) 12%, var(--surface));
-  color: var(--ink); display: flex; flex-direction: column; gap: 2px; font-size: 13px;
+  color: var(--ink); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px;
 }
 .problem strong { color: var(--red); font-size: 14px; }
-.problem .btn { align-self: flex-start; padding-left: 0; }
 .tabbar { display: none; }
 
 /* --- телефон и узкие окна --- */

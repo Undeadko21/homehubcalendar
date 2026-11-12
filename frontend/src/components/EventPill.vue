@@ -12,7 +12,7 @@
       <span v-else-if="others.length" class="dots" aria-hidden="true">
         <i v-for="p in others" :key="p.id" :style="{ '--c': p.color }"></i>
       </span>
-      {{ e.title }}<span v-if="e.files" class="clip" :title="'Вложений: ' + e.files" aria-label="есть вложения">📎</span>
+      {{ titleWithIcon(e) }}<span v-if="e.files" class="clip" :title="'Вложений: ' + e.files" aria-label="есть вложения">📎</span>
     </span>
     <span v-if="!hideMeta && meta" class="s">{{ meta }}</span>
     <EscortBadge v-if="e.escort && !hideEscort" :e="e" class="esc" />
@@ -20,6 +20,7 @@
 </template>
 
 <script setup>
+import { titleWithIcon } from '../lib/icons'
 import { computed } from 'vue'
 import { state, openEvent, eventColor, personById, personMark } from '../lib/store'
 import { eventRange, formatEventTime } from '../lib/dates'

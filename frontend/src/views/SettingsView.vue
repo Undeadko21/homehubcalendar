@@ -337,6 +337,18 @@
       </label>
     </div>
 
+    <h3 class="group-title">Значки и отклик</h3>
+    <div class="group">
+      <label class="row">
+        <span class="lbl">Значки событий <small class="muted block">По словам в названии: 🏊 бассейн, 🩺 врач, 🎂 день рождения, 📚 школа, ⚽ футбол…</small></span>
+        <input :checked="state.icons" type="checkbox" class="switch" @change="setIcons($event.target.checked)" />
+      </label>
+      <label class="row">
+        <span class="lbl">Отклик на нажатия <small class="muted block">Лёгкая вибрация телефона: назначили водителя, отметили покупку, перенесли событие.</small></span>
+        <input :checked="state.haptics" type="checkbox" class="switch" @change="setHaptics($event.target.checked)" />
+      </label>
+    </div>
+
     <h3 class="group-title">Знакомство</h3>
     <div class="group">
       <button class="row linkrow" @click="state.onboarding = true">Показать знакомство заново</button>
@@ -447,7 +459,7 @@
 import { copyToClipboard } from '../lib/clipboard'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from '../lib/api'
-import { state, reload, syncNow, UI_BUILD, setTextSize, setInitials } from '../lib/store'
+import { state, reload, syncNow, UI_BUILD, setTextSize, setInitials, setIcons, setHaptics } from '../lib/store'
 
 const TEXT_SIZES = [{ id: 'compact', label: 'Мельче' }, { id: 'normal', label: 'Обычно' }, { id: 'large', label: 'Крупнее' }, { id: 'xlarge', label: 'Максимум' }]
 import PeoplePicker from '../components/PeoplePicker.vue'
@@ -564,8 +576,8 @@ const groups = computed(() => {
     { title: 'Приложения и экраны', items: [
       { id: 'app', title: 'Приложения и виджеты', color: '#5856d6', sub: inApp ? 'версия ' + appVersionInstalled : 'Android, Mac, iPhone',
         icon: ico('<rect x="7" y="2.500" width="10" height="19" rx="2"/><path d="M11 18.500h2"/>') },
-      { id: 'look', title: 'Внешний вид', color: '#ff9500', sub: 'размер текста, буквы на плашках, знакомство',
-        kw: 'шрифт размер крупно компактно плотность буквы инициалы цвет дальтонизм знакомство мастер первый запуск' },
+      { id: 'look', title: 'Внешний вид', color: '#ff9500', sub: 'размер текста, буквы и значки на плашках, отклик',
+        kw: 'шрифт размер крупно компактно плотность буквы инициалы цвет дальтонизм знакомство мастер первый запуск значки иконки эмодзи вибрация отклик' },
       { id: 'wall', title: 'Экран на стене', color: '#af52de', sub: 'планшет на кухне, ссылки',
         icon: ico('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>') },
     ] },

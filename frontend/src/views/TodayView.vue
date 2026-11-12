@@ -28,7 +28,7 @@
             <small>{{ t.day }}</small>
           </span>
           <span class="what">
-            <span class="title">{{ t.e.title }}</span>
+            <span class="title">{{ titleWithIcon(t.e) }}</span>
             <EscortBadge :e="t.e" />
           </span>
           <span class="state" :title="t.stateText">{{ t.icon }}</span>
@@ -43,6 +43,7 @@
       <span v-else-if="nextLoaded">В ближайший месяц событий нет</span>
     </button>
 
+    <Skeleton v-if="!loaded && !todays.length" blocks :rows="3" class="sk" />
     <section ref="daySec" class="day-section">
       <DayGrid v-if="columns.length" :columns="columns" :day="day" :now="now" />
       <p v-else class="empty">Выберите хотя бы одного человека в списке «Люди».</p>
@@ -58,6 +59,8 @@
 </template>
 
 <script setup>
+import Skeleton from '../components/Skeleton.vue'
+import { titleWithIcon } from '../lib/icons'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { state, visiblePeople, openEvent, quickAdd, toast, goToDay, isEventVisible } from '../lib/store'
 import { api } from '../lib/api'

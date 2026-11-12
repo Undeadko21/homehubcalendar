@@ -6,16 +6,42 @@ export const CLIENT_ID = Math.random().toString(36).slice(2, 12)
 let onAuth = null
 export function setAuthHandler(fn) { onAuth = fn }
 
+// Состояние связи с сервером: экран показывает спокойную полосу «Нет связи с домом» вместо технической ошибки.
+import { reactive } from 'vue'
+export const net = reactive({ offline: false, since: null, lastOk: null, server: false })
+
+function markOk() { net.offline = false; net.server = false; net.since = null; net.lastOk = Date.now() }
+function markDown(server) {
+  if (!net.offline) net.since = Date.now()
+  net.offline = true
+  net.server = !!server
+}
+
 async function request(method, url, body) {
   const headers = {}
   if (body) headers['Content-Type'] = 'application/json'
   if (method !== 'GET') headers['X-Client-Id'] = CLIENT_ID
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-    credentials: 'same-origin',
-  })
+  let res
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: 'same-origin',
+    })
+  } catch (e) {
+    markDown(false)
+    const err = new Error('Нет связи с сервером')
+    err.offline = true
+    throw err
+  }
+  if (res.status === 502 || res.status === 503 || res.status === 504) {
+    markDown(true)
+    const err = new Error('Сервер дома не отвечает')
+    err.offline = true
+    throw err
+  }
+  markOk()
   if (res.status === 401) {
     const err = new Error('auth_required')
     err.auth = true

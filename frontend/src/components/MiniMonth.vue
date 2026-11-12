@@ -59,7 +59,8 @@ function shift(n) {
   m.setMonth(m.getMonth() + n)
   month.value = m
 }
-function pick(d) { state.cursor = d }
+const emit = defineEmits(['picked'])
+function pick(d) { state.cursor = d; emit('picked', d) }
 </script>
 
 <style scoped>

@@ -1,5 +1,6 @@
 <template>
   <div class="fw">
+    <Skeleton v-if="!loaded && !events.length" blocks :rows="3" class="sk" />
     <div class="scroll">
       <table class="grid" :style="{ '--n': cols.length }">
         <thead>
@@ -20,7 +21,7 @@
               <button v-for="e in d.cells[p.id]" :key="e.id" class="chip" :class="{ duty: e.duty, shared: e.people.length > 1 }"
                       :style="{ '--c': eventColor(e) }" @click="openEvent(e)">
                 <span class="t">{{ e.all_day ? '' : time(e, d.date) }}</span>
-                <span class="n">{{ e.title }}</span>
+                <span class="n">{{ titleWithIcon(e) }}</span>
               </button>
               <span v-if="!d.cells[p.id].length" class="none">·</span>
             </td>
@@ -33,13 +34,15 @@
 </template>
 
 <script setup>
+import Skeleton from '../components/Skeleton.vue'
+import { titleWithIcon } from '../lib/icons'
 import { computed } from 'vue'
 import { state, visiblePeople, openEvent, eventColor } from '../lib/store'
 import { useRange } from '../lib/useRange'
 import { addDays, startOfDay, startOfWeek, overlaps, isoDate, sameDay, eventRange, formatTime, cap } from '../lib/dates'
 
 const start = computed(() => startOfWeek(state.cursor))
-const { events, holidayMap } = useRange(() => ({ start: start.value, end: addDays(start.value, 7) }))
+const { events, holidayMap, loaded } = useRange(() => ({ start: start.value, end: addDays(start.value, 7) }))
 const cols = computed(() => visiblePeople.value)
 const now = new Date()
 

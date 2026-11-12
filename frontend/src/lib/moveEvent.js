@@ -2,7 +2,7 @@
 import { state, reload, writableCalendars, toast, undoOf } from './store'
 import { api } from './api'
 import { isoDate, isoLocal, addDays } from './dates'
-import { problems } from './report'
+import { haptic } from './haptic'
 
 export function writableCal(e) {
   return (e.calendars || []).find((k) => writableCalendars().some((c) => c.key === k))
@@ -27,6 +27,7 @@ async function send(e, cal, start, end, scope) {
   const body = bodyFor(e, cal, start, end)
   if (e.recurring) { body.occurrence = e.start; body.scope = scope }
   const r = await api.updateEvent(e.uid, body)
+  haptic('success')
   toast('Перенесено: ' + e.title, undoOf(r.changes))
 }
 
@@ -59,7 +60,8 @@ export async function moveEvent(e, start, end) {
     await reload()
     return true
   } catch (err) {
-    problems.list.push('Не удалось перенести событие: ' + err.message)
+    haptic('warn')
+    toast('Не удалось перенести: ' + err.message)
     return false
   }
 }
@@ -73,7 +75,8 @@ export async function confirmMove(scope) {
     await send(a.e, a.cal, a.start, a.end, scope)
     await reload()
   } catch (err) {
-    problems.list.push('Не удалось перенести событие: ' + err.message)
+    haptic('warn')
+    toast('Не удалось перенести: ' + err.message)
     state.moveAsk = null
   }
 }

@@ -29,6 +29,7 @@ export function useRange(rangeFn) {
       }
     } catch (e) {
       error.value = e.message
+      if (e.offline) return   // нет связи — полоса «Нет связи с домом» уже на экране, баннер ошибки не нужен
       report('Не удалось загрузить события: ' + e.message, { stack: e.stack, kind: 'events' })
     } finally {
       loading.value = false

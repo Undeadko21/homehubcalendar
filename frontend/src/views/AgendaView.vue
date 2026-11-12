@@ -1,5 +1,6 @@
 <template>
   <div class="agenda">
+    <Skeleton v-if="!loaded && !groups.length" :rows="6" class="sk" />
     <section v-for="g in groups" :key="g.key" class="day" :data-day="g.key">
       <h2 class="dh" :class="{ today: g.today, off: g.off }">
         <span>{{ g.label }}</span>
@@ -14,7 +15,7 @@
         </span>
         <span class="bar" aria-hidden="true"></span>
         <span class="body">
-          <span class="t">{{ e.title }}</span>
+          <span class="t">{{ titleWithIcon(e) }}</span>
           <span v-if="e.location" class="s">{{ e.location }}</span>
           <span class="who">
             <i v-for="p in e.people" :key="p" :style="{ background: personById[p]?.color }"></i>
@@ -34,6 +35,8 @@
 </template>
 
 <script setup>
+import Skeleton from '../components/Skeleton.vue'
+import { titleWithIcon } from '../lib/icons'
 import { computed, ref } from 'vue'
 import { state, openEvent, eventColor, personById } from '../lib/store'
 import { useRange } from '../lib/useRange'

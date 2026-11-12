@@ -111,8 +111,8 @@ def test_create_event_warns_about_conflict_and_writes_to_caldav(page, stack):
 
 def test_section_wizard_creates_series(page, stack):
     _open_new(page)
-    page.click("text=Секция или кружок")
-    page.fill("input[placeholder^='Название']", "Ушу")
+    page.click(".editor >> text=Секция или кружок")
+    page.fill(".wiz input[placeholder^='Название']", "Ушу")
     page.click("button.day:has-text('вт')"); page.click("button.day:has-text('чт')")
     page.click("button:has-text('Создать')")
     page.wait_for_selector(".wiz", state="detached", timeout=10000)

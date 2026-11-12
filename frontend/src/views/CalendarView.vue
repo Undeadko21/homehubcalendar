@@ -1,8 +1,12 @@
 <template>
-  <div class="cal" :class="[mode, { narrow: screen.narrow }]">
+  <div class="cal" :class="[mode, { narrow: screen.narrow, dense: dense }]">
     <div v-if="mode === 'week'" class="wbar">
       <div class="seg" role="group" aria-label="Сколько дней показывать">
         <button v-for="n in [3, 5, 7]" :key="n" :class="{ on: days === n }" @click="setWeekDays(n)">{{ n === 7 ? 'Неделя' : n + ' дня' }}</button>
+      </div>
+      <div v-if="!screen.narrow" class="seg" role="group" aria-label="Плотность">
+        <button :class="{ on: dense }" @click="setDense(true)">Плотно</button>
+        <button :class="{ on: !dense }" @click="setDense(false)">Просторно</button>
       </div>
     </div>
     <FullCalendar ref="fc" :options="options" />
@@ -10,13 +14,14 @@
 </template>
 
 <script setup>
+import { titleWithIcon } from '../lib/icons'
 import { computed, ref, watch } from 'vue'
 import FullCalendar from '@fullcalendar/vue3'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import ruLocale from '@fullcalendar/core/locales/ru'
-import { state, openEvent, eventColor, personMark, screen, weekDays, setWeekDays, setView, setTimelineDays } from '../lib/store'
+import { state, openEvent, eventColor, personMark, screen, weekDays, setWeekDays, setView, setTimelineDays, savePrefs } from '../lib/store'
 import { canMove, moveEvent } from '../lib/moveEvent'
 import { useRange } from '../lib/useRange'
 import { addDays, startOfDay, startOfWeek, startOfMonth, isoDate } from '../lib/dates'
@@ -42,6 +47,10 @@ const range = () => {
 }
 const { events, holidayMap } = useRange(range)
 
+// Плотная неделя на компьютере: час ниже, короткие события в одну строку — рабочий день целиком без прокрутки.
+const dense = computed(() => props.mode === 'week' && !screen.narrow && state.weekDense)
+function setDense(v) { state.weekDense = v; savePrefs() }
+
 async function moved(info) {
   const e = info.event.extendedProps.src
   if (info.event.allDay !== !!e.all_day || !info.event.start) { info.revert(); return }
@@ -57,7 +66,7 @@ const fcEvents = computed(() =>
     const c = eventColor(e)
     return {
       id: e.id,
-      title: (state.initials ? marksText(e) : '') + e.title + (e.people.length > 1 && !state.initials ? ` (${e.people.length})` : ''),
+      title: (state.initials ? marksText(e) : '') + titleWithIcon(e) + (e.people.length > 1 && !state.initials ? ` (${e.people.length})` : ''),
       start: e.start,
       end: e.end,
       allDay: e.all_day,
@@ -109,6 +118,8 @@ const options = computed(() => {
   allDayText: 'весь день',
   dayMaxEvents: 4,
   slotEventOverlap: false,
+  eventShortHeight: dense.value ? 40 : 30,
+  eventMinHeight: dense.value ? 16 : 20,
   eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
   // Шапка дня как в Календаре Apple: «пн 26», сегодня — число в красном круге
   dayHeaderContent: (arg) => {
@@ -185,6 +196,13 @@ watch(() => [state.cursor, viewName.value], () => {
 
 /* неделя */
 .cal .fc-timegrid-slot { height: 2.6em; }
+.cal.dense .fc-timegrid-slot { height: 1.45em; }
+.cal.dense .fc-timegrid-event .fc-event-main { padding: 0 4px; font-size: 12px; line-height: 1.25; }
+.cal.dense .fc-timegrid-event-short .fc-event-time::after { content: '\00a0'; }
+.cal.dense .fc-timegrid-event-short .fc-event-main-frame { flex-direction: row; gap: 4px; white-space: nowrap; overflow: hidden; }
+.cal.dense .fc-timegrid-event-short .fc-event-title { overflow: hidden; text-overflow: ellipsis; }
+.cal.dense .fc-timegrid-slot-label-cushion { font-size: 10px; }
+.wbar { display: flex; gap: 10px; flex-wrap: wrap; }
 .cal .fc-timegrid-slot-minor { border-top-style: none; }
 .cal .fc-timegrid-slot-label-cushion, .cal .fc-timegrid-axis-cushion { color: var(--ink-2); font-size: 11px; }
 .cal .fc-timegrid-axis-cushion { text-transform: lowercase; }

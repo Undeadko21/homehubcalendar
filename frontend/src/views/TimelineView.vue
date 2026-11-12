@@ -1,5 +1,6 @@
 <template>
   <div class="timeline">
+    <Skeleton v-if="!loaded && !events.length" blocks :rows="3" class="sk" />
     <div class="bar">
       <div class="seg" role="group" aria-label="Сколько дней показывать">
         <button v-for="n in [1, 3, 7]" :key="n" :class="{ on: days === n }" @click="setDays(n)">
@@ -48,7 +49,7 @@
               @pointerdown="down($event, b)"
             >
               <span v-if="compact && !b.allDay" class="bs">{{ b.startLabel }}</span>
-              <span class="bt">{{ b.e.title }}</span>
+              <span class="bt">{{ titleWithIcon(b.e) }}</span>
               <span v-if="!compact && !b.allDay && b.w > 90" class="bs">{{ b.time }}</span>
             </button>
           </div>
@@ -62,6 +63,8 @@
 </template>
 
 <script setup>
+import Skeleton from '../components/Skeleton.vue'
+import { titleWithIcon } from '../lib/icons'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { state, visiblePeople, openEvent, setTimelineDays } from '../lib/store'
 import { useRange } from '../lib/useRange'
@@ -93,7 +96,7 @@ onUnmounted(() => { ro?.disconnect(); clearInterval(t) })
 
 const start = computed(() => (days.value === 7 ? startOfWeek(state.cursor) : startOfDay(state.cursor)))
 const end = computed(() => addDays(start.value, days.value))
-const { events, holidayMap } = useRange(() => ({ start: start.value, end: end.value }))
+const { events, holidayMap, loaded } = useRange(() => ({ start: start.value, end: end.value }))
 
 // Неделя — компактные списки по дням; 1–3 дня — пропорциональная шкала времени.
 const compact = computed(() => days.value === 7)

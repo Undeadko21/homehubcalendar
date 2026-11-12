@@ -18,8 +18,7 @@
       </div>
 
       <div class="group">
-        <div class="row"><input v-model="f.title" class="in" placeholder="Название" autocomplete="off" required /></div>
-        <div class="row"><input v-model="f.location" class="in" placeholder="Место" autocomplete="off" /></div>
+        <div class="row"><input v-model="f.title" class="in title-in" placeholder="Название" autocomplete="off" required /></div>
       </div>
 
       <div class="group">
@@ -41,36 +40,16 @@
             <input v-if="!f.allDay" v-model="f.endTime" type="time" required />
           </span>
         </div>
-        <div class="row between">
-          <label for="ee-rep">Повтор</label>
-          <select id="ee-rep" v-model="f.repeat">
-            <option v-if="!isNew && ed.event?.recurring" value="keep">Как есть</option>
-            <option value="">Не повторять</option>
-            <option value="daily">Каждый день</option>
-            <option value="weekly">Каждую неделю</option>
-            <option value="monthly">Каждый месяц</option>
-            <option value="yearly">Каждый год</option>
-          </select>
-        </div>
-        <div v-if="f.repeat && f.repeat !== 'keep'" class="row between">
-          <label for="ee-until">Повторять до</label>
-          <input id="ee-until" v-model="f.until" type="date" />
-        </div>
-        <div class="row between">
-          <label for="ee-cal">Календарь</label>
-          <select id="ee-cal" v-model="f.calendar" :disabled="!isNew">
-            <option v-for="c in cals" :key="c.key" :value="c.key">{{ c.name }}</option>
-          </select>
+        <div v-if="!f.allDay" class="row durs" role="group" aria-label="Длительность">
+          <button v-for="m in DURS" :key="m" type="button" class="dur" :class="{ on: duration === m }" @click="setDuration(m)">{{ durLabel(m) }}</button>
         </div>
       </div>
-      <div v-if="!isNew && ed.event?.recurring" class="group">
-        <div class="row between">
-          <label for="ee-scope">Изменить</label>
-          <select id="ee-scope" v-model="f.scope">
-            <option value="series">Всю серию</option>
-            <option value="following">Это и следующие</option>
-            <option value="once">Только это</option>
-          </select>
+
+      <div class="group">
+        <div class="row stack">
+          <span class="label">Кто участвует</span>
+          <PeoplePicker v-model="f.people" faces label="Кто участвует" :disabled="busy" />
+          <p class="faint small">Никого не выбрано — по владельцам календаря и словам в названии.</p>
         </div>
       </div>
 
@@ -80,16 +59,52 @@
         </div>
       </div>
 
-      <div class="group">
-        <div class="row stack">
-          <span class="label">Чьё событие</span>
-          <PeoplePicker v-model="f.people" label="Чьё событие" :disabled="busy" />
-          <p class="faint small">Ничего не выбрано — по владельцам календаря и словам в названии.</p>
+      <!-- Остальное — под «Ещё», чтобы форма помещалась на экран телефона -->
+      <button type="button" class="more-btn" :aria-expanded="more" @click="more = !more">
+        <span>{{ more ? 'Скрыть' : 'Ещё' }}</span>
+        <small v-if="!more" class="faint">{{ moreSummary }}</small>
+        <span class="chev" :class="{ open: more }" aria-hidden="true">›</span>
+      </button>
+      <template v-if="more">
+        <div class="group">
+          <div class="row"><input v-model="f.location" class="in" placeholder="Место" autocomplete="off" /></div>
         </div>
-      </div>
-
-      <div class="group">
-        <div class="row stack"><textarea v-model="f.description" class="in" rows="3" placeholder="Заметки"></textarea></div>
+        <div class="group">
+          <div class="row between">
+            <label for="ee-rep">Повтор</label>
+            <select id="ee-rep" v-model="f.repeat">
+              <option v-if="!isNew && ed.event?.recurring" value="keep">Как есть</option>
+              <option value="">Не повторять</option>
+              <option value="daily">Каждый день</option>
+              <option value="weekly">Каждую неделю</option>
+              <option value="monthly">Каждый месяц</option>
+              <option value="yearly">Каждый год</option>
+            </select>
+          </div>
+          <div v-if="f.repeat && f.repeat !== 'keep'" class="row between">
+            <label for="ee-until">Повторять до</label>
+            <input id="ee-until" v-model="f.until" type="date" />
+          </div>
+          <div class="row between">
+            <label for="ee-cal">Календарь</label>
+            <select id="ee-cal" v-model="f.calendar" :disabled="!isNew">
+              <option v-for="c in cals" :key="c.key" :value="c.key">{{ c.name }}</option>
+            </select>
+          </div>
+        </div>
+        <div class="group">
+          <div class="row stack"><textarea v-model="f.description" class="in" rows="3" placeholder="Заметки"></textarea></div>
+        </div>
+      </template>
+      <div v-if="!isNew && ed.event?.recurring" class="group">
+        <div class="row between">
+          <label for="ee-scope">Изменить</label>
+          <select id="ee-scope" v-model="f.scope">
+            <option value="series">Всю серию</option>
+            <option value="following">Это и следующие</option>
+            <option value="once">Только это</option>
+          </select>
+        </div>
       </div>
 
       <p v-if="error" class="conflict">{{ error }}</p>
@@ -133,6 +148,28 @@ const f = reactive({ title: '', location: '', description: '', allDay: false, st
   endTime: '', repeat: '', until: '', calendar: '', people: [], scope: 'series' })
 let origPeople = []
 const warns = ref([])
+const more = ref(false)
+const DURS = [30, 60, 90, 120]
+const durLabel = (m) => (m < 60 ? `${m} мин` : m % 60 ? `${Math.floor(m / 60)},5 ч` : `${m / 60} ч`)
+const duration = computed(() => {
+  const a = new Date(`${f.startDate}T${f.startTime || '00:00'}`), b = new Date(`${f.endDate}T${f.endTime || '00:00'}`)
+  return isNaN(a) || isNaN(b) ? null : Math.round((b - a) / 60000)
+})
+function setDuration(m) {
+  const a = new Date(`${f.startDate}T${f.startTime || '00:00'}`)
+  if (isNaN(a)) return
+  const e = new Date(a.getTime() + m * 60000)
+  f.endDate = isoDate(e); f.endTime = hm(e)
+}
+// Что спрятано под «Ещё» — подсказка на кнопке.
+const moreSummary = computed(() => {
+  const parts = []
+  parts.push(f.location ? f.location : 'место')
+  parts.push(f.repeat === 'keep' ? 'повтор как есть' : f.repeat ? 'повтор' : 'без повтора')
+  if (cals.value.length > 1) parts.push(cals.value.find((c) => c.key === f.calendar)?.name || 'календарь')
+  if (f.description) parts.push('заметки')
+  return parts.join(' · ')
+})
 
 // Проверка конфликтов по мере ввода (с паузой, чтобы не спрашивать сервер на каждую цифру).
 let wt = 0
@@ -188,6 +225,8 @@ watch(ed, (v) => {
     f.calendar = w.includes(last) ? last : w[0] || ''
   }
   origPeople = [...f.people]
+  // у существующего события с заполненными полями «Ещё» сразу открыто
+  more.value = !!(f.location || f.description || (f.repeat && f.repeat !== 'keep'))
 })
 
 // Сдвигаем конец вместе с началом, чтобы длительность не терялась.
@@ -219,6 +258,7 @@ async function fillQuick() {
     f.startDate = r.date; f.endDate = r.date
     if (!r.all_day) { f.startTime = r.start; f.endTime = r.end }
     f.repeat = r.repeat?.freq || ''
+    if (r.location || r.repeat) more.value = true
     if (r.people.length) f.people = r.people
     quickNote.value = 'Проверьте поля ниже и нажмите «Сохранить»' + (r.notes.length ? ' · ' + r.notes.join(', ') : '')
   } catch (err) {
@@ -283,6 +323,17 @@ async function remove(onlyThis) {
 .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 12px; }
 .head h2 { margin: 0; font-size: 17px; font-weight: 600; }
 .group { margin-bottom: 12px; }
+.title-in { font-size: 19px; font-weight: 600; }
+.durs { gap: 6px; flex-wrap: wrap; }
+.dur { border: 0; border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; background: var(--fill); color: var(--ink-2); }
+.dur.on { background: var(--tint); color: #fff; font-weight: 600; }
+.more-btn {
+  width: 100%; display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 12px 16px; border: 0; border-radius: var(--radius-m);
+  background: var(--surface-2); color: var(--tint); font: inherit; font-weight: 600; text-align: left;
+}
+.more-btn small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.chev { margin-left: auto; color: var(--ink-3); transition: transform .2s; font-size: 20px; line-height: 1; }
+.chev.open { transform: rotate(90deg); }
 .between { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .in { width: 100%; border: 0; background: transparent; font: inherit; color: var(--ink); padding: 4px 0; outline: none; resize: vertical; }
 .dt { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }

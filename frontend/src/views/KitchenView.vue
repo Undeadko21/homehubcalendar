@@ -17,7 +17,7 @@
         <div v-for="e in upcoming" :key="e.id" class="ev" :class="{ now: isNow(e) }" :style="{ '--c': eventColor(e) }">
           <span class="when">{{ whenText(e) }}</span>
           <span class="what">
-            <strong>{{ e.title }}</strong>
+            <strong>{{ titleWithIcon(e) }}</strong>
             <small>
               <span v-for="p in who(e)" :key="p.id" class="p"><i :style="{ background: p.color }"></i>{{ p.name }}</span>
               <span v-if="e.location" class="loc">{{ e.location }}</span>
@@ -31,7 +31,7 @@
           <h2>Отвезти и забрать</h2>
           <div v-for="t in trips" :key="t.e.id" class="trip" :class="t.e.escort_issue">
             <span class="when">{{ t.time }}</span>
-            <span class="what"><strong>{{ t.e.title }}</strong><EscortBadge :e="t.e" /></span>
+            <span class="what"><strong>{{ titleWithIcon(t.e) }}</strong><EscortBadge :e="t.e" /></span>
             <span class="st">{{ t.icon }}</span>
           </div>
         </template>
@@ -52,6 +52,7 @@
 </template>
 
 <script setup>
+import { titleWithIcon } from '../lib/icons'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { state, visiblePeople, personById, eventColor } from '../lib/store'
 import { useRange } from '../lib/useRange'

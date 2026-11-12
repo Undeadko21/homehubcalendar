@@ -1,5 +1,7 @@
 <template>
   <div class="lists">
+    <Skeleton v-if="!listsLoaded && !listsOffline" :rows="5" />
+    <p v-if="listsOffline && !lists.length" class="empty">Списки появятся, когда будет связь с домом.</p>
     <div v-if="lists.length" class="tabs">
       <div class="seg" role="tablist" aria-label="Списки">
         <button v-for="l in lists" :key="l.id" role="tab" :aria-selected="l.id === currentId"
@@ -9,7 +11,7 @@
       </div>
       <button class="btn" @click="adding = !adding">＋ Список</button>
     </div>
-    <form v-if="adding || !lists.length" class="group add-list" @submit.prevent="createList">
+    <form v-if="adding || (listsLoaded && !lists.length)" class="group add-list" @submit.prevent="createList">
       <div class="row">
         <input v-model="newList" class="inline grow" placeholder="Название списка, например «Дача»" aria-label="Название нового списка" />
         <button class="btn filled" :disabled="!newList.trim()">Создать</button>
@@ -72,6 +74,8 @@
 </template>
 
 <script setup>
+import Skeleton from '../components/Skeleton.vue'
+import { haptic } from '../lib/haptic'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../lib/api'
 import { state, people as allPeople, personById, toast } from '../lib/store'
@@ -79,6 +83,8 @@ import { vSwipe } from '../lib/swipe'
 import FilesBox from '../components/FilesBox.vue'
 
 const lists = ref([])
+const listsLoaded = ref(false)
+const listsOffline = ref(false)
 const currentId = ref(null)
 const text = ref('')
 const adding = ref(false)
@@ -108,9 +114,14 @@ const open = (l) => l.items.filter((i) => !i.done).length || ''
 async function load() {
   try {
     lists.value = await api.lists()
+    listsLoaded.value = true
+    listsOffline.value = false
     if (!current.value) currentId.value = lists.value[0]?.id ?? null
     error.value = ''
-  } catch (e) { error.value = 'Не удалось загрузить: ' + e.message }
+  } catch (e) {
+    if (e.offline) listsOffline.value = true
+    else { listsLoaded.value = true; error.value = 'Не удалось загрузить: ' + e.message }
+  }
 }
 let timer
 onMounted(() => { load(); timer = setInterval(load, 20000) })
@@ -133,6 +144,7 @@ function addItem() {
 }
 function toggle(i) {
   i.done = !i.done
+  haptic(i.done ? 'success' : 'tap')
   return guard(() => api.patchItem(i.id, { done: i.done }))
 }
 async function remove(i) {

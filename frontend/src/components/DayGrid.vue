@@ -44,7 +44,7 @@
                 @click="openEvent(b.e)"
                 @pointerdown="down($event, b.e)"
               >
-                <span class="t">{{ b.e.title }}</span>
+                <span class="t">{{ titleWithIcon(b.e) }}</span>
                 <span class="tm">{{ b.time }}<template v-if="b.e.location && b.h >= 52">, {{ b.e.location }}</template></span>
                 <EscortBadge v-if="b.e.escort && b.h >= 64" :e="b.e" class="esc" />
                 <i v-if="canMove(b.e)" class="rz" aria-hidden="true" @pointerdown.stop="resize($event, b.e)"></i>
@@ -61,7 +61,7 @@
             >
               <span class="t">
                 <span class="dots" aria-hidden="true"><i v-for="pid in s.people" :key="pid" :style="{ '--c': colorOf(pid) }"></i></span>
-                {{ s.e.title }}
+                {{ titleWithIcon(s.e) }}
               </span>
               <span class="tm">{{ s.time }}<template v-if="s.e.location && s.h >= 52">, {{ s.e.location }}</template></span>
               <EscortBadge v-if="s.e.escort && s.h >= 64" :e="s.e" class="esc" />
@@ -84,6 +84,7 @@
 <script setup>
 // Дневная сетка как в Календаре Apple: общая шкала часов, колонка на человека,
 // пересекающиеся события — рядом, красная линия текущего времени.
+import { titleWithIcon } from '../lib/icons'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { openEvent } from '../lib/store'
 import { addDays, eventRange, formatTime, sameDay } from '../lib/dates'

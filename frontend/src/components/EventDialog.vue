@@ -3,7 +3,6 @@
     <div v-if="e" class="ev" :style="{ '--c': color }">
       <div class="head">
         <h2>{{ e.title }}</h2>
-        <button v-if="canEdit" class="btn" @click="edit">Изменить</button>
         <button class="btn close" @click="close">Готово</button>
       </div>
       <p class="when">
@@ -12,6 +11,27 @@
         <span v-if="e.recurring" class="tag">повторяется</span>
         <span v-if="e.tentative" class="tag">под вопросом</span>
       </p>
+
+      <!-- Главные действия — сразу под названием -->
+      <div v-if="canEdit || e.location" class="acts" role="toolbar" aria-label="Действия с событием">
+        <button v-if="canEdit" class="act" @click="edit"><span class="ai">✎</span>Изменить</button>
+        <button v-if="movable" class="act" :class="{ on: panel === 'move' }" :aria-expanded="panel === 'move'" @click="toggle('move')"><span class="ai">↷</span>Перенести</button>
+        <a v-if="e.location" class="act" :href="routeUrl" target="_blank" rel="noopener"><span class="ai">➤</span>Маршрут</a>
+        <button v-if="canEdit" class="act danger" :class="{ on: panel === 'delete' }" :aria-expanded="panel === 'delete'" @click="toggle('delete')"><span class="ai">🗑</span>Удалить</button>
+      </div>
+      <div v-if="panel === 'move'" class="panel">
+        <button v-for="o in MOVES" :key="o.id" class="chip-btn" :disabled="saving" @click="quickMove(o)">{{ o.label }}</button>
+        <p class="faint small panel-note">{{ e.recurring ? 'Потом спрошу: только это или вся серия.' : 'Время и длительность сохранятся.' }}</p>
+      </div>
+      <div v-if="panel === 'delete'" class="panel">
+        <template v-if="e.recurring">
+          <button class="chip-btn danger" :disabled="saving" @click="removeEvent(true)">Только {{ shortDay }}</button>
+          <button class="chip-btn danger" :disabled="saving" @click="removeEvent(false)">Всю серию</button>
+        </template>
+        <button v-else class="chip-btn danger" :disabled="saving" @click="removeEvent(false)">Удалить событие</button>
+        <button class="chip-btn" @click="panel = null">Отмена</button>
+        <p class="faint small panel-note">Удалится и в Яндексе. Сразу после можно нажать «Отменить» внизу экрана.</p>
+      </div>
 
       <!-- Цвет -->
       <div v-if="!e.duty && !e.private" class="group">
@@ -39,7 +59,7 @@
             <span v-if="e.people_override" class="faint small">выбрано вручную</span>
           </div>
           <template v-else>
-            <PeoplePicker v-model="draft" label="Чьё событие" :disabled="saving" />
+            <PeoplePicker v-model="draft" faces label="Чьё событие" :disabled="saving" />
             <p class="faint small">
               {{ e.recurring ? 'Применится ко всем повторам. ' : '' }}Меняется только здесь — в Яндексе событие останется как было.
             </p>
@@ -89,16 +109,18 @@
               <button v-if="e.escort[role.id].scope === 'once'" class="btn link" :disabled="saving"
                       @click="setEscort(role.id, null, 'once')">Как обычно</button>
             </div>
-            <div class="choices" role="radiogroup" :aria-label="role.label">
-              <button v-for="p in adults" :key="p.id" role="radio" class="choice"
+            <div class="drivers" role="radiogroup" :aria-label="role.label">
+              <button v-for="p in adults" :key="p.id" role="radio" class="driver"
                       :aria-checked="e.escort[role.id].person === p.id"
-                      :class="{ on: e.escort[role.id].person === p.id, free: e.escort[role.id].free.includes(p.id) }"
+                      :class="{ on: e.escort[role.id].person === p.id, busy: !e.escort[role.id].free.includes(p.id) }"
                       :style="{ '--c': p.color }" :disabled="saving" @click="setEscort(role.id, p.id)">
-                {{ p.emoji }} {{ p.name }}
+                <span class="ava">{{ p.emoji || p.name.slice(0, 1) }}</span>
+                <span class="dn">{{ p.name }}</span>
+                <span class="ds">{{ e.escort[role.id].person === p.id ? (e.escort[role.id].conflicts.length ? 'занят(а)' : 'везёт') : e.escort[role.id].free.includes(p.id) ? 'свободен' : 'занят(а)' }}</span>
               </button>
-              <button role="radio" class="choice skip" :aria-checked="e.escort[role.id].skip"
+              <button role="radio" class="driver skip" :aria-checked="e.escort[role.id].skip"
                       :class="{ on: e.escort[role.id].skip }" :disabled="saving" @click="setEscort(role.id, '-')">
-                Не нужно
+                <span class="ava">—</span><span class="dn">Не нужно</span><span class="ds">&nbsp;</span>
               </button>
             </div>
             <p v-if="e.escort[role.id].conflicts.length" class="conflict">
@@ -144,7 +166,6 @@
         <div v-if="e.location" class="row where">
           <span class="label">Где</span>
           <a :href="mapUrl" target="_blank" rel="noopener" class="val">{{ e.location }}</a>
-          <a :href="routeUrl" target="_blank" rel="noopener" class="btn sm route">Маршрут</a>
         </div>
         <div v-if="e.url" class="row">
           <span class="label">Ссылка</span>
@@ -168,7 +189,9 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { state, personById, eventColor, reload, refreshSelected, editEvent, writableCalendars } from '../lib/store'
+import { state, personById, eventColor, reload, refreshSelected, editEvent, writableCalendars, toast, undoOf } from '../lib/store'
+import { canMove, moveEvent, writableCal } from '../lib/moveEvent'
+import { haptic } from '../lib/haptic'
 import { eventRange, formatEventTime, formatTime, relativeDayName } from '../lib/dates'
 import { api } from '../lib/api'
 import PeoplePicker from './PeoplePicker.vue'
@@ -336,6 +359,7 @@ function setEscort(role, person, forceScope) {
     info.person = person === '-' ? null : person
     info.skip = person === '-'
   }
+  if (person !== null) haptic('tap')
   return run(() => api.setEscort(e.value.uid, sc === 'once' ? e.value.start : null, role, person))
 }
 
@@ -353,11 +377,78 @@ const canEdit = computed(() => !!e.value && !e.value.private && !e.value.duty &&
 function edit() { const ev = e.value; state.selected = null; editEvent(ev) }
 
 function close() { state.selected = null }
+
+// --- быстрые действия: перенос и удаление ---
+const MOVES = [
+  { id: 'h1', label: '+1 час', ms: 3600_000 },
+  { id: 'd1', label: 'На завтра', days: 1 },
+  { id: 'd2', label: 'Послезавтра', days: 2 },
+  { id: 'w1', label: 'Через неделю', days: 7 },
+]
+const panel = ref(null)
+const movable = computed(() => canMove(e.value))
+function toggle(p) { panel.value = panel.value === p ? null : p }
+watch(() => e.value?.id, () => { panel.value = null })
+async function quickMove(o) {
+  const ev = e.value
+  const r = eventRange(ev)
+  const shift = (d) => (o.ms ? new Date(d.getTime() + o.ms) : new Date(d.getFullYear(), d.getMonth(), d.getDate() + o.days, d.getHours(), d.getMinutes()))
+  if (o.ms && ev.all_day) return
+  state.selected = null
+  const ok = await moveEvent(ev, shift(r.start), shift(r.end))
+  if (ok === true) haptic('success')
+}
+async function removeEvent(onlyThis) {
+  const ev = e.value
+  saving.value = true
+  error.value = ''
+  try {
+    const res = await api.deleteEvent(ev.uid, writableCal(ev), onlyThis ? ev.start : null)
+    state.selected = null
+    haptic('success')
+    toast('Удалено: ' + ev.title, undoOf(res.changes))
+    reload()
+  } catch (err) {
+    error.value = 'Не удалось удалить: ' + err.message
+  } finally { saving.value = false }
+}
 </script>
 
 <style scoped>
 .ev { padding-top: 6px; }
 .head { display: flex; align-items: flex-start; gap: 8px; }
+.acts { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 8px; margin: 2px 0 14px; }
+.act {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 9px 4px 8px; border: 0; border-radius: 12px;
+  background: var(--surface-2); color: var(--tint); font: inherit; font-size: 13px; font-weight: 600; text-decoration: none; cursor: pointer;
+}
+.act .ai { font-size: 19px; line-height: 1; }
+.act.on { background: color-mix(in srgb, var(--tint) 14%, var(--surface-2)); }
+.act.danger { color: var(--red); }
+.act:active { transform: scale(.97); }
+.panel { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 16px; padding: 10px; border-radius: 12px; background: var(--surface-2); }
+.chip-btn { border: 0; border-radius: 999px; padding: 7px 14px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; box-shadow: inset 0 0 0 1px var(--line); }
+.chip-btn.danger { color: #fff; background: var(--red); box-shadow: none; }
+.panel-note { flex-basis: 100%; margin: 2px 2px 0; }
+.drivers { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.driver {
+  --c: #8e8e93; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px 8px; border: 0; border-radius: 14px;
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); font: inherit; cursor: pointer;
+}
+.driver .ava {
+  width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 24px; margin-bottom: 2px;
+  background: color-mix(in srgb, var(--c) 18%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 45%, transparent);
+}
+.driver .dn { font-weight: 600; font-size: 15px; }
+.driver .ds { font-size: 12px; color: var(--ok); }
+.driver.busy .ds { color: var(--ink-3); }
+.driver.busy:not(.on) .ava { filter: grayscale(.7); opacity: .7; }
+.driver.on { background: var(--c); color: #fff; box-shadow: none; }
+.driver.on .ds { color: rgba(255, 255, 255, .85); }
+.driver.on .ava { background: rgba(255, 255, 255, .25); box-shadow: 0 0 0 2px rgba(255, 255, 255, .7); }
+.driver.skip.on { background: var(--ink-2); }
+.driver.skip .ava { font-size: 18px; color: var(--ink-3); }
+.driver:active { transform: scale(.97); }
 h2 { flex: 1; margin: 0; font-size: 22px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; }
 .close { margin: -2px -10px 0 0; font-weight: 600; }
 .when { margin: 6px 0 16px; color: var(--ink-2); line-height: 1.45; }

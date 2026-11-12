@@ -210,3 +210,28 @@ select.sel { border: 0; background: var(--fill); border-radius: 8px; padding: 6p
   --c: #8e8e93; display: inline-grid; place-items: center; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box;
   border-radius: 5px; background: var(--c); color: #fff; font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: 0;
 }
+
+/* Плавные переходы между днями и экранами (View Transitions API; store.animate ставит data-nav). */
+.main { view-transition-name: main; }
+::view-transition-old(main), ::view-transition-new(main) { animation-duration: .22s; animation-timing-function: cubic-bezier(.2, .8, .2, 1); }
+:root[data-nav='fwd']::view-transition-old(main) { animation-name: vt-out-left; }
+:root[data-nav='fwd']::view-transition-new(main) { animation-name: vt-in-right; }
+:root[data-nav='back']::view-transition-old(main) { animation-name: vt-out-right; }
+:root[data-nav='back']::view-transition-new(main) { animation-name: vt-in-left; }
+@keyframes vt-out-left { to { transform: translateX(-36px); opacity: 0; } }
+@keyframes vt-in-right { from { transform: translateX(36px); opacity: 0; } }
+@keyframes vt-out-right { to { transform: translateX(36px); opacity: 0; } }
+@keyframes vt-in-left { from { transform: translateX(-36px); opacity: 0; } }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
+
+/* Скелетоны: серые строки на месте данных, пока они грузятся */
+.skel { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.skel i {
+  display: block; height: 14px; border-radius: 7px;
+  background: linear-gradient(90deg, var(--fill) 0%, color-mix(in srgb, var(--fill) 40%, var(--surface)) 50%, var(--fill) 100%);
+  background-size: 200% 100%; animation: skel 1.3s ease-in-out infinite;
+}
+.skel .blk { height: 44px; border-radius: 10px; }
+@keyframes skel { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .skel i { animation: none; } }
