@@ -2,7 +2,7 @@ name: Тесты
 on:
   push:
     branches: [main]
-    paths: ['backend/**', 'frontend/**', 'alice/**', 'deploy/**', '.github/workflows/backend.yml']
+    paths: ['backend/**', 'frontend/**', 'alice/**', 'deploy/**', 'Dockerfile', '.dockerignore', 'docker-compose.yml', 'android/version.properties', '.github/workflows/backend.yml']
   pull_request:
 jobs:
   test:
@@ -20,3 +20,21 @@ jobs:
       - run: cd backend && python -m pytest -q
       - run: python -m pytest -q alice/test_handler.py
       - run: bash deploy/test-rollback.sh
+
+  # Тот же образ, что собирает сервер дома (deploy/update.sh): если он не собирается или не стартует,
+  # дом молча откатывается на старую версию — ловим это здесь, до прода.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --build-arg GIT_SHA=ci -t homehub-calendar:ci .
+      - name: Сервер стартует и отвечает
+        run: |
+          mkdir -p ci-config ci-data
+          printf 'timezone: Asia/Yekaterinburg\nsources: []\n' > ci-config/config.yaml
+          docker run -d --name hh -p 18080:8080 -v "$PWD/ci-config:/config:ro" -v "$PWD/ci-data:/data" homehub-calendar:ci
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:18080/api/health && curl -fsS http://127.0.0.1:18080/api/ready; then exit 0; fi
+            sleep 2
+          done
+          docker logs hh; exit 1

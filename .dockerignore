@@ -1,6 +1,7 @@
-# В образ из android/ нужен только готовый APK.
+# В образ из android/ нужны только готовый APK и номер версии (сторож сборок сравнивает их).
 android/*
 !android/release
+!android/version.properties
 frontend/node_modules
 frontend/dist
 data
