@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from fastapi import APIRouter
 
-from .. import core
+from .. import core, shops
 from .files import drop as drop_files
 
 
@@ -43,11 +43,23 @@ class ItemPatch(BaseModel):
     done: bool | None = None
     person_id: str | None = None
     due: str | None = None
+    category: str | None = None     # отдел магазина (shops.ORDER)
+
+
+@router.get("/api/shops")
+def get_shops():
+    """Отделы магазина для списка покупок, в порядке обхода."""
+    return [shops.INFO[k] for k in shops.ORDER]
 
 
 @router.get("/api/lists")
 def get_lists():
-    return core.db.lists()
+    out = core.db.lists()
+    for l in out:      # старые покупки без отдела — угадываем на лету (в базе остаётся пусто, пока не поменяют руками)
+        if shops.is_shopping(l["name"]):
+            for i in l["items"]:
+                i["category"] = i.get("category") or shops.guess(i["text"])
+    return out
 
 
 @router.post("/api/lists")
@@ -91,6 +103,8 @@ def patch_item(iid: int, body: ItemPatch):
     fields = body.model_dump(exclude_unset=True)
     if "due" in fields:
         fields["due"] = _check_due(fields["due"])
+    if fields.get("category") and fields["category"] not in shops.INFO:
+        raise HTTPException(400, "Неизвестный отдел")
     core.db.update_item(iid, fields)
     return {"ok": True}
 

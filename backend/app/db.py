@@ -141,6 +141,10 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX event_files_uid ON event_files (uid);
     """,
+    # отдел магазина у пункта списка покупок (shops.py), NULL — не задан
+    """
+    ALTER TABLE list_items ADD COLUMN category TEXT;
+    """,
 ]
 
 
@@ -354,10 +358,16 @@ class Database:
             c.execute("DELETE FROM list_items WHERE list_id=?", (lid,))
             c.execute("DELETE FROM lists WHERE id=?", (lid,))
 
-    def add_item(self, lid: int, text: str, person_id: str | None = None, due: str | None = None) -> int:
+    def add_item(self, lid: int, text: str, person_id: str | None = None, due: str | None = None,
+                 category: str | None = None) -> int:
+        from . import shops
+        if category is None:      # в списке покупок отдел ставится сам по словам (и для Алисы, и с телефона)
+            row = self.query("SELECT name FROM lists WHERE id=?", (lid,))
+            if row and shops.is_shopping(row[0]["name"]):
+                category = shops.guess(text)
         with self.tx() as c:
-            return int(c.execute("INSERT INTO list_items (list_id, text, person_id, due, created) VALUES (?,?,?,?,?)",
-                                 (lid, text.strip(), person_id or None, due or None, now_iso())).lastrowid)
+            return int(c.execute("INSERT INTO list_items (list_id, text, person_id, due, category, created) VALUES (?,?,?,?,?,?)",
+                                 (lid, text.strip(), person_id or None, due or None, category or None, now_iso())).lastrowid)
 
     def update_item(self, iid: int, fields: dict) -> None:
         sets, vals = [], []
@@ -367,6 +377,8 @@ class Database:
             sets.append("person_id=?"); vals.append(fields["person_id"] or None)
         if "due" in fields:
             sets.append("due=?"); vals.append(fields["due"] or None)
+        if "category" in fields:
+            sets.append("category=?"); vals.append(fields["category"] or None)
         if "done" in fields:
             sets += ["done=?", "done_at=?"]; vals += [int(bool(fields["done"])), now_iso() if fields["done"] else None]
         if sets:

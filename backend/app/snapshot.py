@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from . import birthdays as bd, ops, reminders, widget
+from . import countdown, birthdays as bd, ops, reminders, widget
 from .db import Database
 from .events import EventService
 
@@ -36,7 +36,8 @@ def build(events: EventService, db: Database, tz: ZoneInfo, now: datetime | None
     return {
         "v": VERSION,
         "generated": now.isoformat(timespec="seconds"),
-        "widget": widget.build(wid_events, people, tz, now, 3, None, soon),
+        "widget": widget.build(wid_events, people, tz, now, 3, None, soon,
+                               [c for c in countdown.upcoming(events, db, tz, now.date()) if 0 <= c["days"] <= 90][:1]),
         # lead=None: «за сколько минут» и «чьи поездки» выбирает каждый телефон сам
         "reminders": reminders.build(evs, db.birthdays(), now, tz, None, None, HORIZON_DAYS,
                                     reminders.load_rules(db), reminders.load_allday(db),

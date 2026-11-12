@@ -210,7 +210,9 @@ def get_widget(days: int = 2, people: str | None = None):
     only = set(people.split(",")) if people else None
     evs = core.events.visible(core.events.events(start, start + timedelta(days=days)))
     soon = bd.upcoming(core.db.birthdays(), core.events.events(start, start + timedelta(days=15)), start.date(), 14)[:2]
-    return widget.build(evs, plist, core.tz, now, days, only, soon)
+    from .. import countdown
+    near = [c for c in countdown.upcoming(core.events, core.db, core.tz) if 0 <= c["days"] <= 90][:1]
+    return widget.build(evs, plist, core.tz, now, days, only, soon, near)
 
 
 # ---------- шаблоны поездок по дням недели ----------

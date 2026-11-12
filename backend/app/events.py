@@ -56,11 +56,16 @@ class EventService:
         self._wide_lock = threading.Lock()
         self._cache_gen = 0
 
+    def _invalidate_countdown(self) -> None:
+        from . import countdown
+        countdown.invalidate()
+
     def invalidate(self) -> None:
         with self._lock:
             self._cache.clear()
             self._wide = None
             self._cache_gen += 1
+        self._invalidate_countdown()
         live.bump()
 
     WIDE_BACK, WIDE_FWD = 45, 120   # дней назад и вперёд: покрывает неделю, месяц, ленту и ближайшие планы
@@ -157,8 +162,12 @@ class EventService:
         """Свой цвет события (по UID) важнее цвета общих встреч; общие — встречи с двумя и более людьми."""
         own, _ = self.db.kv_get("event_colors")
         own = own or {}
+        stars, _ = self.db.kv_get("event_stars")
+        stars = stars or {}
         shared = self.shared_color()
         for e in evs:
+            if e.get("uid") in stars:
+                e["star"] = True
             c = own.get(e.get("uid"))
             if not c and shared and len([p for p in e["people"] if not p.startswith("_")]) > 1:
                 c = shared

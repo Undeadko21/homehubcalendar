@@ -86,6 +86,26 @@ def set_event_color(body: EventColor):
     return {"ok": True}
 
 
+class EventStar(BaseModel):
+    uid: str
+    star: bool
+
+
+@router.post("/api/event-star")
+def set_event_star(body: EventStar):
+    """Важное событие: обратный отсчёт на «Сегодня» и в виджете (по UID — на все повторы)."""
+    from .. import countdown
+    countdown.set_star(core.db, body.uid, body.star)
+    core.events.invalidate()
+    return {"ok": True}
+
+
+@router.get("/api/countdowns")
+def get_countdowns():
+    from .. import countdown
+    return countdown.upcoming(core.events, core.db, core.tz)
+
+
 class SharedColor(BaseModel):
     color: str | None = None
 

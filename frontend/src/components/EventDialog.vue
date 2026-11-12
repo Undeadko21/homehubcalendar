@@ -13,9 +13,10 @@
       </p>
 
       <!-- Главные действия — сразу под названием -->
-      <div v-if="canEdit || e.location" class="acts" role="toolbar" aria-label="Действия с событием">
+      <div v-if="!e.private" class="acts" role="toolbar" aria-label="Действия с событием">
         <button v-if="canEdit" class="act" @click="edit"><span class="ai">✎</span>Изменить</button>
         <button v-if="movable" class="act" :class="{ on: panel === 'move' }" :aria-expanded="panel === 'move'" @click="toggle('move')"><span class="ai">↷</span>Перенести</button>
+        <button v-if="!e.duty" class="act star" :class="{ on: e.star }" :aria-pressed="!!e.star" :disabled="saving" @click="toggleStar"><span class="ai">{{ e.star ? '★' : '☆' }}</span>{{ e.star ? 'Важное' : 'Отметить' }}</button>
         <a v-if="e.location" class="act" :href="routeUrl" target="_blank" rel="noopener"><span class="ai">➤</span>Маршрут</a>
         <button v-if="canEdit" class="act danger" :class="{ on: panel === 'delete' }" :aria-expanded="panel === 'delete'" @click="toggle('delete')"><span class="ai">🗑</span>Удалить</button>
       </div>
@@ -136,6 +137,10 @@
             <p v-else-if="e.escort[role.id].person" class="hint ok">
               Конфликтов нет{{ e.escort[role.id].scope === 'once' ? ', замена только на этот день' : e.escort[role.id].scope === 'template' ? ', назначено по шаблону дня недели' : '' }}.
             </p>
+            <div v-for="f in fixes.filter((x) => x.role === role.id)" :key="f.person" class="fixline">
+              <button class="btn filled sm" :disabled="saving" @click="fix(f)">{{ f.label }}</button>
+              <small class="faint">{{ e.recurring ? (scope === 'once' ? 'только ' + shortDay : 'всегда') : '' }}</small>
+            </div>
           </div>
           <div v-if="e.escort.mode === 'escort' && !e.escort.only" class="row stack">
             <div class="row-head">
@@ -189,7 +194,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { state, personById, eventColor, reload, refreshSelected, editEvent, writableCalendars, toast, undoOf } from '../lib/store'
+import { state, personById, eventColor, reload, refreshSelected, editEvent, writableCalendars, toast, undoOf, driverFixes } from '../lib/store'
 import { canMove, moveEvent, writableCal } from '../lib/moveEvent'
 import { haptic } from '../lib/haptic'
 import { eventRange, formatEventTime, formatTime, relativeDayName } from '../lib/dates'
@@ -378,6 +383,21 @@ function edit() { const ev = e.value; state.selected = null; editEvent(ev) }
 
 function close() { state.selected = null }
 
+// --- важное событие (обратный отсчёт) ---
+async function toggleStar() {
+  const on = !e.value.star
+  e.value.star = on
+  haptic('tap')
+  await run(() => api.setEventStar(e.value.uid, on))
+  toast(on ? 'Отмечено как важное — обратный отсчёт на «Сегодня»' : 'Больше не важное')
+}
+
+// --- замена водителя одной кнопкой ---
+const fixes = computed(() => driverFixes(e.value))
+function fix(f) {
+  return setEscort(f.role, f.person, e.value.recurring ? scope.value : 'series')
+}
+
 // --- быстрые действия: перенос и удаление ---
 const MOVES = [
   { id: 'h1', label: '+1 час', ms: 3600_000 },
@@ -425,6 +445,8 @@ async function removeEvent(onlyThis) {
 .act .ai { font-size: 19px; line-height: 1; }
 .act.on { background: color-mix(in srgb, var(--tint) 14%, var(--surface-2)); }
 .act.danger { color: var(--red); }
+.act.star.on { color: #ff9500; }
+.fixline { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .act:active { transform: scale(.97); }
 .panel { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 16px; padding: 10px; border-radius: 12px; background: var(--surface-2); }
 .chip-btn { border: 0; border-radius: 999px; padding: 7px 14px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; box-shadow: inset 0 0 0 1px var(--line); }

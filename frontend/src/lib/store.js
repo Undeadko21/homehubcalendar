@@ -181,6 +181,38 @@ function undoItems(ids) {
   }
 }
 
+// --- замена водителя одной кнопкой ---
+// Что можно исправить в поездке: роль занята конфликтом или никто не назначен, и есть свободный взрослый.
+export function driverFixes(e) {
+  const esc = e?.escort
+  if (!esc || esc.mode !== 'escort') return []
+  const out = []
+  for (const role of ['dropoff', 'pickup']) {
+    const r = esc[role]
+    if (!r || r.skip) continue
+    const busy = r.person && r.conflicts?.length
+    if (r.person && !busy) continue
+    const cand = (r.free || []).find((id) => id !== r.person)
+    if (!cand) continue
+    const name = personById.value[cand]?.name || cand
+    const was = r.person ? personById.value[r.person]?.name || r.person : null
+    const verb = role === 'dropoff' ? 'отвезёт' : 'заберёт'
+    out.push({
+      role, person: cand, name,
+      text: was ? `${was} занят(а) — ${name} свободен(на)` : `${role === 'dropoff' ? 'Отвезти' : 'Забрать'}: никто не назначен`,
+      label: was ? `Заменить на ${name}` : `Назначить: ${name}`,
+      done: `${name} ${verb}${e.recurring ? ' (только в этот день)' : ''}`,
+    })
+  }
+  return out
+}
+// Для повторяющихся — только на этот день (замена обычно разовая).
+export async function setDriver(e, role, person) {
+  await api.setEscort(e.uid, e.recurring ? e.start : null, role, person)
+  import('./haptic').then((m) => m.haptic('success'))
+  await reload()
+}
+
 // Буква человека для плашек: первая буква имени, а если у двоих совпадает — две.
 export const personMark = computed(() => {
   const list = (state.config?.people || []).filter((p) => !p.id.startsWith('_'))

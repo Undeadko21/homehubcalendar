@@ -37,7 +37,9 @@
 
       <p v-if="!current.items.length" class="empty">{{ isShopping ? 'Покупать нечего. Добавьте первую покупку выше или скажите Алисе «добавь молоко в покупки».' : 'Список пуст — добавьте первое дело выше.' }}</p>
       <div v-else class="group items">
-        <div v-for="i in current.items" :key="i.id" v-swipe="{ right: () => toggle(i), left: () => toggle(i) }" class="row item" :class="{ done: i.done }">
+        <template v-for="g in sections" :key="g.key">
+        <div v-if="g.title" class="sec-h"><span aria-hidden="true">{{ g.icon }}</span> {{ g.title }} <small>{{ g.items.filter((i) => !i.done).length || '' }}</small></div>
+        <div v-for="i in g.items" :key="i.id" v-swipe="{ right: () => toggle(i), left: () => toggle(i) }" class="row item" :class="{ done: i.done }">
           <button class="check" :aria-label="i.done ? 'Вернуть в список' : 'Отметить выполненным'" :aria-pressed="i.done" @click="toggle(i)">
             <svg v-if="i.done" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9" /></svg>
           </button>
@@ -56,9 +58,13 @@
               <option v-for="p in people" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
             <input :value="i.due || ''" class="sel" type="date" aria-label="Срок" @change="setDue(i, $event.target.value)" />
+            <select v-if="isShopping" :value="i.category || 'other'" class="sel" aria-label="Отдел магазина" @change="setCategory(i, $event.target.value)">
+              <option v-for="sh in shopList" :key="sh.key" :value="sh.key">{{ sh.icon }} {{ sh.name }}</option>
+            </select>
             <FilesBox class="ifiles" :uid="'item:' + i.id" empty="Справка, билет, фото чека…" @changed="(n) => (i.files = n)" />
           </div>
         </div>
+        </template>
       </div>
 
       <p v-if="touch && current.items.some((i) => !i.done)" class="faint small swipe-hint">Проведите по строке — {{ isShopping ? 'куплено' : 'готово' }}.</p>
@@ -127,7 +133,24 @@ let timer
 onMounted(() => { load(); timer = setInterval(load, 20000) })
 onUnmounted(() => clearInterval(timer))
 watch(() => [state.revision, state.listsRev], load)
-const isShopping = computed(() => /покуп/i.test(current.value?.name || ''))
+const isShopping = computed(() => /покуп|магазин/i.test(current.value?.name || ''))
+
+// Покупки по отделам магазина (в порядке обхода), купленное — отдельной группой внизу.
+const shopList = ref([])
+api.shops().then((r) => (shopList.value = r)).catch(() => {})
+const sections = computed(() => {
+  const items = current.value?.items || []
+  if (!isShopping.value || !shopList.value.length) return [{ key: 'all', items }]
+  const out = shopList.value.map((sh) => ({ key: sh.key, title: sh.name, icon: sh.icon, items: items.filter((i) => !i.done && (i.category || 'other') === sh.key) }))
+    .filter((g) => g.items.length)
+  const done = items.filter((i) => i.done)
+  if (done.length) out.push({ key: 'done', title: 'Куплено', icon: '✓', items: done })
+  return out.length > 1 || out[0]?.key === 'done' ? out : [{ key: 'all', items }]
+})
+function setCategory(i, v) {
+  i.category = v
+  return guard(() => api.patchItem(i.id, { category: v }))
+}
 const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 
 async function guard(fn) {
@@ -203,6 +226,11 @@ async function createList() {
 .ifiles { flex-basis: 100%; margin-top: 4px; border-radius: 10px; }
 .ifiles :deep(.row) { padding-left: 10px; }
 .clip { color: var(--ink-2); }
+.sec-h {
+  padding: 12px 16px 4px; font-size: 13px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: .03em;
+  border-bottom: .5px solid var(--line);
+}
+.sec-h small { font-weight: 500; color: var(--ink-3); margin-left: 4px; }
 .swipe-hint { margin: -6px 4px 0; font-size: 13px; }
 .item.swiping { background: var(--surface); }
 .item.swipe-go { background: color-mix(in srgb, var(--ok) 22%, var(--surface)); }

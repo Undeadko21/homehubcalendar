@@ -17,12 +17,14 @@
     </form>
 
     <BirthdayStrip />
+    <CountdownStrip />
 
     <!-- Поездки детей: сегодня и завтра -->
     <section v-if="trips.length" class="trips">
       <h2 class="sec">Отвезти и забрать</h2>
       <div class="group">
-        <button v-for="t in trips" :key="t.e.id" class="row trip" :class="t.e.escort_issue" @click="openEvent(t.e)">
+        <template v-for="t in trips" :key="t.e.id">
+        <button class="row trip" :class="t.e.escort_issue" @click="openEvent(t.e)">
           <span class="when">
             <strong>{{ t.time }}</strong>
             <small>{{ t.day }}</small>
@@ -33,6 +35,13 @@
           </span>
           <span class="state" :title="t.stateText">{{ t.icon }}</span>
         </button>
+        <div v-if="t.fixes.length" class="row fixrow">
+          <span class="fix-txt">{{ t.fixes.some((f) => f.text.includes('занят')) ? 'Заменить:' : 'Назначить:' }}</span>
+          <button v-for="f in t.fixes" :key="f.role" class="fixbtn" :disabled="fixing" :title="f.text" @click="applyFix(t.e, f)">
+            {{ f.role === 'dropoff' ? '→' : '←' }} {{ f.name }}
+          </button>
+        </div>
+        </template>
       </div>
     </section>
 
@@ -62,7 +71,7 @@
 import Skeleton from '../components/Skeleton.vue'
 import { titleWithIcon } from '../lib/icons'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { state, visiblePeople, openEvent, quickAdd, toast, goToDay, isEventVisible } from '../lib/store'
+import { state, visiblePeople, openEvent, quickAdd, toast, goToDay, isEventVisible, driverFixes, setDriver } from '../lib/store'
 import { api } from '../lib/api'
 
 const quickText = ref('')
@@ -81,6 +90,7 @@ import EscortBadge from '../components/EscortBadge.vue'
 import WeatherNow from '../components/WeatherNow.vue'
 import DayGrid from '../components/DayGrid.vue'
 import BirthdayStrip from '../components/BirthdayStrip.vue'
+import CountdownStrip from '../components/CountdownStrip.vue'
 import MicButton from '../components/MicButton.vue'
 
 const now = ref(new Date())
@@ -153,6 +163,16 @@ const tomorrow = computed(() =>
     !(e.all_day && overlaps(e, day.value, addDays(day.value, 1)))),
 )
 
+// Замена водителя одной кнопкой: занят или никто не назначен → первый свободный взрослый.
+const fixing = ref(false)
+async function applyFix(e, f) {
+  fixing.value = true
+  try {
+    await setDriver(e, f.role, f.person)
+    toast(f.done)
+  } catch (err) { toast('Не удалось: ' + err.message) } finally { fixing.value = false }
+}
+
 // Поездки: события детей сегодня (ещё не закончившиеся) и завтра.
 const trips = computed(() =>
   events.value
@@ -167,6 +187,7 @@ const trips = computed(() =>
         day: relativeDayName(r.start, now.value),
         icon: issue === 'conflict' ? '!' : issue === 'unassigned' ? '?' : '✓',
         stateText: issue === 'conflict' ? 'Конфликт' : issue === 'unassigned' ? 'Никто не назначен' : 'Всё в порядке',
+        fixes: driverFixes(e),
       }
     }),
 )
@@ -192,6 +213,14 @@ const trips = computed(() =>
 .sec { font-size: 20px; font-weight: 700; margin: 0 0 10px; letter-spacing: -0.01em; }
 
 .trips .group { background: var(--surface-2); max-width: 760px; }
+.fixrow { gap: 8px; align-items: center; flex-wrap: wrap; padding-top: 0 !important; margin-top: -6px; }
+.fixrow::before { display: none; }
+.fix-txt { font-size: 13px; color: var(--ink-2); }
+.fixbtn {
+  border: 0; border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  background: color-mix(in srgb, var(--tint) 12%, var(--surface)); color: var(--tint);
+}
+.fixbtn:active { transform: scale(.96); }
 .trip { width: 100%; border: 0; background: none; text-align: left; color: inherit; }
 .trip:hover { background: var(--fill); }
 .trip .when { display: flex; flex-direction: column; width: 92px; flex: none; }

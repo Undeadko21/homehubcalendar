@@ -29,7 +29,8 @@ def _hm(s: str) -> str:
 
 
 def build(events: list[dict], people: dict[str, dict], tz: ZoneInfo, now: datetime,
-          days: int = 2, only: set[str] | None = None, birthdays: list[dict] | None = None) -> dict:
+          days: int = 2, only: set[str] | None = None, birthdays: list[dict] | None = None,
+          countdowns: list[dict] | None = None) -> dict:
     today = now.astimezone(tz).date()
     out_days = []
     for i in range(days):
@@ -97,5 +98,6 @@ def build(events: list[dict], people: dict[str, dict], tz: ZoneInfo, now: dateti
         "days": out_days,
         # Ближайшие дни рождения для строки под шапкой виджета.
         "birthdays": [{"text": f"🎂 {b['name']} — {days_phrase(b['days'])}" + (f" ({b['turns']})" if b.get("turns") else ""),
-                       "days": b["days"]} for b in (birthdays or [])],
+                       "days": b["days"]} for b in (birthdays or [])]
+                     + [{"text": f"⭐ {c['title']} — {days_phrase(c['days'])}", "days": c["days"]} for c in (countdowns or [])],
     }
