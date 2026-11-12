@@ -140,9 +140,9 @@ async def pin_guard(request: Request, call_next):
         elif request.method == "GET" and path in ("/api/widget", "/api/snapshot") and \
                 access.check(core.db, "widget", request.headers.get("x-widget-token", "")):
             access.touch_widget(core.db)   # токен виджета: только чтение сводки, ничего не меняет
-        elif path in ("/api/vps/ingest", "/api/vps/install.sh") and \
+        elif path.startswith("/api/vps/") and \
                 access.check(core.db, "vps", access.bearer(request.headers.get("authorization", ""))):
-            pass   # VPS-агент приходит с токеном через обратный туннель
+            pass   # VPS-агент приходит с токеном через обратный туннель (отчёт, установка, копия базы); каждый маршрут проверяет токен и сам
         else:
             return JSONResponse({"detail": "auth_required"}, status_code=401)
     resp = await call_next(request)

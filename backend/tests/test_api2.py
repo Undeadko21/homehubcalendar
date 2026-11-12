@@ -641,6 +641,21 @@ def test_weekly_selftest_notifies_on_failure_and_recovery(api, monkeypatch):
     assert r["ok"] and len(sent) == 2 and "снова работает" in sent[1][0]
 
 
+def test_vps_token_passes_pin_guard(api, monkeypatch):
+    """С паролем семьи агент VPS ходит только по токену: отчёт, установка и копия базы должны пропускаться."""
+    from app import access
+    monkeypatch.setattr(api.core.settings, "pin", "длинный пароль семьи", raising=False)
+    api.post("/api/login", json={"pin": "длинный пароль семьи"})
+    api.put("/api/access", json={"public_url": "https://cal.example.ru", "vps": True})
+    vtoken = access.token(api.core.db, "vps")
+    api.cookies.clear()
+    h = {"Authorization": f"Bearer {vtoken}"}
+    assert api.get("/api/vps/db-backup").status_code == 401
+    assert api.get("/api/vps/db-backup", headers=h).status_code == 200
+    assert api.get("/api/vps/install.sh", headers=h).status_code == 200
+    assert api.get("/api/events", headers=h).status_code == 401       # токен VPS не открывает остальное
+
+
 def test_vps_db_copy_endpoint_and_problems(api):
     from datetime import datetime, timedelta
     from app import access, backup
