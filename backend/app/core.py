@@ -120,7 +120,7 @@ def routes_refresh() -> int:
         start = _today_start()
         found = routing.refresh(db, events.events(start, start + timedelta(days=14)), home)
         if found:
-            events.invalidate()
+            events.refresh()
         return found
     except Exception:  # noqa: BLE001
         log.exception("Время в дороге по карте")
@@ -141,8 +141,7 @@ def run_checks() -> list[dict]:
 
 def _synced() -> None:
     ws.reapply()
-    events.invalidate()
-    threading.Thread(target=_warm, daemon=True).start()
+    events.refresh()     # экраны берут прежнюю ленту, пока новая собирается в фоне
 
 
 engine.on_change = _synced

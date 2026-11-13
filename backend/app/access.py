@@ -139,6 +139,9 @@ def save_report(db: Database, report: dict, backup: bytes | None) -> None:
         # Время копии агент берёт по часам VPS (там может быть другой пояс) — надёжнее время, когда сервер её отдал.
         served = (db.kv_get("vps:dbcopy_served")[0] or {}).get("at")
         clean["db_copy"] = {"at": served or str(dc["at"])[:25], "count": int(dc.get("count") or 0), "size": int(dc.get("size") or 0)}
+    fc = report.get("files_copy")
+    if isinstance(fc, dict):
+        clean["files_copy"] = {"count": int(fc.get("count") or 0)}
     db.kv_set("vps:report", clean)
     if backup:
         if len(backup) > MAX_BACKUP:

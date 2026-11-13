@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .. import __version__
+from .. import BUILD, versionwatch
 from .. import live
 from fastapi import APIRouter
 
@@ -60,14 +61,20 @@ def get_system():
     if st and st.get("ok") is False:
         f_ = st.get("failed") or {}
         problems.append(f"Проверка записи в Яндекс не прошла ({f_.get('name', '')}): {f_.get('error', '')}")
+    problems += versionwatch.problems(core.db, BUILD)
     problems += builds.problems({"android": core.APP_DIR, "mac": core.MAC_DIR, "ios": core.IOS_DIR}, core.db)
     if core.ws.pending_count():
         problems.append(f"Не отправлено в Яндекс: {core.ws.pending_count()} (повторю сам, когда сервер ответит)")
     if core.ws.last_error():
         problems.append("Запись в Яндекс отклонена: " + core.ws.last_error())
+    quiet = timedelta(minutes=max(60, core.settings.sync.interval_minutes * 6))
     for s in sources:
         if s.get("last_error"):
-            problems.append(f"Синхронизация {s['source_id']}: {s['last_error']}")
+            # Разовый сбой связи — не повод для красной точки: тревожим, когда источник не отвечает уже давно (или ни разу не ответил).
+            ok = s.get("last_ok")
+            if not ok or now - datetime.fromisoformat(ok).astimezone(core.tz) > quiet:
+                since = f" (последний раз удалось в {datetime.fromisoformat(ok).astimezone(core.tz):%d.%m %H:%M})" if ok else ""
+                problems.append(f"Синхронизация {s['source_id']}: {s['last_error']}{since}")
         elif s.get("last_ok"):
             age = now - datetime.fromisoformat(s["last_ok"]).astimezone(core.tz)
             if age > timedelta(minutes=max(30, core.settings.sync.interval_minutes * 4)):
@@ -81,6 +88,8 @@ def get_system():
             problems.append("Облако: " + cl["last_error"])
         if cl.get("ops_error"):
             problems.append("Команды с телефона: " + cl["ops_error"])
+        for b in cl.get("ops_bad") or []:
+            problems.append(f"Команды с устройства «{b['device']}» не читаются: {b['why']}")
         if bk.get("last_error"):
             problems.append("Резервная копия: " + bk["last_error"])
         elif bk.get("last_ok") and now - datetime.fromisoformat(bk["last_ok"]).astimezone(core.tz) > timedelta(days=3):
@@ -103,7 +112,7 @@ def get_system():
         "counts": {"people": count("SELECT COUNT(*) n FROM people"), "calendars": count("SELECT COUNT(*) n FROM calendars"),
                    "objects": count("SELECT COUNT(*) n FROM objects"), "birthdays": count("SELECT COUNT(*) n FROM birthdays")},
         "sources": sources, "sync_interval": core.settings.sync.interval_minutes, "syncing": core.engine.running,
-        "cloud": {k: cl[k] for k in ("configured", "last_ok", "last_error", "ops_error")},
+        "cloud": {k: cl.get(k) for k in ("configured", "last_ok", "last_error", "ops_error", "ops_bad")},
         "backup": bk, "jobs": jobs, "client_errors": len(core.CLIENT_LOG), "slow_requests": core.perf.slow_count(),
         "last_client_error": core.CLIENT_LOG[-1] if core.CLIENT_LOG else None, "problems": problems, "selftest": st,
         "checks": chk,

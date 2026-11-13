@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
 from pathlib import Path
 
 import httpx
 
 from .base import RemoteCalendar, Source, register
+
+
+RETRY_PAUSES = (2, 6)   # секунды между попытками скачать подписку
 
 
 @register("ics")
@@ -25,10 +29,17 @@ class IcsSource(Source):
         if url.startswith(("http://", "https://", "webcal://")):
             url = url.replace("webcal://", "https://", 1)
             # Ссылка подписки содержит секретный токен — в тексты ошибок её не пускаем.
-            try:
-                resp = httpx.get(url, timeout=30, follow_redirects=True)
-            except httpx.HTTPError as e:
-                raise RuntimeError(f"Нет связи с сервером подписки ({type(e).__name__})") from None
+            resp = None
+            for attempt, pause in enumerate(RETRY_PAUSES + (None,)):    # разовый сбой связи или 5xx — пробуем ещё
+                try:
+                    resp = httpx.get(url, timeout=30, follow_redirects=True)
+                    if resp.status_code < 500:
+                        break
+                except httpx.HTTPError as e:
+                    if pause is None:
+                        raise RuntimeError(f"Нет связи с сервером подписки ({type(e).__name__})") from None
+                if pause is not None:
+                    time.sleep(pause)
             if resp.status_code in (401, 403, 404):
                 raise RuntimeError(f"Подписка недоступна (ответ {resp.status_code}): проверьте ссылку, возможно, она отозвана")
             if resp.status_code >= 400:

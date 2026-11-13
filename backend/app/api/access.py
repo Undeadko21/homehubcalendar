@@ -174,6 +174,28 @@ def vps_db_backup(request: Request):
     return Response(blob, media_type="application/octet-stream")
 
 
+@router.get("/api/vps/files")
+def vps_files(request: Request):
+    """Список вложений (id по строке) — агент VPS докачивает новые и убирает удалённые."""
+    if not access.check(core.db, "vps", access.bearer(request.headers.get("authorization", ""))):
+        raise HTTPException(401, "auth_required")
+    ids = [r["id"] for r in core.db.query("SELECT id FROM event_files WHERE url IS NULL ORDER BY id")]
+    return Response("\n".join(ids) + ("\n" if ids else ""), media_type="text/plain")
+
+
+@router.get("/api/vps/files/{fid}")
+def vps_file(fid: str, request: Request):
+    import gzip
+    import re
+    from .. import backup as backup_mod
+    if not access.check(core.db, "vps", access.bearer(request.headers.get("authorization", ""))):
+        raise HTTPException(401, "auth_required")
+    path = core.settings.data_dir / "files" / fid
+    if not re.fullmatch(r"[0-9a-f]{32}", fid) or not path.is_file():
+        raise HTTPException(404, "Файл не найден")
+    return Response(backup_mod.seal(core.cloud.key(), gzip.compress(path.read_bytes(), 6)), media_type="application/octet-stream")
+
+
 class Report(BaseModel):
     report: dict
     backup: str | None = None

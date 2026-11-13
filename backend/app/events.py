@@ -54,7 +54,11 @@ class EventService:
         self._lock = threading.Lock()
         self._wide: tuple[date, list[dict]] | None = None   # лента на большое окно вокруг сегодняшнего дня
         self._wide_lock = threading.Lock()
+        self._narrow_lock = threading.Lock()   # после сброса кэша экран шлёт 5–6 запросов разом — считаем по очереди, а не наперегонки
         self._cache_gen = 0
+        self._refresh_pending = False
+        self._refreshing = False
+        self._warm_timer: threading.Timer | None = None
 
     def _invalidate_countdown(self) -> None:
         from . import countdown
@@ -67,6 +71,67 @@ class EventService:
             self._cache_gen += 1
         self._invalidate_countdown()
         live.bump()
+
+    def refresh(self) -> None:
+        """Данные изменились в фоне (синхронизация, карта): новая лента собирается в отдельном потоке,
+        а экраны всё это время получают прежнюю — никто не ждёт. Нет готовой ленты — обычный сброс."""
+        today = datetime.now(self.tz).date()
+        with self._lock:
+            if not (self._wide and self._wide[0] == today):
+                cold = True
+            else:
+                cold = False
+                self._refresh_pending = True
+                start = not self._refreshing
+                self._refreshing = True
+        if cold:
+            self.invalidate()
+            self._schedule_warm(0.2)
+        elif start:
+            threading.Thread(target=self._refresh_loop, daemon=True).start()
+
+    def _refresh_loop(self) -> None:
+        while True:
+            with self._lock:
+                if not self._refresh_pending:
+                    self._refreshing = False
+                    return
+                self._refresh_pending = False
+                gen = self._cache_gen
+            try:
+                today = datetime.now(self.tz).date()
+                t0 = datetime.combine(today, dtime(0), self.tz)
+                with self._wide_lock:
+                    evs = self._compose(t0 - timedelta(days=self.WIDE_BACK + 1), t0 + timedelta(days=self.WIDE_FWD + 1))
+            except Exception:  # noqa: BLE001 — не получилось собрать: пусть следующий запрос соберёт сам
+                with self._lock:
+                    self._refreshing = False
+                self.invalidate()
+                return
+            swapped = False
+            with self._lock:
+                if gen == self._cache_gen:          # за время сборки не было ручной правки
+                    self._wide = (today, evs)
+                    self._cache.clear()
+                    swapped = True
+            if swapped:
+                self._invalidate_countdown()
+                live.bump()
+
+    def _schedule_warm(self, delay: float = 1.5) -> None:
+        """Сборка ленты окна чуть позже: сначала пусть ответят запросы открытого экрана."""
+        with self._lock:
+            if self._warm_timer and self._warm_timer.is_alive():
+                return
+            self._warm_timer = threading.Timer(delay, self._warm_safe)
+            self._warm_timer.daemon = True
+            self._warm_timer.start()
+
+    def _warm_safe(self) -> None:
+        try:
+            self.warm()
+        except Exception:  # noqa: BLE001
+            pass
 
     WIDE_BACK, WIDE_FWD = 45, 120   # дней назад и вперёд: покрывает неделю, месяц, ленту и ближайшие планы
 
@@ -112,12 +177,24 @@ class EventService:
         if wide is not None:
             result = [e for e in wide if _in_range(e, start, end)]
         else:
-            # Ленты окна ещё нет (после правки или запуска) — считаем только нужные дни, большую собираем в фоне.
-            # Строим с запасом в сутки: конфликты поездок зависят от соседних событий.
-            wide = self._compose(start - timedelta(days=1), end + timedelta(days=1))
-            result = [e for e in wide if _in_range(e, start, end)]
-            if self._in_wide(start, end) and not self._wide_lock.locked():
-                threading.Thread(target=self.warm, daemon=True).start()
+            # Ленты окна ещё нет (после правки или запуска) — считаем только нужные дни, большую собираем чуть позже.
+            # По одному: одинаковый запрос дождётся готового ответа, разные не делят процессор.
+            with self._narrow_lock:
+                with self._lock:
+                    if key in self._cache:
+                        return self._cache[key]
+                    gen = self._cache_gen
+                wide = self._wide_ready() if self._in_wide(start, end) else None
+                if wide is None:
+                    # Строим с запасом в сутки: конфликты поездок зависят от соседних событий.
+                    wide = self._compose(start - timedelta(days=1), end + timedelta(days=1))
+                result = [e for e in wide if _in_range(e, start, end)]
+                with self._lock:
+                    if gen == self._cache_gen:
+                        self._cache[key] = result
+            if self._in_wide(start, end):
+                self._schedule_warm()
+            return result
         with self._lock:
             if len(self._cache) > 64:
                 self._cache.clear()

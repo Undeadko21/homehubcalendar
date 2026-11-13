@@ -685,7 +685,7 @@ def test_backup_roundtrip_and_rotation(tmp_path):
             FakeDisk.files[path.rsplit("/", 1)[1]] = data
 
         def ls(self, p):
-            return [{"name": n} for n in FakeDisk.files]
+            return [{"name": n} for n in FakeDisk.files] if p.endswith("backups") else []
 
         def rm(self, path):
             FakeDisk.files.pop(path.rsplit("/", 1)[1], None)
@@ -1020,7 +1020,7 @@ def test_backup_verify_and_restore(tmp_path):
             FakeDisk.files[path.rsplit("/", 1)[1]] = data
 
         def ls(self, p):
-            return [{"name": n, "size": len(b)} for n, b in FakeDisk.files.items()]
+            return [{"name": n, "size": len(b)} for n, b in FakeDisk.files.items()] if p.endswith("backups") else []
 
         def rm(self, path):
             FakeDisk.files.pop(path.rsplit("/", 1)[1], None)

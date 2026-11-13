@@ -160,3 +160,18 @@ def put_cloud_client(body: ClientIn):
 @router.post("/api/cloud/push")
 def push_cloud():
     return core.cloud.tick(force=True)
+
+
+class OpsForget(BaseModel):
+    name: str
+
+
+@router.post("/api/cloud/ops-forget")
+def ops_forget(body: OpsForget):
+    """Кнопка «Убрать» у замечания «команды с устройства не читаются»."""
+    from ..cloud import CloudError
+    try:
+        core.cloud.forget_ops(body.name)
+    except CloudError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True}

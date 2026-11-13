@@ -213,8 +213,7 @@ class SyncEngine:
                     self.db.set_sync_status(sid, ok=True, count=total)
                     report[sid] = {"ok": True, "calendars": len(calendars), "objects": total}
                     log.info("Синхронизирован %s: %d календарей, %d объектов", sid, len(calendars), total)
-                except Exception as e:  # noqa: BLE001
-                    changed = True
+                except Exception as e:  # noqa: BLE001 — события остались прежними, ленту не пересобираем
                     msg = friendly_error(e)
                     self.db.set_sync_status(sid, ok=False, error=msg[:500])
                     report[sid] = {"ok": False, "error": msg}

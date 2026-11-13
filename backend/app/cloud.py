@@ -206,7 +206,7 @@ class CloudSync:
     def status(self) -> dict:
         st = self._state()
         return {"configured": bool(self._token()), "client_id": self.client_id(), "last_ok": st.get("last_ok"), "last_error": st.get("last_error"),
-                "ops_error": st.get("ops_error"), "code": self.code(),
+                "ops_error": st.get("ops_error"), "ops_bad": st.get("ops_bad") or [], "code": self.code(),
                 # для навыка Алисы: url и ключ — чтение снимка; token — только если хотите голосовое «добавь…» (запись в папку)
                 "alice": {"url": st.get("public_url"), "key": _b64(self.key()),
                           "token": self._token() if token_ok(self._token()) else None} if st.get("public_url") else None}
@@ -220,33 +220,69 @@ class CloudSync:
         st = self._state()
         seen: dict = st.get("ops_md5") or {}
         changed = False
+        bad: dict = {b["name"]: b for b in st.get("ops_bad") or []}
         try:
             disk = self.client_factory(token)
             for f in disk.list_ops():
-                if seen.get(f["name"]) == f.get("md5"):
+                name = f["name"]
+                if seen.get(name) == f.get("md5"):
                     continue
-                blob = disk.download(f["name"])
-                if len(blob) > 400_000:
-                    raise CloudError("Файл команд слишком большой")
-                ops = json.loads(decrypt(self.key(), blob))
-                if isinstance(ops, list) and apply(ops):
+                once = name.startswith(("ops-alice-", "ops-once-"))   # одноразовые файлы (Алиса, кнопки в уведомлениях iPhone/Mac)
+                blob = disk.download(name)                              # сбой сети здесь — попробуем весь опрос через минуту
+                try:
+                    if len(blob) > 400_000:
+                        raise ValueError("файл слишком большой")
+                    ops = json.loads(decrypt(self.key(), blob))
+                    if not isinstance(ops, list):
+                        raise ValueError("не список команд")
+                except Exception as e:  # noqa: BLE001 — один нечитаемый файл не должен останавливать остальные устройства
+                    why = "файл слишком большой" if "большой" in str(e) else \
+                        "они зашифрованы другим ключом — подключите это устройство заново (Настройки → Связь вне дома)"
+                    log.warning("Команды из облака: %s не читается (%s)", name, type(e).__name__)
+                    seen[name] = f.get("md5")                           # к этому же файлу не возвращаемся, пока он не изменится
+                    if once:
+                        try:
+                            disk.rm(f"app:/{name}")
+                            seen.pop(name, None)
+                        except CloudError:
+                            pass
+                    else:
+                        bad[name] = {"name": name, "device": name[4:-4][:40], "why": why,
+                                     "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+                    continue
+                bad.pop(name, None)
+                if apply(ops):
                     changed = True
-                seen[f["name"]] = f.get("md5")
-                if f["name"].startswith(("ops-alice-", "ops-once-")):   # одноразовые файлы (Алиса, кнопки в уведомлениях iPhone/Mac)
+                seen[name] = f.get("md5")
+                if once:
                     try:
-                        disk.rm(f"app:/{f['name']}")
-                        seen.pop(f["name"], None)
+                        disk.rm(f"app:/{name}")
+                        seen.pop(name, None)
                     except CloudError:
                         pass
             st["ops_md5"] = seen
             st["ops_error"] = None
         except CloudError as e:
             st["ops_error"] = str(e)
-        except Exception as e:  # сеть, битый файл, чужой ключ
-            st["ops_error"] = "Не удалось прочитать команды из облака"
+        except Exception as e:  # noqa: BLE001 — сеть
+            st["ops_error"] = f"Не удалось прочитать команды из облака ({type(e).__name__})"
             log.warning("Команды из облака: %s", e)
+        st["ops_bad"] = list(bad.values())[-8:]
         self.db.kv_set("cloud:state", st)
         return changed
+
+    def forget_ops(self, name: str) -> None:
+        """Убрать нечитаемый файл команд с Диска и из списка замечаний (устройство после переподключения создаст новый)."""
+        st = self._state()
+        if name not in {b["name"] for b in st.get("ops_bad") or []}:
+            raise CloudError("Такого файла в списке нет")
+        try:
+            self.client_factory(self._token()).rm(f"app:/{name}")
+        except CloudError:
+            pass       # уже удалён — тем лучше
+        st["ops_bad"] = [b for b in st.get("ops_bad") or [] if b["name"] != name]
+        (st.get("ops_md5") or {}).pop(name, None)
+        self.db.kv_set("cloud:state", st)
 
     # --- отправка ---
     def tick(self, force: bool = False) -> dict:

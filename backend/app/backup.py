@@ -24,6 +24,7 @@ from .db import Database
 log = logging.getLogger(__name__)
 
 DIR = "app:/backups"
+FILES_DIR = "app:/files"          # вложения событий и дел: по файлу на вложение, имя = id, тот же шифр, что у копии базы
 PREFIX, SUFFIX = "homehub-", ".db.gz.enc"
 KEEP = 14
 AAD = b"homehub-backup-v1"
@@ -92,7 +93,7 @@ class BackupService:
     def status(self) -> dict:
         st = self.db.kv_get("backup:state")[0] or {}
         return {"configured": bool(self.cloud._token()), "last_ok": st.get("last_ok"), "last_error": st.get("last_error"),
-                "size": st.get("size"), "name": st.get("name"), "count": st.get("count"), "keep": KEEP, "drill": st.get("drill"),
+                "size": st.get("size"), "name": st.get("name"), "count": st.get("count"), "keep": KEEP, "drill": st.get("drill"), "files": st.get("files"),
                 "verified": st.get("verified")}
 
     def run(self) -> dict:
@@ -114,6 +115,11 @@ class BackupService:
             st.update(last_ok=datetime.now(self.tz).isoformat(timespec="seconds"), last_error=None, size=len(blob),
                       name=name, count=min(len(files), KEEP))
             log.info("Резервная копия %s (%d КБ)", name, len(blob) // 1024)
+            try:
+                st["files"] = self.sync_files(disk)
+            except Exception as e:  # noqa: BLE001 — база сохранена, вложения догоним в следующий раз
+                st["files"] = {**(st.get("files") or {}), "error": "Вложения скопированы не полностью"}
+                log.warning("Копия вложений: %s", e)
         except CloudError as e:
             st["last_error"] = str(e)
             log.warning("Резервная копия не сделана: %s", e)
@@ -122,6 +128,24 @@ class BackupService:
             log.warning("Резервная копия не сделана: %s", e)
         self.db.kv_set("backup:state", st)
         return self.status()
+
+    def sync_files(self, disk) -> dict:
+        """Вложения (data/files) → app:/files на Диске: новые загружаются, удалённые на сервере убираются.
+        Каждый файл — gzip + AES-GCM ключом облака (расшифровка тем же restore_backup.py)."""
+        local_dir = Path(self.db.path).parent / "files"
+        local = {r["id"]: r for r in self.db.query("SELECT id, size FROM event_files WHERE url IS NULL")}
+        disk.mkdir(FILES_DIR)
+        remote = {f["name"] for f in disk.ls(FILES_DIR)}
+        sent = 0
+        for fid in local:
+            path = local_dir / fid
+            if fid in remote or not path.is_file():
+                continue
+            disk.upload(seal(self.cloud.key(), gzip.compress(path.read_bytes(), 6)), f"{FILES_DIR}/{fid}")
+            sent += 1
+        for name in remote - set(local):
+            disk.rm(f"{FILES_DIR}/{name}")
+        return {"count": len(local), "sent": sent, "bytes": sum(int(r["size"] or 0) for r in local.values()), "error": None}
 
     # --- восстановление ---------------------------------------------------------------------------
 

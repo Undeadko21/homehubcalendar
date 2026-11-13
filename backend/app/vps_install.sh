@@ -18,7 +18,7 @@ cat > /usr/local/bin/homehub-agent <<'AGENT'
 # homehub-agent watch|report
 . /etc/homehub-agent.env
 STATE=/var/lib/homehub-agent
-VERSION=2
+VERSION=3
 COPIES=/var/backups/homehub
 KEEP=14
 
@@ -68,8 +68,25 @@ dbcopy() {   # раз в сутки забираем с домашнего се�
   fi
 }
 
+filescopy() {   # вложения событий и дел: докачать новые, убрать удалённые дома (каждый файл зашифрован, как копия базы)
+  local dir="$COPIES/files" list
+  install -d -m 700 "$dir"
+  list=$(curl -fsS -m 30 -H "Authorization: Bearer $TOKEN" "$BASE/api/vps/files" 2>/dev/null) || return 0
+  for id in $list; do
+    case "$id" in *[!0-9a-f]*) continue ;; esac
+    [ -s "$dir/$id" ] && continue
+    curl -fsS -m 120 -H "Authorization: Bearer $TOKEN" "$BASE/api/vps/files/$id" -o "$dir/$id.part" 2>/dev/null \
+      && mv "$dir/$id.part" "$dir/$id" || rm -f "$dir/$id.part"
+  done
+  for f in "$dir"/*; do
+    [ -e "$f" ] || continue
+    case " $(echo $list) " in *" $(basename "$f") "*) ;; *) rm -f "$f" ;; esac
+  done
+}
+
 report() {
   dbcopy
+  filescopy
   local tmp; tmp=$(mktemp -d)
   python3 - "$tmp" <<'PY'
 import json, os, re, subprocess, sys, time, shutil
@@ -97,10 +114,11 @@ for d in domains[:6]:
             pass
 rep = {"disk_pct": disk, "certs": certs, "caddy": sh("systemctl is-active caddy").strip() == "active",
        "load": sh("cut -d' ' -f1-3 /proc/loadavg").strip(),
-       "uptime_days": int(float(open("/proc/uptime").read().split()[0]) // 86400), "agent": "2"}
+       "uptime_days": int(float(open("/proc/uptime").read().split()[0]) // 86400), "agent": "3"}
 import glob
 cp = sorted(glob.glob("/var/backups/homehub/db-*.bin"))
 if cp:
+    rep["files_copy"] = {"count": len(glob.glob("/var/backups/homehub/files/*"))}
     rep["db_copy"] = {"at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(os.path.getmtime(cp[-1]))), "count": len(cp), "size": os.path.getsize(cp[-1])}
 json.dump(rep, open(os.path.join(tmp, "report.json"), "w"))
 PY
