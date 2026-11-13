@@ -52,8 +52,12 @@ object Outbox {
         val key = prefs.cloudKey
         if (!prefs.outboxDirty || token == null || key == null) return false
         val bytes = Cloud.encrypt(Base64.decode(key, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP), pending(context).toString())
-        Cloud.upload(token, "ops-${prefs.deviceId}.bin", bytes)
+        Cloud.upload(token, prefs.opsFile, bytes)
         prefs.outboxDirty = false
+        if (!prefs.legacyOpsRemoved) {        // файл со старым именем больше не обновляется — убираем, чтобы не путал
+            runCatching { Cloud.delete(token, "ops-${prefs.deviceId}.bin") }
+            prefs.legacyOpsRemoved = true
+        }
         return true
     }
 

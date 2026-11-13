@@ -265,6 +265,8 @@
           <span class="val muted">версия {{ appVersionInstalled }}</span>
         </div>
         <div class="row"><span class="lbl">Сервер</span><span class="val muted">{{ hostName }}</span></div>
+        <div v-if="device" class="row"><span class="lbl">Это устройство <small class="muted block">Код {{ device.id }} — под ним телефон виден в «Состоянии и копиях»{{ device.cloud ? '' : '; облако на нём не подключено' }}</small></span>
+          <span class="val muted">{{ device.model }}</span></div>
         <div class="row">
           <span class="lbl">Виджет <small class="muted block">{{ widgetState }}</small></span>
           <button v-if="canPin" class="btn filled" @click="pinWidget">Добавить на экран</button>
@@ -640,6 +642,8 @@ const kitchenUrl = computed(() => `${location.origin}/?kiosk&view=kitchen`)
 
 // Приложение для Android (внутри приложения доступен мост window.HomeHubApp)
 const inApp = typeof window !== 'undefined' && !!window.HomeHubApp
+let device = null
+try { device = window.HomeHubApp?.deviceInfo ? JSON.parse(window.HomeHubApp.deviceInfo()) : null } catch { /* старое приложение */ }
 const appVersionInstalled = inApp ? (() => { try { return window.HomeHubApp.version() } catch { return '?' } })() : ''
 const hostName = location.host
 const appInfo = ref(null)

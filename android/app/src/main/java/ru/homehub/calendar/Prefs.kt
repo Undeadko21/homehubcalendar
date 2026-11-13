@@ -79,6 +79,26 @@ class Prefs(context: Context) {
         get() = sp.getString("device_id", null) ?: java.util.UUID.randomUUID().toString().take(8)
             .also { sp.edit().putString("device_id", it).apply() }
 
+    /** Модель устройства словами: «Samsung SM-X700». */
+    val deviceModel: String
+        get() {
+            val maker = android.os.Build.MANUFACTURER.orEmpty().replaceFirstChar { it.uppercase() }
+            val model = android.os.Build.MODEL.orEmpty()
+            return if (model.startsWith(maker, ignoreCase = true)) model else "$maker $model".trim()
+        }
+
+    /** Имя файла команд в облаке: код устройства + модель латиницей, чтобы в «Состоянии» было видно, чей это телефон. */
+    val opsFile: String
+        get() {
+            val slug = deviceModel.replace(Regex("[^A-Za-z0-9]+"), "-").trim('-').take(32)
+            return "ops-$deviceId" + (if (slug.isNotEmpty()) "~$slug" else "") + ".bin"
+        }
+
+    /** Старый файл ops-<код>.bin (до 2.11) уже удалён с Диска. */
+    var legacyOpsRemoved: Boolean
+        get() = sp.getBoolean("legacy_ops_removed", false)
+        set(v) = sp.edit().putBoolean("legacy_ops_removed", v).apply()
+
     /** Очередь команд изменилась и ещё не выгружена в облако. */
     var outboxDirty: Boolean
         get() = sp.getBoolean("outbox_dirty", false)

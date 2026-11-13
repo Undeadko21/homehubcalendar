@@ -95,7 +95,8 @@ def get_system():
                     last = f" (Android-приложение, последняя запись {datetime.fromisoformat(b['modified']).astimezone(core.tz):%d.%m.%Y %H:%M})"
                 except ValueError:
                     pass
-            problems.append(f"Команды с устройства «{b['device']}»{last} не читаются: {b['why']}")
+            who = f"{b['model']} ({b['device']})" if b.get("model") else b["device"]
+            problems.append(f"Команды с устройства «{who}»{last} не читаются: {b['why']}")
         if bk.get("last_error"):
             problems.append("Резервная копия: " + bk["last_error"])
         elif bk.get("last_ok") and now - datetime.fromisoformat(bk["last_ok"]).astimezone(core.tz) > timedelta(days=3):

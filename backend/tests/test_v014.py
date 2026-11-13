@@ -178,11 +178,13 @@ def test_bad_ops_file_does_not_block_others(api):
     assert cloud.status()["ops_error"] == "Не удалось прочитать команды из облака (TimeoutError)"
     _Disk.fail_list = False
     # «Убрать»
-    _Disk.files["ops-tablet.bin"] = b"\x01" * 50
+    _Disk.files["ops-ab12cd34~Samsung-SM-X700.bin"] = b"\x01" * 50
     cloud.poll_ops(lambda ops: True)
-    assert [b["name"] for b in cloud.status()["ops_bad"]] == ["ops-tablet.bin"]
-    cloud.forget_ops("ops-tablet.bin")
-    assert cloud.status()["ops_bad"] == [] and "ops-tablet.bin" not in _Disk.files
+    b = cloud.status()["ops_bad"][0]
+    assert (b["device"], b["model"]) == ("ab12cd34", "Samsung SM X700")
+    db.kv_set("cloud:state", {**cloud._state(), "configured": True})
+    cloud.forget_ops("ops-ab12cd34~Samsung-SM-X700.bin")
+    assert cloud.status()["ops_bad"] == [] and not any(n.startswith("ops-ab12") for n in _Disk.files)
     try:
         cloud.forget_ops("ops-phone2.bin")
         assert False

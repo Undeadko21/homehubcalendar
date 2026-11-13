@@ -247,7 +247,9 @@ class CloudSync:
                         except CloudError:
                             pass
                     else:
-                        bad[name] = {"name": name, "device": name[4:-4][:40], "why": why, "modified": f.get("modified"),
+                        code, _, model = name[4:-4].partition("~")   # ops-<код>~<Модель>.bin (Android 2.11+)
+                        bad[name] = {"name": name, "device": code[:40], "model": model.replace("-", " ")[:40] or None,
+                                     "why": why, "modified": f.get("modified"),
                                      "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
                     continue
                 bad.pop(name, None)

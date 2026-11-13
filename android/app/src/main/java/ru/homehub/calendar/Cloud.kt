@@ -75,6 +75,17 @@ object Cloud {
         } finally { put.disconnect() }
     }
 
+    /** Удаляет файл из папки приложения на Диске (нет файла — не ошибка). */
+    fun delete(token: String, name: String) {
+        val q = URLEncoder.encode("app:/$name", "UTF-8")
+        val c = URL("https://cloud-api.yandex.net/v1/disk/resources?path=$q&permanently=true").openConnection() as HttpURLConnection
+        try {
+            c.requestMethod = "DELETE"; c.connectTimeout = 12000; c.readTimeout = 12000
+            c.setRequestProperty("Authorization", "OAuth $token")
+            if (c.responseCode !in 200..299 && c.responseCode != 404) throw ApiException("Облако ответило ${c.responseCode}")
+        } finally { c.disconnect() }
+    }
+
     /** Скачивает и расшифровывает снимок. Бросает исключение, если облако недоступно или ключ не подошёл. */
     fun fetch(publicUrl: String, keyB64: String): String {
         val meta = String(download(API + "?public_key=" + URLEncoder.encode(publicUrl, "UTF-8")), Charsets.UTF_8)

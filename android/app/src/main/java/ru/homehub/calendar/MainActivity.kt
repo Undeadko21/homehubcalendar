@@ -44,6 +44,13 @@ class AppBridge(private val activity: MainActivity) {
     @JavascriptInterface
     fun refreshWidget() { Widgets.refreshNow(activity); Reminders.checkNow(activity) }
 
+    /** Какое это устройство: модель и код (тот же код — в имени файла команд в облаке и в «Состоянии»). */
+    @JavascriptInterface
+    fun deviceInfo(): String {
+        val p = Prefs(activity)
+        return JSONObject().put("id", p.deviceId).put("model", p.deviceModel).put("cloud", p.cloudToken != null).toString()
+    }
+
     /** Настройки напоминаний на этом телефоне (JSON). */
     @JavascriptInterface
     fun getNotify(): String {
