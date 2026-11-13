@@ -153,6 +153,7 @@ export const api = {
   saveSchoolHide: (hide, hide_words) => request('PUT', '/api/school', { hide, hide_words }),
   stats: (start, end) => request('GET', `/api/stats?${q({ start, end })}`),
   system: () => request('GET', '/api/system'),
+  forgetOps: (name) => request('POST', '/api/cloud/ops-forget', { name }),
   runBackup: () => request('POST', '/api/backup'),
   patchCalendar: (key, patch) => request('PATCH', `/api/calendars/${key}`, patch),
 }

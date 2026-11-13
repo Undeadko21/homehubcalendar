@@ -315,6 +315,8 @@
     </template>
 
     <!-- Экран на стене -->
+    <WhatsNew v-if="page === 'news'" @goto="open" />
+
     <!-- Внешний вид -->
     <template v-if="page === 'look'">
     <h3 class="group-title">Размер текста</h3>
@@ -460,6 +462,8 @@ import { copyToClipboard } from '../lib/clipboard'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from '../lib/api'
 import { state, reload, syncNow, UI_BUILD, setTextSize, setInitials, setIcons, setHaptics } from '../lib/store'
+import { unseenNews } from '../lib/news'
+import WhatsNew from '../components/WhatsNew.vue'
 
 const TEXT_SIZES = [{ id: 'compact', label: 'Мельче' }, { id: 'normal', label: 'Обычно' }, { id: 'large', label: 'Крупнее' }, { id: 'xlarge', label: 'Максимум' }]
 import PeoplePicker from '../components/PeoplePicker.vue'
@@ -576,7 +580,11 @@ const groups = computed(() => {
     { title: 'Приложения и экраны', items: [
       { id: 'app', title: 'Приложения и виджеты', color: '#5856d6', sub: inApp ? 'версия ' + appVersionInstalled : 'Android, Mac, iPhone',
         icon: ico('<rect x="7" y="2.500" width="10" height="19" rx="2"/><path d="M11 18.500h2"/>') },
+      { id: 'news', title: 'Что нового', color: '#ff2d55', sub: unseenNews.value ? `новых: ${unseenNews.value}` : 'что появилось и как включить',
+        warn: unseenNews.value > 0, kw: 'новое обновление изменения версия возможности функции подсказки',
+        icon: ico('<path d="M12 3l2.600 5.600 6 .700-4.500 4.100 1.300 6L12 16.300 6.600 19.400l1.300-6L3.400 9.300l6-.700z"/>') },
       { id: 'look', title: 'Внешний вид', color: '#ff9500', sub: 'размер текста, буквы и значки на плашках, отклик',
+        icon: ico('<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.600 5.600l1.400 1.400M17 17l1.400 1.400M18.400 5.600L17 7M7 17l-1.400 1.400"/>'),
         kw: 'шрифт размер крупно компактно плотность буквы инициалы цвет дальтонизм знакомство мастер первый запуск значки иконки эмодзи вибрация отклик' },
       { id: 'wall', title: 'Экран на стене', color: '#af52de', sub: 'планшет на кухне, ссылки',
         icon: ico('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>') },

@@ -11,7 +11,7 @@ function loadPrefs() {
 export function savePrefs() {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify({ hiddenPeople: state.hiddenPeople, view: state.view, calView: state.calView, timelineDays: state.timelineDays, weekDays: state.weekDaysPref,
-      textSize: state.textSize, initials: state.initials, onboarded: state.onboarded, haptics: state.haptics, icons: state.icons, weekDense: state.weekDense }))
+      textSize: state.textSize, initials: state.initials, onboarded: state.onboarded, haptics: state.haptics, icons: state.icons, weekDense: state.weekDense, newsSeen: state.newsSeen }))
   } catch {}
 }
 
@@ -62,6 +62,8 @@ export const state = reactive({
   haptics: prefs.haptics !== false, // отклик (вибрация) на важные нажатия
   icons: params.has('icons') ? params.get('icons') !== '0' : !!prefs.icons, // значки по словам в названии: 🏊 🩺 🎂
   weekDense: prefs.weekDense !== false, // «Неделя» на компьютере плотнее (час ниже)
+  newsSeen: prefs.newsSeen || 0, // номер последней увиденной записи «Что нового» (lib/news.js)
+  newsSeenAtOpen: null,
   datePicker: false, // лист «Перейти к дате» (нажатие на заголовок)
   navDir: 0, // направление последнего сдвига дня/недели — для анимации
 })

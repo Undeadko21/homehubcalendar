@@ -68,6 +68,8 @@
           <span v-else-if="s.backup.last_error" class="val err">{{ s.backup.last_error }}</span>
           <span v-else class="val muted">{{ s.backup.last_ok ? ago(s.backup.last_ok) + ', ' + kb(s.backup.size) : 'ещё не было' }}</span></div>
         <div v-if="s.backup.count" class="row"><span class="lbl">Хранится копий</span><span class="val muted">{{ s.backup.count }} из {{ s.backup.keep }}</span></div>
+        <div v-if="s.backup.files" class="row"><span class="lbl">Вложения <small class="muted block">справки, билеты, фото — копируются на Диск вместе с базой</small></span>
+          <span class="val" :class="s.backup.files.error ? 'err' : 'muted'">{{ s.backup.files.error || (s.backup.files.count ? s.backup.files.count + ' шт., ' + mb(s.backup.files.bytes) : 'пока нет') }}</span></div>
         <div class="row"><button class="btn" :disabled="busy || !s.backup.configured" @click="backup">{{ busy ? 'Копирую…' : 'Сделать копию сейчас' }}</button></div>
       </div>
       <div v-if="s.backup.verified" class="group">
@@ -149,6 +151,10 @@
           <span v-else-if="s.cloud.last_error" class="val err">{{ s.cloud.last_error }}</span>
           <span v-else class="val muted">{{ s.cloud.last_ok ? ago(s.cloud.last_ok) : 'скоро' }}</span></div>
         <div v-if="s.cloud.ops_error" class="row"><span class="lbl">Команды с телефона</span><span class="val err">{{ s.cloud.ops_error }}</span></div>
+        <div v-for="b in s.cloud.ops_bad || []" :key="b.name" class="row">
+          <span class="lbl">Устройство «{{ b.device }}» <small class="muted block">Команды не читаются: {{ b.why }}</small></span>
+          <button class="btn sm" :disabled="busy" title="Удалить этот файл команд с Диска" @click="forgetOps(b)">Убрать</button>
+        </div>
       </div>
 
       <h3 class="group-title">Скорость</h3>
@@ -231,6 +237,7 @@ const TARGETS = [
   [/VPS|Сертификат|копия базы|Копия базы/, 'vps', 'Связь вне дома → Сервер и уведомления'],
   [/нет связи снаружи|публичн|ntfy|вход/i, 'address', 'Адрес и доступ приложений'],
   [/Облако|Команды с телефона|Диск/, 'cloud', 'Облако Яндекс.Диска'],
+  [/Команды с устройства/, 'sys-server', 'Состояние → Сервер и скорость'],
   [/Резервн|Учебное восстановление|копи/, 'sys-backup', 'Состояние → Резервные копии'],
   [/Проверка записи|Проверка данных|водител|дубл/i, 'sys-checks', 'Состояние → Проверки'],
   [/Не отправлено|отклонена/, 'changes', 'Журнал изменений'],
@@ -238,6 +245,11 @@ const TARGETS = [
   [/обновлени|откат|journalctl|сборк|Android|Mac|iPhone|медленн/i, 'sys-server', 'Состояние → Сервер и скорость'],
 ]
 const target = (text) => { const t = TARGETS.find(([re]) => re.test(text)); return t ? { page: t[1], label: t[2] } : null }
+const mb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' МБ' : Math.max(1, Math.round((n || 0) / 1024)) + ' КБ')
+async function forgetOps(b) {
+  busy.value = true
+  try { await api.forgetOps(b.name); await load() } catch (e) { err.value = e.message } finally { busy.value = false }
+}
 const load = () => api.system().then((r) => { s.value = r }).catch((e) => { err.value = e.message })
 async function backup() {
   busy.value = true

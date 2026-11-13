@@ -119,7 +119,7 @@
         <button :class="{ on: state.view === 'free' }" @click="setView('free')"><IconFree /><span>Свободно</span></button>
         <button :class="{ on: state.view === 'lists' }" @click="setView('lists')"><IconList /><span>Списки</span></button>
         <button :class="{ on: state.peopleSheet }" @click="state.peopleSheet = true"><IconPeople /><span>Люди</span></button>
-        <button :class="{ on: state.view === 'settings' }" @click="setView('settings')"><IconGear /><span>Настройки</span></button>
+        <button :class="{ on: state.view === 'settings' }" @click="setView('settings')"><IconGear /><span>Настройки</span><i v-if="unseenNews" class="news-dot" aria-label="Есть новое"></i></button>
       </nav>
 
       <Sheet :open="state.peopleSheet" title="Чьи события показывать" @close="state.peopleSheet = false">
@@ -147,7 +147,7 @@
 </template>
 
 <script setup>
-import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen, animate, toast } from './lib/store'
 import { net } from './lib/api'
 import { haptic } from './lib/haptic'
@@ -167,16 +167,30 @@ import Sheet from './components/Sheet.vue'
 import PersonSheet from './components/PersonSheet.vue'
 import { problems } from './lib/report'
 import TodayView from './views/TodayView.vue'
+import Skeleton from './components/Skeleton.vue'
+import { unseenNews } from './lib/news'
+
+// Экраны, которые нужны не сразу, грузятся отдельными файлами при первом открытии: телефону не приходится
+// скачивать сетку «Недели» (FullCalendar) и настройки ради месяца и «Сегодня».
+// Если файл экрана не скачался (сервер только что обновился, и старых файлов уже нет) — один раз перезагружаем страницу.
+const fresh = (loader) => () => loader().catch((e) => {
+  try {
+    if (!sessionStorage.getItem('homecal.chunkReload')) { sessionStorage.setItem('homecal.chunkReload', '1'); location.reload() }
+  } catch { /* без хранилища — покажем ошибку */ }
+  throw e
+})
+const lazy = (loader) => defineAsyncComponent({ loader: fresh(loader), loadingComponent: Skeleton, delay: 150 })
+const loadCalendar = () => import('./views/CalendarView.vue')
+const CalendarView = lazy(loadCalendar)
+const KitchenView = lazy(() => import('./views/KitchenView.vue'))
+const FamilyWeek = lazy(() => import('./views/FamilyWeek.vue'))
+const FreeView = lazy(() => import('./views/FreeView.vue'))
+const SettingsView = lazy(() => import('./views/SettingsView.vue'))
+const SearchView = lazy(() => import('./views/SearchView.vue'))
 import TimelineView from './views/TimelineView.vue'
-import CalendarView from './views/CalendarView.vue'
 import MonthPhone from './views/MonthPhone.vue'
-import KitchenView from './views/KitchenView.vue'
 import AgendaView from './views/AgendaView.vue'
-import FamilyWeek from './views/FamilyWeek.vue'
-import FreeView from './views/FreeView.vue'
-import SettingsView from './views/SettingsView.vue'
 import ListsView from './views/ListsView.vue'
-import SearchView from './views/SearchView.vue'
 
 const VIEWS = [
   { id: 'today', label: 'Сегодня' },
@@ -376,6 +390,9 @@ onMounted(async () => {
   window.addEventListener('touchmove', onTouchMove, { passive: true })
   window.addEventListener('touchend', onTouchEnd)
   window.addEventListener('touchcancel', onTouchEnd)
+  // На компьютере «Неделю» открывают часто — подгружаем её заранее, когда браузер свободен.
+  if (!screen.narrow) (window.requestIdleCallback || ((f) => setTimeout(f, 2500)))(() => loadCalendar().catch(() => {}))
+  setTimeout(() => { try { sessionStorage.removeItem('homecal.chunkReload') } catch { /* ок */ } }, 15000)
   await loadConfig()
   await refreshStatus()
   connectLive()
@@ -447,6 +464,8 @@ onUnmounted(() => {
 .search-btn :deep(.ico) { width: 20px; height: 20px; color: var(--tint); }
 .title { grid-area: title; margin: 0; font-family: var(--font-display); font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; white-space: nowrap; }
 .t-main { font-weight: 700; }
+.tabbar button { position: relative; }
+.news-dot { position: absolute; top: 6px; left: calc(50% + 8px); width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
 .t-btn { all: unset; cursor: pointer; display: inline; border-radius: 8px; }
 .t-btn:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
 .t-chev { font-size: .5em; color: var(--tint); margin-left: 6px; vertical-align: .35em; }

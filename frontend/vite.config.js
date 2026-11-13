@@ -14,6 +14,7 @@ const scaleFonts = {
 }
 
 export default defineConfig({
+  test: { environment: 'happy-dom', include: ['tests/**/*.test.js'] },
   css: { postcss: { plugins: [scaleFonts] } },
   plugins: [
     vue(),
