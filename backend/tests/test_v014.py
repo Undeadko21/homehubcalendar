@@ -113,7 +113,7 @@ def test_ics_retries_transient_errors(monkeypatch):
         ics_source.IcsSource({"id": "f", "type": "ics", "url": "https://example.com/a.ics"}).fetch()
         assert False
     except RuntimeError as e:
-        assert "Нет связи" in str(e) and "example.com" not in str(e)
+        assert "соединиться" in str(e) and "example.com" not in str(e)
 
 
 def test_sync_problem_only_when_persistent(api):
@@ -271,3 +271,28 @@ def test_attachments_in_backup_and_vps(api):
     assert bk.unseal(core.cloud.key(), blob) == b"%PDF-1.4 hello"
     assert c.get("/api/vps/files/nope", headers=h).status_code == 404
     assert c.get("/api/vps/files", headers={"Authorization": "Bearer wrong"}).status_code == 401
+
+
+def test_feed_named_in_problems_and_link_can_be_changed(api, tmp_path):
+    c = api
+    good = tmp_path / "a.ics"
+    good.write_text("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:w1\nDTSTART:20261103T100000\nSUMMARY:Планёрка\nEND:VEVENT\nEND:VCALENDAR", encoding="utf-8")
+    c.core.db.kv_set("ics:feeds", [{"id": "ics1", "name": "Работа Оли", "url": str(good), "people": ["anna"]}])
+    c.core.engine.run(full=True)
+    f = c.get("/api/feeds").json()[0]
+    assert f["name"] == "Работа Оли" and f["last_ok"] and f["last_error"] is None and "url" not in f
+    # название вместо «ics1» в замечаниях
+    c.core.db.set_sync_status("ics1", ok=False, error="Ссылка больше не работает (ответ 404)")
+    with c.core.db.tx() as con:
+        con.execute("UPDATE sync_status SET last_ok='2026-01-01T00:00:00+00:00' WHERE source_id='ics1'")
+    p = [x for x in c.get("/api/system").json()["problems"] if "Синхронизация" in x]
+    assert p and "«Работа Оли»" in p[0] and "ics1:" not in p[0]
+    assert c.get("/api/feeds").json()[0]["last_error"].startswith("Ссылка больше не работает")
+    # плохая новая ссылка не затирает прежнюю
+    r = c.put("/api/feeds", json={"id": "ics1", "url": "https://127.0.0.1:1/x.ics"})
+    assert r.status_code == 400 and "прежняя оставлена" in r.json()["detail"]
+    assert c.core.engine.feeds()[0]["url"] == str(good)
+    # только название — ссылка, владельцы на месте
+    r = c.put("/api/feeds", json={"id": "ics1", "name": "Trassir Оля", "url": ""}).json()
+    feed = c.core.engine.feeds()[0]
+    assert r["result"]["ok"] and feed == {"id": "ics1", "name": "Trassir Оля", "url": str(good), "people": ["anna"]}

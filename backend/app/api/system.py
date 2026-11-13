@@ -74,11 +74,11 @@ def get_system():
             ok = s.get("last_ok")
             if not ok or now - datetime.fromisoformat(ok).astimezone(core.tz) > quiet:
                 since = f" (последний раз удалось в {datetime.fromisoformat(ok).astimezone(core.tz):%d.%m %H:%M})" if ok else ""
-                problems.append(f"Синхронизация {s['source_id']}: {s['last_error']}{since}")
+                problems.append(f"Синхронизация {core.engine.label(s['source_id'])}: {s['last_error']}{since}")
         elif s.get("last_ok"):
             age = now - datetime.fromisoformat(s["last_ok"]).astimezone(core.tz)
             if age > timedelta(minutes=max(30, core.settings.sync.interval_minutes * 4)):
-                problems.append(f"Календарь {s['source_id']} давно не обновлялся ({int(age.total_seconds() // 60)} мин)")
+                problems.append(f"Календарь {core.engine.label(s['source_id'])} давно не обновлялся ({int(age.total_seconds() // 60)} мин)")
     rej = (core.db.kv_get("ops:rejected")[0] or {}).get("items", [])
     for r in rej[-3:]:
         if datetime.fromisoformat(r["at"]) > datetime.now() - timedelta(days=2):
@@ -89,7 +89,13 @@ def get_system():
         if cl.get("ops_error"):
             problems.append("Команды с телефона: " + cl["ops_error"])
         for b in cl.get("ops_bad") or []:
-            problems.append(f"Команды с устройства «{b['device']}» не читаются: {b['why']}")
+            last = ""
+            if b.get("modified"):
+                try:
+                    last = f" (Android-приложение, последняя запись {datetime.fromisoformat(b['modified']).astimezone(core.tz):%d.%m.%Y %H:%M})"
+                except ValueError:
+                    pass
+            problems.append(f"Команды с устройства «{b['device']}»{last} не читаются: {b['why']}")
         if bk.get("last_error"):
             problems.append("Резервная копия: " + bk["last_error"])
         elif bk.get("last_ok") and now - datetime.fromisoformat(bk["last_ok"]).astimezone(core.tz) > timedelta(days=3):
@@ -191,7 +197,13 @@ def _feed_public(f: dict) -> dict:
 
 @router.get("/api/feeds")
 def list_feeds():
-    return [_feed_public(f) for f in core.engine.feeds()]
+    """Подписки с их состоянием: когда последний раз обновилась и что не так (ссылка наружу не отдаётся)."""
+    status = {s["source_id"]: s for s in core.db.sync_status()}
+    out = []
+    for f in core.engine.feeds():
+        st = status.get(f["id"]) or {}
+        out.append({**_feed_public(f), "last_ok": st.get("last_ok"), "last_error": st.get("last_error")})
+    return out
 
 
 @router.put("/api/feeds")
@@ -206,8 +218,15 @@ def put_feed(body: FeedIn):
     ids = {f["id"] for f in feeds}
     fid = cur["id"] if cur else next(f"ics{n}" for n in range(1, 1000) if f"ics{n}" not in ids)
     known = {p["id"] for p in core.db.list_people()}
-    feed = {"id": fid, "name": body.name.strip()[:80], "url": url or cur["url"],
-            "people": [p for p in body.people if p in known]}
+    if cur and url and url != cur["url"]:
+        # Смена ссылки у существующей подписки: сначала проверяем новую — если она не открывается, прежняя остаётся.
+        from ..sources.ics_source import IcsSource
+        try:
+            IcsSource({"id": fid, "type": "ics", "url": url}).fetch()
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(400, f"Новая ссылка не работает, прежняя оставлена. {e}") from None
+    feed = {"id": fid, "name": (body.name.strip() or (cur or {}).get("name", ""))[:80], "url": url or cur["url"],
+            "people": [p for p in body.people if p in known] if (body.people or not cur) else cur.get("people") or []}
     core.db.kv_set("ics:feeds", [feed if f["id"] == fid else f for f in feeds] if cur else [*feeds, feed])
     report = core.engine.run(full=True).get(fid, {"ok": False, "error": "не удалось проверить"})
     return {"feed": _feed_public(feed), "result": report}

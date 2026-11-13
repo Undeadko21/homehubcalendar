@@ -11,6 +11,20 @@ import httpx
 from .base import RemoteCalendar, Source, register
 
 
+TIMEOUT = 45            # секунд на ответ; Outlook большие календари собирает долго
+
+
+def _why(e: Exception) -> str:
+    """Причина сетевой ошибки словами (без ссылки — в ней секретный токен)."""
+    name = type(e).__name__
+    if "Timeout" in name:
+        return (f"Сервер подписки не отвечает за {TIMEOUT} с ({name}). Если так продолжается несколько часов — "
+                "пересоздайте ссылку и нажмите «Сменить ссылку»")
+    if name in ("ConnectError", "ConnectTimeout"):
+        return f"Не удалось соединиться с сервером подписки ({name}): нет интернета на сервере или адрес не существует"
+    return f"Нет связи с сервером подписки ({name})"
+
+
 RETRY_PAUSES = (2, 6)   # секунды между попытками скачать подписку
 
 
@@ -32,18 +46,21 @@ class IcsSource(Source):
             resp = None
             for attempt, pause in enumerate(RETRY_PAUSES + (None,)):    # разовый сбой связи или 5xx — пробуем ещё
                 try:
-                    resp = httpx.get(url, timeout=30, follow_redirects=True)
+                    resp = httpx.get(url, timeout=TIMEOUT, follow_redirects=True)
                     if resp.status_code < 500:
                         break
                 except httpx.HTTPError as e:
                     if pause is None:
-                        raise RuntimeError(f"Нет связи с сервером подписки ({type(e).__name__})") from None
+                        raise RuntimeError(_why(e)) from None
                 if pause is not None:
                     time.sleep(pause)
-            if resp.status_code in (401, 403, 404):
-                raise RuntimeError(f"Подписка недоступна (ответ {resp.status_code}): проверьте ссылку, возможно, она отозвана")
+            if resp.status_code in (401, 403, 404, 410):
+                raise RuntimeError(f"Ссылка больше не работает (ответ {resp.status_code}): похоже, её отозвали или пересоздали — "
+                                   "получите новую и нажмите «Сменить ссылку»")
+            if resp.status_code >= 500:
+                raise RuntimeError(f"Сервер подписки временно не работает (ответ {resp.status_code}) — обычно проходит само")
             if resp.status_code >= 400:
-                raise RuntimeError(f"Сервер подписки ответил {resp.status_code}")
+                raise RuntimeError(f"Сервер подписки отказал (ответ {resp.status_code})")
             text = resp.text
             if "BEGIN:VCALENDAR" not in text[:2000].upper():
                 raise RuntimeError("По ссылке не календарь (ICS). Нужна ссылка вида …/calendar.ics")

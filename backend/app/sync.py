@@ -52,6 +52,8 @@ def friendly_error(e: Exception) -> str:
     """Понятное описание ошибки для интерфейса."""
     name = type(e).__name__
     text = str(e)
+    if isinstance(e, RuntimeError) and text:      # источник уже описал причину понятными словами
+        return text
     low = (name + " " + text).lower()
     if "authorization" in low or "401" in low or "unauthorized" in low or "forbidden" in low or "403" in low:
         return "Неверный логин или пароль приложения. Проверьте, что пароль создан для «Календаря»."
@@ -83,6 +85,14 @@ class SyncEngine:
     def feeds(self) -> list[dict]:
         value, _ = self.db.kv_get("ics:feeds")
         return value if isinstance(value, list) else []
+
+    def label(self, source_id: str) -> str:
+        """Название источника для сообщений: имя подписки или источника из config.yaml вместо «ics2»."""
+        for src in self.sources:
+            if src.get("id") == source_id:
+                name = str(src.get("name") or "").strip()
+                return f"«{name}»" if name and name != source_id else source_id
+        return source_id
 
     def feed_sources(self) -> list[dict]:
         return [{"id": f["id"], "type": "ics", "url": f["url"], "name": f.get("name") or f["id"],

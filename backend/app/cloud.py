@@ -122,7 +122,7 @@ class YandexDisk:
     def list_ops(self) -> list[dict]:
         """Файлы команд с телефонов (ops-*.bin) в папке приложения: имя и md5."""
         r = self._check(self.c.get(f"{API}/resources", params={
-            "path": "app:/", "limit": 200, "fields": "_embedded.items.name,_embedded.items.md5"}, headers=self.h),
+            "path": "app:/", "limit": 200, "fields": "_embedded.items.name,_embedded.items.md5,_embedded.items.modified"}, headers=self.h),
             "список файлов")
         items = (r.json().get("_embedded") or {}).get("items") or []
         return [i for i in items if i.get("name", "").startswith("ops-") and i["name"].endswith(".bin")]
@@ -247,7 +247,7 @@ class CloudSync:
                         except CloudError:
                             pass
                     else:
-                        bad[name] = {"name": name, "device": name[4:-4][:40], "why": why,
+                        bad[name] = {"name": name, "device": name[4:-4][:40], "why": why, "modified": f.get("modified"),
                                      "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
                     continue
                 bad.pop(name, None)

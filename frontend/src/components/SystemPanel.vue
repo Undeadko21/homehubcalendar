@@ -152,7 +152,7 @@
           <span v-else class="val muted">{{ s.cloud.last_ok ? ago(s.cloud.last_ok) : 'скоро' }}</span></div>
         <div v-if="s.cloud.ops_error" class="row"><span class="lbl">Команды с телефона</span><span class="val err">{{ s.cloud.ops_error }}</span></div>
         <div v-for="b in s.cloud.ops_bad || []" :key="b.name" class="row">
-          <span class="lbl">Устройство «{{ b.device }}» <small class="muted block">Команды не читаются: {{ b.why }}</small></span>
+          <span class="lbl">Устройство «{{ b.device }}» <small class="muted block">Телефон или планшет с Android-приложением{{ b.modified ? ', последняя запись ' + new Date(b.modified).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '' }}. Команды не читаются: {{ b.why }}</small></span>
           <button class="btn sm" :disabled="busy" title="Удалить этот файл команд с Диска" @click="forgetOps(b)">Убрать</button>
         </div>
       </div>
