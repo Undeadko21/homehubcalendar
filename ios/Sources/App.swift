@@ -46,6 +46,7 @@ struct HomeHubApp: App {
         .onChange(of: phase) { newPhase in
             if newPhase == .active {
                 Task { await model.refresh() }
+                Signing.scheduleReminder()
             } else if newPhase == .background {
                 scheduleBackgroundRefresh()
             }

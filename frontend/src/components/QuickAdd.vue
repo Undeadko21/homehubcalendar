@@ -7,6 +7,15 @@
       <button class="btn filled" :disabled="busy || !text.trim()">{{ busy ? '…' : 'Добавить' }}</button>
     </form>
     <p v-if="error" class="err">{{ error }}</p>
+    <div v-if="canWrite && recent.length" class="recent">
+      <span class="faint small rl">Частые и недавние</span>
+      <div class="chips">
+        <button v-for="r in recent" :key="r.title" type="button" class="rchip" @click="useRecent(r)">
+          <span class="rt">{{ r.title }}</span>
+          <span class="rs">{{ recentSub(r) }}</span>
+        </button>
+      </div>
+    </div>
     <div class="group ex">
       <button v-for="x in EXAMPLES" :key="x.t" type="button" class="row exr" @click="text = x.t; input?.focus()">
         <span class="kind" :class="x.k">{{ x.label }}</span><span class="ph">{{ x.t }}</span>
@@ -24,7 +33,8 @@
 <script setup>
 // Единое «+»: одно поле для события, дела и покупки; тип определяет сервер по фразе.
 import { computed, nextTick, ref, watch } from 'vue'
-import { state, quickAdd, newEvent, setView, writableCalendars } from '../lib/store'
+import { state, quickAdd, newEvent, setView, writableCalendars, personById } from '../lib/store'
+import { api } from '../lib/api'
 import Sheet from './Sheet.vue'
 import MicButton from './MicButton.vue'
 
@@ -39,8 +49,19 @@ const error = ref('')
 const input = ref(null)
 const canWrite = computed(() => writableCalendars().length > 0)
 
+// Частые и недавние события: нажатие открывает форму с заполненными названием, длительностью, участниками и местом.
+const recent = ref([])
+function recentSub(r) {
+  const m = r.minutes
+  const dur = m < 60 ? `${m} мин` : m % 60 ? `${Math.floor(m / 60)} ч ${m % 60} мин` : `${m / 60} ч`
+  const who = (r.people || []).map((id) => personById.value[id]?.name).filter(Boolean).join(', ')
+  return who ? `${dur} · ${who}` : dur
+}
+function useRecent(r) { close(); newEvent(undefined, undefined, r) }
+
 watch(() => state.quickAdd, async (v) => {
   if (!v) return
+  api.recentEvents().then((r) => { recent.value = r.items || [] }).catch(() => { /* подсказка, не обязательна */ })
   text.value = ''
   error.value = ''
   await nextTick()
@@ -77,6 +98,14 @@ function lists() { close(); setView('lists') }
 .kind { font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 7px; color: #fff; flex: none; width: 66px; text-align: center; }
 .kind.ev { background: #007aff; } .kind.todo { background: #ff9500; } .kind.shop { background: #34c759; }
 .ph { color: var(--ink-2); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent { margin: 0 0 12px; }
+.rl { display: block; margin: 0 4px 6px; }
+.chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.rchip { flex: none; max-width: 190px; border: 0; border-radius: 12px; background: var(--surface-2); color: var(--ink); font: inherit;
+  padding: 8px 12px; text-align: left; display: flex; flex-direction: column; gap: 1px; cursor: pointer; }
+.rt { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs { font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note { margin: -4px 4px 14px; }
 .small { font-size: 13px; }
 </style>

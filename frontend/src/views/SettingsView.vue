@@ -309,6 +309,9 @@
       <Help title="Установка и ошибки AltStore">
         <p>AltStore ставит приложение с вашим бесплатным Apple ID; подпись живёт 7 дней, AltStore продлевает её сам, когда iPhone и компьютер с AltServer в одной Wi-Fi сети.</p>
         <p><b>Если AltStore выдаёт ошибку</b> (503, «No anisette server»): скачайте .ipa кнопкой выше и установите через Sideloadly на компьютере — тот же Apple ID, USB-кабель, кнопка Start. Подпись так же живёт 7 дней; данные приложения сохраняются.</p>
+        <p><b>«Недоверенный разработчик» при запуске:</b> откройте на iPhone Настройки → Основные → «VPN и управление устройством» → строка с вашим Apple ID → «Доверять». Нужен интернет. Если раздела «Приложение разработчика» там нет — удалите приложение и установите заново. На рабочем телефоне с управлением от компании доверие может быть запрещено: тогда пользуйтесь веб-версией (ниже).</p>
+        <p><b>Виджет:</b> в приложении откройте настройки (шестерёнка) → «Скопировать код для виджета», затем подержите палец на виджете → «Изменить виджет» → вставьте код и адрес сервера. Приложение само напомнит за день до окончания подписи.</p>
+        <p><b>Без установки:</b> откройте календарь в Safari → «Поделиться» → «На экран „Домой“». Значок открывается сразу и без связи показывает последние данные; виджета и уведомлений в этом варианте нет.</p>
       </Help>
     </template>
     <Help title="Виджет на рабочий стол">
@@ -508,7 +511,8 @@ const ico = (d) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" 
 const accInfo = ref(null)
 const devCount = ref(null)
 api.access().then((r) => { accInfo.value = r }).catch(() => {})
-api.sessions().then((r) => { devCount.value = r.pin ? r.sessions.length : null }).catch(() => {})
+const devBad = ref(0)
+api.devices().then((r) => { devCount.value = r.pin ? r.devices.length : null; devBad.value = r.problems || 0 }).catch(() => {})
 const outsideBad = computed(() => (accInfo.value?.checks || []).some((c) => c.level === 'bad'))
 const outsideItems = computed(() => {
   const a = accInfo.value
@@ -517,7 +521,7 @@ const outsideItems = computed(() => {
       icon: ico('<path d="M7 18a4.500 4.500 0 01-.600-8.960A6 6 0 0118 10a4 4 0 010 8z"/>') },
     { id: 'address', title: 'Адрес и доступ приложений', color: '#34c759', sub: a?.public_url ? a.public_url.replace('https://', '') : 'публичный адрес не задан',
       icon: ico('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.500 2.500 3.500 5.500 3.500 9s-1 6.500-3.500 9c-2.500-2.500-3.500-5.500-3.500-9s1-6.500 3.500-9z"/>') },
-    { id: 'devices', title: 'Устройства и вход', color: '#ff9500', sub: devCount.value != null ? `вошло устройств: ${devCount.value} · QR-код, журнал` : 'QR-код, журнал входов',
+    { id: 'devices', title: 'Устройства и вход', color: '#ff9500', sub: devBad.value ? `требуют внимания: ${devBad.value} · версии, связь, вход` : devCount.value != null ? `вошло устройств: ${devCount.value} · версии, связь, QR-код` : 'версии приложений, связь, QR-код',
       icon: ico('<rect x="3" y="5" width="13" height="10" rx="1.500"/><path d="M1 19h17M19 9h2.500v10H19z"/>') },
     { id: 'vps', title: 'Сервер и уведомления', color: '#5856d6', sub: a?.vps?.enabled ? 'агент подключён' + (a?.ntfy?.enabled ? ', уведомления включены' : '') : 'агент на VPS, ntfy',
       icon: ico('<rect x="3" y="4" width="18" height="6" rx="1.500"/><rect x="3" y="14" width="18" height="6" rx="1.500"/><path d="M7 7h.01M7 17h.01"/>') },

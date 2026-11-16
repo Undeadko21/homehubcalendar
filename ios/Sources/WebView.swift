@@ -10,7 +10,11 @@ struct WebView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> WKWebView {
-        let web = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let config = WKWebViewConfiguration()
+        // Метка приложения в User-Agent: сервер показывает версию на странице «Устройства».
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        config.applicationNameForUserAgent = "HomeHubApp/\(version) (iPhone)"
+        let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
         web.allowsBackForwardNavigationGestures = true
         let refresh = UIRefreshControl()

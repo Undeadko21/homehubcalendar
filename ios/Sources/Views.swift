@@ -141,6 +141,12 @@ struct NextSheet: View {
 struct SettingsSheet: View {
     @ObservedObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @State private var copied = ""
+
+    private func copy(_ text: String, mark: String) {
+        UIPasteboard.general.string = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        copied = mark
+    }
 
     var body: some View {
         NavigationStack {
@@ -159,6 +165,17 @@ struct SettingsSheet: View {
                         Button("Проверить") { Task { await model.refresh() } }
                     }
                     if let e = model.error { Text(e).font(.caption).foregroundStyle(.red) }
+                }
+                Section(header: Text("Виджет"), footer: Text("Подержите палец на виджете → «Изменить виджет» → вставьте код в поле «Код подключения», а в «Адрес сервера» — адрес календаря. У каждого виджета настройки свои.")) {
+                    Button(copied == "code" ? "Код скопирован" : "Скопировать код для виджета") { copy(model.code, mark: "code") }
+                        .disabled(Cloud.parse(model.code) == nil)
+                    Button(copied == "url" ? "Адрес скопирован" : "Скопировать адрес сервера") { copy(model.serverURL, mark: "url") }
+                        .disabled(model.serverURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                if let signing = Signing.text() {
+                    Section(header: Text("Подпись приложения"), footer: Text("С бесплатным Apple ID подпись живёт 7 дней. Продлить: AltStore → Refresh All или Sideloadly, когда iPhone рядом с компьютером. Приложение напомнит за день.")) {
+                        Text(signing).font(.callout)
+                    }
                 }
                 if !model.people.isEmpty {
                     Section(header: Text("Чьи события в заголовке")) {

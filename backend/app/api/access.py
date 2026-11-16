@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
-from .. import access, core
+from .. import access, core, devices
 
 router = APIRouter()
 _TEMPLATE = Path(__file__).resolve().parent.parent / "vps_install.sh"
@@ -95,6 +95,25 @@ def _current(request: Request):
 def sessions(request: Request):
     return {"sessions": core.sessions.listing(_current(request)), "legacy": core.sessions.legacy_ok(),
             "pin": bool(core.settings.pin), "log": access.security_log(core.db)}
+
+
+class Hello(BaseModel):
+    code: str = Field(default="", max_length=60)
+    model: str = Field(default="", max_length=60)
+
+
+@router.post("/api/devices/hello")
+def device_hello(body: Hello, request: Request):
+    """Приложение называет себя: код в облаке и модель. Нужен, чтобы вход и файл команд стали одной строкой «Устройств»."""
+    cur = _current(request)
+    return {"ok": bool(cur and body.code and core.sessions.hello(cur, body.code, body.model))}
+
+
+@router.get("/api/devices")
+def get_devices(request: Request):
+    newest = devices.latest(core.APP_DIR, core.IOS_DIR, core.MAC_DIR)
+    return devices.overview(core.sessions.listing(_current(request)), core.cloud.status(), newest) | {
+        "pin": bool(core.settings.pin), "widget_last": access.widget_seen(core.db)}
 
 
 @router.delete("/api/sessions/{sid}")

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from .. import __version__
 from ..events import UNASSIGNED
 from ..freetime import find_free
-from .. import birthdays as bd, escorts, school, stats, widget
+from .. import birthdays as bd, escorts, recent, school, stats, widget
 from fastapi import APIRouter
 
 from .. import core
@@ -63,6 +63,17 @@ def put_school(body: SchoolIn):
     school.save_settings(core.db, body.hide, body.hide_words)
     core.events.invalidate()   # школьные события скрываются/возвращаются сразу
     return {"breaks": school.load(core.db), **school.settings(core.db)}
+
+
+@router.get("/api/recent-events")
+def recent_events():
+    """Частые и недавние события — плашки в «+» (форма откроется уже заполненной)."""
+    day = core._today_start()
+    writable = {c["key"] for c in core.db.list_calendars() if not c["hidden"] and core._writable(c["key"])}
+    if not writable:
+        return {"items": []}
+    evs = core.events.events(day - timedelta(days=45), day + timedelta(days=31))
+    return {"items": recent.build(evs, writable, datetime.now())}
 
 
 @router.get("/api/stats")

@@ -129,7 +129,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { state, reload, writableCalendars } from '../lib/store'
 import { api } from '../lib/api'
 import { eventRange, isoDate, isoLocal, addDays } from '../lib/dates'
@@ -194,7 +194,11 @@ const pad = (n) => String(n).padStart(2, '0')
 const hm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
 const LS = 'homecal.lastCalendar'
 
+// Пока форма заполняется целиком (открытие, плашка из «+»), конец за началом не двигаем — он уже посчитан.
+let filling = false
 watch(ed, (v) => {
+  filling = true
+  nextTick(() => { filling = false })
   error.value = ''
   confirmDel.value = false
   quick.value = ''
@@ -223,6 +227,17 @@ watch(ed, (v) => {
     try { last = localStorage.getItem(LS) || '' } catch {}
     const w = cals.value.map((c) => c.key)
     f.calendar = w.includes(last) ? last : w[0] || ''
+    // Плашка «частые и недавние» из «+»: название, длительность, участники, место и привычное время.
+    const t = v.template
+    if (t) {
+      f.title = t.title
+      f.location = t.location || ''
+      f.people = (t.people || []).filter((id) => (state.config?.people || []).some((p) => p.id === id))
+      if (w.includes(t.calendar)) f.calendar = t.calendar
+      if (/^\d\d:\d\d$/.test(t.time || '')) f.startTime = t.time
+      const end = new Date(new Date(`${f.startDate}T${f.startTime}`).getTime() + (t.minutes || 60) * 60000)
+      f.endDate = isoDate(end); f.endTime = hm(end)
+    }
   }
   origPeople = [...f.people]
   // у существующего события с заполненными полями «Ещё» сразу открыто
@@ -232,7 +247,7 @@ watch(ed, (v) => {
 // Сдвигаем конец вместе с началом, чтобы длительность не терялась.
 let prev = null
 watch(() => [f.startDate, f.startTime], ([d, t], old) => {
-  if (!old || !old[0]) return
+  if (filling || !old || !old[0]) return
   const a = new Date(`${old[0]}T${old[1] || '00:00'}`)
   const b = new Date(`${f.endDate}T${f.endTime || '00:00'}`)
   const n = new Date(`${d}T${t || '00:00'}`)

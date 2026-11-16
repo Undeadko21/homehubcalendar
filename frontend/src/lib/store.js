@@ -126,7 +126,9 @@ export function setWeekDays(n) {
 
 export const writableCalendars = () => (state.config?.calendars || []).filter((c) => c.writable && !c.hidden)
 
-export function newEvent(date, quick) { state.editor = { date: date || state.cursor, ...(quick ? { quick } : {}) } }
+export function newEvent(date, quick, template) {
+  state.editor = { date: date || state.cursor, ...(quick ? { quick } : {}), ...(template ? { template } : {}) }
+}
 export function editEvent(e) { state.editor = { event: e } }
 
 export function openEvent(e) {

@@ -62,6 +62,12 @@ def stack(tmp_path_factory):
     _wait(ap, "/api/health")
     req = urllib.request.Request(f"http://127.0.0.1:{ap}/api/sync", method="POST")
     urllib.request.urlopen(req, timeout=60).read()
+    # Если в этот момент уже шла стартовая синхронизация, ручная возвращается сразу — ждём, пока календарь действительно появится.
+    for _ in range(150):
+        cfg = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{ap}/api/config", timeout=5).read())
+        if any(c.get("writable") for c in cfg.get("calendars", [])):
+            break
+        time.sleep(0.2)
     yield {"url": f"http://127.0.0.1:{ap}", "cal": cal, "tomorrow": tomorrow.isoformat()}
     app.terminate(); rad.terminate()
     app.wait(10); rad.wait(10)
@@ -159,3 +165,24 @@ def test_drag_event_in_week_view_moves_it_in_caldav(page, stack):
             break
         time.sleep(0.4)
     assert "T100000" not in start, start
+
+
+def test_offline_shell_and_last_data(page, stack):
+    """Офлайн-версия: без связи страница открывается из кэша, показывает последние данные и полосу «Нет связи»."""
+    page.wait_for_function("navigator.serviceWorker && navigator.serviceWorker.controller !== null", timeout=20000)
+    page.evaluate("navigator.serviceWorker.ready.then((r) => r.active.postMessage('precache'))")
+    page.evaluate("fetch('/api/lists').then((r) => r.json())")
+    # все файлы экранов из списка сборки должны оказаться в кэше (в том числе ещё не открытые «Настройки»)
+    page.wait_for_function(
+        """async () => { const want = await (await fetch('/precache.json')).json(); const c = await caches.open('hh-shell-v1');
+                         const have = (await c.keys()).map((r) => new URL(r.url).pathname);
+                         return want.every((f) => have.includes(f)) && have.includes('/') }""", timeout=20000)
+    page.context.set_offline(True)
+    page.reload()
+    page.wait_for_selector("button.add-btn", timeout=20000)          # настройки взялись из кэша
+    page.wait_for_selector(".netbar", timeout=20000)
+    cached = page.evaluate("fetch('/api/lists').then(async (r) => ({ mark: r.headers.get('X-HH-Cached'), ok: Array.isArray((await r.json())) || true }))")
+    assert cached["mark"] == "1"
+    page.click("text=Настройки")                                     # отдельный файл экрана — тоже из кэша
+    page.wait_for_selector(".settings", timeout=10000)
+    page.context.set_offline(False)

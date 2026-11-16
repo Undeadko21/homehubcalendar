@@ -13,11 +13,23 @@ const scaleFonts = {
   },
 }
 
+// Список файлов сборки для офлайн-кэша (public/sw.js): современные файлы, без запасных для старых WebView.
+const precacheList = {
+  name: 'precache-list',
+  apply: 'build',
+  generateBundle(_, bundle) {
+    if (Object.keys(bundle).some((f) => f.includes('-legacy'))) return   // второй проход legacy-сборки
+    const files = Object.keys(bundle).filter((f) => f.startsWith('assets/') && !f.endsWith('.map')).map((f) => '/' + f).sort()
+    this.emitFile({ type: 'asset', fileName: 'precache.json', source: JSON.stringify(files) })
+  },
+}
+
 export default defineConfig({
   test: { environment: 'happy-dom', include: ['tests/**/*.test.js'] },
   css: { postcss: { plugins: [scaleFonts] } },
   plugins: [
     vue(),
+    precacheList,
     // Поддержка старых встроенных браузеров Android (WebView): синтаксис и недостающие функции.
     legacy({ modernTargets: ['chrome >= 64', 'safari >= 13'], modernPolyfills: true, renderLegacyChunks: false }),
   ],

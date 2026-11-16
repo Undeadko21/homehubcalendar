@@ -114,7 +114,8 @@ def _issue_cookie(resp, request: Request, secret: str) -> None:
 
 
 def _new_session(request: Request, via: str) -> str:
-    return core.sessions.create(_pinfp(), sessions_mod.device_label(request.headers.get("user-agent", "")), _client_ip(request), via)
+    return core.sessions.create(_pinfp(), sessions_mod.device_label(request.headers.get("user-agent", "")), _client_ip(request), via,
+                                ua=request.headers.get("user-agent", ""))
 
 
 def current_session(request: Request) -> str | None:
@@ -132,7 +133,7 @@ async def pin_guard(request: Request, call_next):
     upgrade_secret = None
     if core.settings.pin and path.startswith("/api/") and path not in _PUBLIC_API and not path.startswith("/api/login/qr/"):
         cookie = request.cookies.get("homecal_auth", "")
-        if cookie.startswith("s.") and core.sessions.check(cookie[2:], _pinfp(), _client_ip(request)):
+        if cookie.startswith("s.") and core.sessions.check(cookie[2:], _pinfp(), _client_ip(request), ua=request.headers.get("user-agent", "")):
             pass
         elif cookie and not cookie.startswith("s.") and core.sessions.legacy_ok() and hmac.compare_digest(cookie, _token()):
             # Старый общий cookie: молча заменяем личной сессией, чтобы устройство появилось в списке и его можно было отключить.
@@ -260,6 +261,8 @@ if core.STATIC_DIR.exists():
     def spa(path: str):
         f = core.STATIC_DIR / path
         if path and f.is_file() and core.STATIC_DIR in f.resolve().parents:
-            return FileResponse(f, headers={"Cache-Control": "no-cache"} if f.name == "index.html" else None)
+            # Оболочка, офлайн-скрипт и список файлов сборки всегда сверяются с сервером.
+            fresh = f.name in ("index.html", "sw.js", "precache.json", "manifest.webmanifest")
+            return FileResponse(f, headers={"Cache-Control": "no-cache"} if fresh else None)
         # Оболочка страницы всегда сверяется с сервером: иначе WebView в приложениях может долго держать старую версию интерфейса.
         return FileResponse(core.STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})

@@ -149,7 +149,7 @@
 <script setup>
 import { computed, defineAsyncComponent, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen, animate, toast } from './lib/store'
-import { net } from './lib/api'
+import { api, net } from './lib/api'
 import { haptic } from './lib/haptic'
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
 import EventDialog from './components/EventDialog.vue'
@@ -396,6 +396,11 @@ onMounted(async () => {
   await loadConfig()
   await refreshStatus()
   connectLive()
+  // Приложение Android называет себя серверу (код в облаке и модель) — для страницы «Устройства».
+  try {
+    const d = window.HomeHubApp?.deviceInfo ? JSON.parse(window.HomeHubApp.deviceInfo()) : null
+    if (d?.id) api.deviceHello(d.id, d.model || '').catch(() => {})
+  } catch { /* старое приложение */ }
   tickNight()
   timers.push(setInterval(reload, (state.kiosk ? 5 : 10) * 60000))
   timers.push(setInterval(tickNight, 60000))

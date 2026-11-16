@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import secrets
 import threading
 from datetime import datetime, timedelta
@@ -59,6 +60,23 @@ def device_label(ua: str) -> str:
     return f"{os_} · {app}"
 
 
+def app_version(ua: str) -> str | None:
+    """Версия нашего приложения из User-Agent (`HomeHubApp/2.11.0`); None — обычный браузер."""
+    m = re.search(r"HomeHubApp/([0-9][\w.]{0,15})", ua or "")
+    return m.group(1) if m else None
+
+
+def platform(ua: str) -> str:
+    low = (ua or "").lower()
+    if "iphone" in low or "ipad" in low:
+        return "ios"
+    if "android" in low:
+        return "android"
+    if "macintosh" in low or "mac os" in low:
+        return "mac"
+    return "other"
+
+
 class Sessions:
     def __init__(self, db: Database):
         self.db = db
@@ -79,20 +97,21 @@ class Sessions:
         value, _ = self.db.kv_get(LEGACY_KEY)
         return not value
 
-    def create(self, pinfp: str, label: str, ip: str, via: str, now: datetime | None = None) -> str:
+    def create(self, pinfp: str, label: str, ip: str, via: str, now: datetime | None = None, ua: str = "") -> str:
         now = now or datetime.now()
         secret = secrets.token_urlsafe(32)
         with self._lock:
             d = self._data()
             d[_key(secret)] = {"label": label[:60], "ip": ip[:64], "via": via, "pin": pinfp,
-                               "created": now.isoformat(timespec="seconds"), "last": now.isoformat(timespec="seconds")}
+                               "created": now.isoformat(timespec="seconds"), "last": now.isoformat(timespec="seconds"),
+                               "app": app_version(ua), "os": platform(ua)}
             if len(d) > MAX:
                 for k in sorted(d, key=lambda k: d[k]["last"])[: len(d) - MAX]:
                     d.pop(k, None)
             self._save()
         return secret
 
-    def check(self, secret: str, pinfp: str, ip: str = "", now: datetime | None = None) -> str | None:
+    def check(self, secret: str, pinfp: str, ip: str = "", now: datetime | None = None, ua: str = "") -> str | None:
         """Ключ сессии, если секрет действителен для текущего пароля; иначе None."""
         k = _key(secret)
         rec = self._data().get(k)
@@ -108,13 +127,28 @@ class Sessions:
                 rec["last"] = now.isoformat(timespec="seconds")
                 if ip:
                     rec["ip"] = ip[:64]
+                if ua:   # приложение обновилось — версия в списке устройств меняется сама
+                    rec["app"], rec["os"], rec["label"] = app_version(ua), platform(ua), device_label(ua)[:60]
                 self._save()
         return k
+
+    def hello(self, key: str, code: str, model: str) -> bool:
+        """Приложение сообщает свой код в облаке и модель: так вход и файл команд сходятся в одну строку «Устройств»."""
+        with self._lock:
+            rec = self._data().get(key)
+            if not rec:
+                return False
+            new = {"code": code[:40], "model": model[:40]}
+            if rec.get("dev") != new:
+                rec["dev"] = new
+                self._save()
+            return True
 
     def listing(self, current: str | None) -> list[dict]:
         d = self._data()
         out = [{"id": k[:12], "label": v.get("label", ""), "ip": v.get("ip", ""), "via": v.get("via", ""),
-                "created": v.get("created"), "last": v.get("last"), "current": k == current} for k, v in d.items()]
+                "created": v.get("created"), "last": v.get("last"), "current": k == current,
+                "app": v.get("app"), "os": v.get("os"), "dev": v.get("dev")} for k, v in d.items()]
         return sorted(out, key=lambda r: r["last"] or "", reverse=True)
 
     def revoke(self, pub_id: str) -> bool:

@@ -41,8 +41,11 @@ async function request(method, url, body) {
     err.offline = true
     throw err
   }
-  markOk()
+  // Ответ из офлайн-кэша (sw.js): данные показываем, но честно говорим, что связи нет.
+  if (res.headers.get('X-HH-Cached')) markDown(false)
+  else markOk()
   if (res.status === 401) {
+    try { navigator.serviceWorker?.controller?.postMessage('forget') } catch { /* нет офлайн-кэша */ }
     const err = new Error('auth_required')
     err.auth = true
     if (onAuth && !url.endsWith('/api/login')) onAuth()
@@ -87,6 +90,7 @@ export const api = {
   runChecks: () => request('POST', '/api/checks'),
   perf: () => request('GET', '/api/perf'),
   quick: (text) => request('POST', '/api/quick', { text }),
+  recentEvents: () => request('GET', '/api/recent-events'),
   changes: () => request('GET', '/api/changes'),
   undoChange: (id) => request('POST', `/api/changes/${id}/undo`),
   flushChanges: () => request('POST', '/api/changes/flush'),
@@ -104,6 +108,8 @@ export const api = {
   ntfyTest: () => request('POST', '/api/access/ntfy-test'),
   probeAccess: () => request('POST', '/api/access/probe'),
   sessions: () => request('GET', '/api/sessions'),
+  devices: () => request('GET', '/api/devices'),
+  deviceHello: (code, model) => request('POST', '/api/devices/hello', { code, model }),
   revokeSession: (id) => request('DELETE', `/api/sessions/${id}`),
   revokeAll: (keepCurrent) => request('POST', '/api/sessions/revoke-all', { keep_current: keepCurrent }),
   loginQr: () => request('POST', '/api/login/qr'),

@@ -90,18 +90,41 @@
       <p class="group-note">Наведите камеру нового устройства: пароль вводить не нужно. Ссылка живёт 10 минут и срабатывает один раз.</p>
       <p v-if="err" class="group-note err">{{ err }}</p>
 
-      <template v-if="dev && dev.pin">
+      <template v-if="devs">
         <h3 class="group-title">Устройства</h3>
-        <div class="group">
-          <div v-for="d in dev.sessions" :key="d.id" class="row">
-            <span class="lbl">{{ d.label }}<b v-if="d.current" class="me"> · это устройство</b>
-              <small class="muted block">{{ d.via }} · был {{ fmt(d.last) }} · {{ d.ip }}</small></span>
+        <div v-if="devs.pin" class="group">
+          <div v-for="d in devs.devices" :key="d.id" class="row">
+            <span class="lbl">{{ d.model || d.label }}<b v-if="d.current" class="me"> · это устройство</b>
+              <small class="muted block">{{ d.model ? d.label + ' · ' : '' }}{{ d.app ? 'версия ' + d.app : 'веб-версия' }} · был {{ fmt(d.last) }}</small>
+              <small class="muted block">{{ d.via }} · {{ d.ip }}</small>
+              <small v-if="d.cloud && d.cloud.ok" class="muted block">команды вне дома доходят{{ d.cloud.last ? ' · последняя запись ' + fmt(d.cloud.last) : '' }}</small>
+              <small v-for="(n, i) in d.notes" :key="i" class="block" :class="n.level === 'warn' ? 'warn' : 'muted'">{{ n.text }}</small>
+            </span>
             <button class="btn" :disabled="busy" @click="revoke(d)">Отключить</button>
           </div>
-          <div v-if="!dev.sessions.length" class="row"><span class="muted small">Пока никого нет.</span></div>
+          <div v-if="!devs.devices.length" class="row"><span class="muted small">Пока никого нет.</span></div>
           <div class="row"><button class="btn" :disabled="busy" @click="revokeAll(true)">Отключить все, кроме этого</button></div>
         </div>
-        <p class="group-note">Отключённому устройству придётся ввести пароль заново. Смена пароля отключает все устройства.{{ dev.legacy ? ' Кнопка выше также отключит устройства, которые входили давно и ещё не заходили после обновления.' : '' }}</p>
+        <p v-if="devs.pin" class="group-note">{{ latestText }}Отключённому устройству придётся ввести пароль заново. Смена пароля отключает все устройства.{{ dev && dev.legacy ? ' Кнопка выше также отключит устройства, которые входили давно и ещё не заходили после обновления.' : '' }}</p>
+        <p v-else class="group-note">Пароль на вход не задан, поэтому вошедшие устройства не различаются.</p>
+
+        <template v-if="devs.cloud_only.length">
+          <h3 class="group-title">Телефоны, которые шлют команды из облака</h3>
+          <div class="group">
+            <div v-for="c in devs.cloud_only" :key="c.name" class="row">
+              <span class="lbl">{{ c.model || 'Устройство ' + c.code }}
+                <small class="muted block">{{ c.model ? 'код ' + c.code + ' · ' : '' }}{{ c.last ? 'последняя запись ' + fmt(c.last) : 'записей ещё не было видно' }}</small>
+                <small v-if="c.ok" class="muted block">команды доходят</small>
+                <small v-else class="warn block">команды не читаются: {{ c.why }}</small>
+              </span>
+              <button v-if="!c.ok" class="btn" :disabled="busy" @click="forget(c)">Убрать</button>
+            </div>
+          </div>
+          <p class="group-note">Это Android-телефоны, подключённые кодом: они назначают поездки и правят списки вне дома. Код телефона виден в нём самом: Настройки → «Приложения и виджеты» → «Это устройство».</p>
+        </template>
+        <p v-if="devs.widget_last" class="group-note">Виджеты и приложения по токену «только чтение» последний раз читали данные {{ fmt(devs.widget_last) }}.</p>
+      </template>
+      <template v-if="dev && dev.pin">
         <template v-if="dev.log.length">
           <h3 class="group-title">Журнал безопасности</h3>
           <div class="group">
@@ -111,7 +134,6 @@
           </div>
         </template>
       </template>
-      <p v-else-if="dev" class="group-note">Пароль на вход не задан, поэтому устройства не различаются.</p>
     </template>
 
     <!-- VPS и уведомления -->
@@ -227,8 +249,21 @@ const certText = computed(() => {
   return k.length ? ' · сертификат ' + k.map((n) => `${n}: ${c[n]} дн.`).join(', ') : ''
 })
 
+const devs = ref(null)
+const OS = { android: 'Android', ios: 'iPhone', mac: 'Mac' }
+const latestText = computed(() => {
+  const l = devs.value?.latest || {}
+  const parts = Object.keys(OS).filter((k) => l[k]).map((k) => `${OS[k]} ${l[k]}`)
+  return parts.length ? `Сервер раздаёт приложения: ${parts.join(', ')}. ` : ''
+})
 async function loadDevices() {
   try { dev.value = await api.sessions() } catch { /* список устройств необязателен */ }
+  try { devs.value = await api.devices() } catch { /* старый сервер */ }
+}
+async function forget(c) {
+  if (!confirm('Убрать файл команд этого телефона? Если телефон ещё в ходу, он появится снова после подключения.')) return
+  busy.value = true; err.value = ''
+  try { await api.forgetOps(c.name); await loadDevices() } catch (e) { err.value = String(e.message || e) } finally { busy.value = false }
 }
 async function probe() {
   busy.value = true; err.value = ''; probed.value = ''
@@ -245,12 +280,13 @@ async function revoke(d) {
     const r = await api.revokeSession(d.id)
     if (r.was_current) location.reload()
     dev.value = r
+    await loadDevices()
   } catch (e) { err.value = String(e.message || e) } finally { busy.value = false }
 }
 async function revokeAll(keep) {
   if (!confirm('Отключить все устройства, кроме этого?')) return
   busy.value = true; err.value = ''
-  try { dev.value = await api.revokeAll(keep); await load() } catch (e) { err.value = String(e.message || e) } finally { busy.value = false }
+  try { dev.value = await api.revokeAll(keep); await load() ; await loadDevices() } catch (e) { err.value = String(e.message || e) } finally { busy.value = false }
 }
 async function load() {
   if (props.part === 'devices') loadDevices()
@@ -296,6 +332,8 @@ onBeforeUnmount(() => clearInterval(timer))
 .dot.warn { background: #ff9500; }
 .dot.bad { background: #ff3b30; }
 .me { color: var(--red); font-weight: 600; }
+small.warn { color: #c93400; }
+:root[data-theme='dark'] small.warn { color: #ff9f0a; }
 .lbl { flex: 1; min-width: 0; }
 .block { display: block; font-weight: 400; font-size: 13px; }
 .val { text-align: right; font-size: 14px; overflow-wrap: anywhere; max-width: 60%; }

@@ -206,7 +206,7 @@ class CloudSync:
     def status(self) -> dict:
         st = self._state()
         return {"configured": bool(self._token()), "client_id": self.client_id(), "last_ok": st.get("last_ok"), "last_error": st.get("last_error"),
-                "ops_error": st.get("ops_error"), "ops_bad": st.get("ops_bad") or [], "code": self.code(),
+                "ops_error": st.get("ops_error"), "ops_bad": st.get("ops_bad") or [], "ops_devices": st.get("ops_devices") or [], "code": self.code(),
                 # для навыка Алисы: url и ключ — чтение снимка; token — только если хотите голосовое «добавь…» (запись в папку)
                 "alice": {"url": st.get("public_url"), "key": _b64(self.key()),
                           "token": self._token() if token_ok(self._token()) else None} if st.get("public_url") else None}
@@ -221,10 +221,15 @@ class CloudSync:
         seen: dict = st.get("ops_md5") or {}
         changed = False
         bad: dict = {b["name"]: b for b in st.get("ops_bad") or []}
+        devs: dict = {}   # телефоны, которые кладут команды в облако: для страницы «Устройства»
         try:
             disk = self.client_factory(token)
             for f in disk.list_ops():
                 name = f["name"]
+                if not name.startswith(("ops-alice-", "ops-once-")):
+                    code, _, model = name[4:-4].partition("~")
+                    devs[name] = {"name": name, "device": code[:40], "model": model.replace("-", " ")[:40] or None,
+                                  "modified": f.get("modified")}
                 if seen.get(name) == f.get("md5"):
                     continue
                 once = name.startswith(("ops-alice-", "ops-once-"))   # одноразовые файлы (Алиса, кнопки в уведомлениях iPhone/Mac)
@@ -270,6 +275,8 @@ class CloudSync:
             st["ops_error"] = f"Не удалось прочитать команды из облака ({type(e).__name__})"
             log.warning("Команды из облака: %s", e)
         st["ops_bad"] = list(bad.values())[-8:]
+        if not st.get("ops_error"):
+            st["ops_devices"] = list(devs.values())[-20:]
         self.db.kv_set("cloud:state", st)
         return changed
 

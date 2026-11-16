@@ -28,4 +28,16 @@ else {
 const app = createApp(App)
 installReporting(app)
 app.mount('#app')
+registerOffline()
+}
+
+// Офлайн-кэш (public/sw.js): страница открывается без связи и показывает последние данные.
+// После загрузки просим докачать файлы остальных экранов — чтобы «Неделя» и «Настройки» открылись и без сети.
+function registerOffline() {
+  if (!('serviceWorker' in navigator) || !import.meta.env.PROD) return
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready).then((reg) => {
+      setTimeout(() => reg.active?.postMessage('precache'), 4000)
+    }).catch(() => { /* без офлайна — как раньше */ })
+  })
 }
