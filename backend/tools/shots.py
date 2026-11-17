@@ -71,6 +71,7 @@ def main() -> None:
     ap.add_argument("--devices", default="phone,desktop")
     ap.add_argument("--themes", default="light,dark")
     ap.add_argument("--ask", action="store_true", help="ещё снимки «+» и карточки первого события")
+    ap.add_argument("--url", help="снимать уже запущенный сервер (песочница прода, tools/sandbox.py) вместо демо")
     a = ap.parse_args()
     if not (DIST / "index.html").exists():
         raise SystemExit("нет frontend/dist — сначала: cd frontend && npm run build")
@@ -80,7 +81,7 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     index: list[str] = []
     with tempfile.TemporaryDirectory() as t:
-        proc, url = start_demo(Path(t))
+        proc, url = (None, a.url.rstrip("/")) if a.url else start_demo(Path(t))
         try:
             with sync_api.sync_playwright() as p:
                 browser = p.chromium.launch()
@@ -124,8 +125,9 @@ def main() -> None:
                         ctx.close()
                 browser.close()
         finally:
-            proc.terminate()
-            proc.wait(10)
+            if proc:
+                proc.terminate()
+                proc.wait(10)
     (out / "index.txt").write_text("\n".join(index) + "\n", encoding="utf-8")
     print(f"{len(index)} снимков в {out}")
     for line in index:

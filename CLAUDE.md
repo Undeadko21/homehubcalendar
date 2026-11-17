@@ -8,7 +8,7 @@
 ## Правила (нарушение = поломка прода)
 
 1. **Любой пуш в `main` сразу уезжает в прод.** Перед пушем: `set -o pipefail; ./deploy/check.sh` (pytest бэкенда, `npm test`, сборка фронта, тесты Алисы) — пушить только при «OK: можно пушить».
-   Крупное изменение — сначала помощник `reviewer` (см. ниже).
+   Крупное изменение — сначала помощник `reviewer` (см. ниже); рискованное (миграции, лента, снимок, запись) — ещё и песочница прода.
 2. Миграции БД — только дописывать в конец `MIGRATIONS` (`backend/app/db.py`).
 3. `deploy/update.sh`: байтовая длина текста ДО строки `git reset` не должна меняться (bash читает скрипт по смещению). Подробно — `docs/dev/changelog.md`, v0.11.2.
 4. `.dockerignore` должен пропускать `android/release` и `android/version.properties` (без них образ не собирается; CI `docker` это ловит).
@@ -38,6 +38,7 @@
 
 ```bash
 set -o pipefail; ./deploy/check.sh          # всё сразу; падает при любой ошибке
+python backend/tools/sandbox.py <база|копия --key k> [--ui]   # песочница прода: копия базы без секретов и сети (docs/dev/outside.md)
 python backend/tools/shots.py               # снимки экранов на демо-данных → /tmp/shots (телефон, компьютер, тёмная тема)
 ```
 Прод: `curl https://homehubcalendar.ru/api/health` (версия `0.x.y+<коммит>`), `/api/app`, `/api/app-ios`, `/api/app-mac` — без входа.
