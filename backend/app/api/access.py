@@ -20,6 +20,7 @@ class AccessIn(BaseModel):
     vps: bool | None = None        # включить / выключить связь с VPS-агентом
     ntfy: bool | None = None       # уведомления «дом недоступен»
     login_alerts: bool | None = None   # сообщать о новых входах и подборе пароля
+    watch: bool | None = None      # токен дозора: агент разработки читает сводку состояния
 
 
 def _state() -> dict:
@@ -33,6 +34,8 @@ def _state() -> dict:
                 "problems": access.problems(db),
                 "install": f'curl -fsS -H "Authorization: Bearer {access.token(db, "vps")}" '
                            f'http://127.0.0.1:18080/api/vps/install.sh | bash' if vps_on else None},
+        "watch": {"enabled": access.enabled(db, "watch"), "token": access.token(db, "watch") if access.enabled(db, "watch") else None,
+                  "last": (db.kv_get("watch:seen")[0] or {}).get("at")},
         "ntfy": {"enabled": bool(topic), "topic": topic or None, "login": access.login_alerts(db)},
         "checks": access.checks(db, core.cloud.status(), len(core.sessions._data())),
     }
@@ -59,6 +62,10 @@ def put_access(body: AccessIn):
         access.token(db, "vps")
     elif body.vps is False:
         access.disable(db, "vps")
+    if body.watch is True:
+        access.token(db, "watch")
+    elif body.watch is False:
+        access.disable(db, "watch")
     if body.ntfy is True:
         access.enable_ntfy(db)
     elif body.ntfy is False:

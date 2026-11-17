@@ -4,12 +4,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from .. import sessions as sessions_mod
 from .. import __version__
 from .. import BUILD, versionwatch
 from .. import live
@@ -124,6 +126,54 @@ def get_system():
         "last_client_error": core.CLIENT_LOG[-1] if core.CLIENT_LOG else None, "problems": problems, "selftest": st,
         "checks": chk,
     }
+
+
+@router.get("/api/watch")
+def get_watch(request: Request):
+    """Сводка для дозора (агент разработки по расписанию): здоровье сервера, проблемы, медленные запросы, ошибки экранов.
+    Только по токену дозора — без календаря, списков, людей и секретов."""
+    from .. import access
+    if not access.check(core.db, "watch", request.headers.get("x-watch-token", "")):
+        raise HTTPException(401, "Нужен токен дозора")
+    core.db.kv_set("watch:seen", {"at": datetime.now(core.tz).isoformat(timespec="seconds")})
+    sysinfo = get_system()
+    srcs = [{"name": core.engine.label(x["source_id"]), "last_ok": x.get("last_ok"), "error": _scrub(x.get("last_error") or "")[:200]}
+            for x in sysinfo["sources"]]
+    errs = [{"at": e.get("at"), "kind": e.get("kind"), "message": _scrub(e.get("message") or "")[:300],
+             "where": (e.get("url") or "").split("?")[0].split("#")[0][-80:], "stack": _scrub(e.get("stack") or "")[:600],
+             "app": sessions_mod.app_version(e.get("ua") or "") or sessions_mod.platform(e.get("ua") or "")}
+            for e in core.CLIENT_LOG[-20:]]
+    return {
+        "version": sysinfo["version"], "started": sysinfo["started"], "now": sysinfo["now"],
+        "problems": [_scrub(p) for p in sysinfo["problems"]], "sources": srcs, "syncing": sysinfo["syncing"],
+        "backup": {k: sysinfo["backup"].get(k) for k in ("last_ok", "last_error")}, "selftest": sysinfo["selftest"],
+        "db_size": sysinfo["db_size"], "counts": {k: sysinfo["counts"][k] for k in ("calendars", "objects")},
+        "slow_requests": sysinfo["slow_requests"], "perf": _perf_for_watch(), "client_errors": errs,
+        "apps": {"android": _ver(core.APP_DIR, "versionName"), "ios": _ver(core.IOS_DIR, "version"), "mac": _ver(core.MAC_DIR, "version")},
+    }
+
+
+_URL_RE = re.compile(r"(?:https?|webcal)://\S+|[\w.+-]+@[\w-]+\.[\w.-]+")
+
+
+def _scrub(text: str) -> str:
+    """Адреса и e-mail из текстов ошибок (в них бывает логин Яндекса или секретная ссылка подписки) дозору не нужны."""
+    return _URL_RE.sub("…", text)
+
+
+def _perf_for_watch() -> dict:
+    """Скорость без значений параметров: в строке запроса бывает текст поиска, UID события, имя файла."""
+    pf = core.perf.summary()
+    slow = [{k: v for k, v in x.items() if k != "query"} | ({"params": sorted({kv.split("=")[0] for kv in (x.get("query") or "").split("&") if kv})}
+                                                           if x.get("query") else {}) for x in pf["slow"][:20]]
+    return {"routes": pf["routes"][:12], "slow": slow}
+
+
+def _ver(d, key):
+    try:
+        return json.loads((d / "version.json").read_text(encoding="utf-8")).get(key)
+    except (OSError, ValueError):
+        return None
 
 
 @router.post("/api/checks")

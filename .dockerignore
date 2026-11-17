@@ -9,3 +9,5 @@ config
 demo
 **/__pycache__
 .git
+.claude
+docs

@@ -168,6 +168,20 @@
           </div>
         </template>
       </div>
+      <h3 class="group-title">Дозор разработки</h3>
+      <div class="group">
+        <div class="row">
+          <span class="lbl">Токен дозора <small class="muted block">{{ st.watch && st.watch.last ? 'последний раз читал ' + fmt(st.watch.last) : 'пока не читал' }}</small></span>
+          <input :checked="st.watch && st.watch.enabled" type="checkbox" class="switch" @change="set({ watch: $event.target.checked })" />
+        </div>
+        <template v-if="st.watch && st.watch.enabled">
+          <div class="row stack">
+            <div class="code"><code>{{ st.watch.token }}</code><button class="btn" @click="copy(st.watch.token)">{{ copied ? 'Скопировано' : 'Копировать' }}</button></div>
+          </div>
+          <div class="row"><span class="lbl">Токен</span><button class="btn" :disabled="busy" @click="rotate('watch')">Выпустить новый</button></div>
+        </template>
+      </div>
+      <p class="group-note">Ежедневная проверка по расписанию читает только сводку «Состояния»: версию, список проблем (как на странице «Состояние» — там бывают имена и названия событий), скорость и ошибки экранов. Календаря, списков, адресов и паролей она не видит и ничего не меняет.</p>
       <template v-if="st.vps.enabled">
         <h3 class="group-title">Установка агента</h3>
         <div class="group">

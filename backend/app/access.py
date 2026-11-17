@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 from .db import Database
 
-KEYS = {"widget": "auth:widget", "vps": "auth:vps"}
+KEYS = {"widget": "auth:widget", "vps": "auth:vps", "watch": "auth:watch"}   # watch — дозор: только сводка состояния
 MAX_BACKUP = 512 * 1024
 QR_TTL = 600
 _QR: dict[str, float] = {}

@@ -1,4 +1,5 @@
 """v0.15: частые события для «+», единая страница «Устройства», файлы офлайн-версии."""
+import json
 from datetime import datetime, timedelta
 
 from app import devices, recent, sessions
@@ -85,3 +86,41 @@ def test_cloud_poll_remembers_devices(api):
     from app.cloud import CloudSync  # noqa: F401 — состояние читаем через status()
     st = api.core.cloud.status()
     assert "ops_devices" in st
+
+
+def test_watch_token_only_summary(api, monkeypatch):
+    monkeypatch.setattr(api.core.settings, "pin", "1234", raising=False)
+    assert api.get("/api/watch").status_code == 401
+    assert api.post("/api/login", json={"pin": "1234"}).status_code == 200
+    assert api.get("/api/watch").status_code == 401                      # вход паролем — не токен дозора
+    tok = api.put("/api/access", json={"watch": True}).json()["watch"]["token"]
+    api.cookies.clear()
+    h = {"X-Watch-Token": tok}
+    r = api.get("/api/watch", headers=h)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert {"version", "problems", "sources", "perf", "client_errors", "apps"} <= set(d)
+    assert "people" not in d and "calendars" not in d
+    assert api.get("/api/events?start=2026-11-01&end=2026-11-02", headers=h).status_code == 401   # больше ничего
+    assert api.get("/api/system", headers=h).status_code == 401
+    assert api.get("/api/watch", headers={"X-Watch-Token": "x" * 32}).status_code == 401
+    # токены не взаимозаменяемы
+    assert api.get("/api/widget", headers=h).status_code == 401 and api.get("/api/snapshot", headers=h).status_code == 401
+    api.post("/api/login", json={"pin": "1234"})
+    from app import access
+    wtok = access.token(api.core.db, "widget")
+    api.cookies.clear()
+    assert api.get("/api/watch", headers={"X-Watch-Token": wtok}).status_code == 401
+    assert api.get("/api/watch", headers={"X-Widget-Token": wtok}).status_code == 401
+
+
+def test_watch_scrubs_urls_and_query(api):
+    from app.api import system
+    assert system._scrub("Синхронизация: 404 https://caldav.yandex.ru/calendars/ivan@yandex.ru/x/ — нет") == "Синхронизация: 404 … — нет"
+    assert system._scrub("пишите ivan.petrov@yandex.ru") == "пишите …"
+    api.core.perf.record("GET", "/api/search", 900, 200, "q=Врач Марк&people=mark")
+    tok = api.put("/api/access", json={"watch": True}).json()["watch"]["token"]
+    d = api.get("/api/watch", headers={"X-Watch-Token": tok}).json()
+    body = json.dumps(d, ensure_ascii=False)
+    assert "Врач Марк" not in body and '"query"' not in body and '"ip"' not in body
+    assert any(x.get("params") == ["people", "q"] for x in d["perf"]["slow"])
