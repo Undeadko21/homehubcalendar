@@ -1,0 +1,19 @@
+name: Post-deploy check
+# После пуша в main ждёт, пока сервер дома обновится (до 30 минут), и проверяет прод по публичным адресам.
+# Красный прогон = выкатка не пришла или прод ответил плохо (GitHub пришлёт письмо). Состояние по токену дозора
+# проверяет агент (CLAUDE.md, «После выкатки») — токена в репозитории и секретах нет.
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', 'frontend/**', 'deploy/**', 'Dockerfile', 'docker-compose.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  postdeploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: ./deploy/postcheck.sh "${GITHUB_SHA}" 30
