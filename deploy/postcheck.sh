@@ -15,6 +15,7 @@ while :; do
   ver=$(get "$BASE/api/health" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("version",""))' 2>/dev/null || true)
   # выкатка пришла, если на проде этот коммит или более новый (после него могли лечь сборки приложений)
   prod="${ver##*+}"
+  git fetch -q origin main 2>/dev/null || true   # на проде может быть коммит новее нашего (сборки приложений)
   if [ -n "$ver" ] && { [ -z "$WANT" ] || [[ "$ver" == *"+$WANT"* ]] || git merge-base --is-ancestor "$WANT" "$prod" 2>/dev/null; }; then break; fi
   [ "$(date +%s)" -ge "$deadline" ] && { echo "ПРОВАЛ: за ${WAIT_MIN} мин на проде версия «${ver:-нет ответа}», ждали коммит $WANT"; exit 1; }
   sleep 30
