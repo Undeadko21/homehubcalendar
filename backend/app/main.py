@@ -56,6 +56,11 @@ async def lifespan(app: FastAPI):
                                id="deploy-watch", max_instances=1, coalesce=True, next_run_time=datetime.now() + timedelta(seconds=30))
         core.scheduler.add_job(core.selftest_weekly, "cron", day_of_week="sun", hour=5, minute=20, id="selftest", max_instances=1,
                                coalesce=True, misfire_grace_time=3600)
+        last = core.db.kv_get("selftest:last")[0] or {}
+        if last.get("ok") is False and (last.get("failed") or {}).get("name") == "Создать событие" \
+                and "не разрешил запись" in ((last.get("failed") or {}).get("error") or ""):
+            # Прошлая проверка упёрлась в календарь без права записи (до v0.15.2 это считалось сбоем) — перепроверить с выбором календаря.
+            core.scheduler.add_job(core.selftest_weekly, "date", run_date=datetime.now(core.tz) + timedelta(minutes=3), id="selftest-retry")
         core.scheduler.add_job(core.backup.run, "cron", hour=3, minute=30, id="backup", max_instances=1, coalesce=True,
                           misfire_grace_time=6 * 3600)
         core.scheduler.start()

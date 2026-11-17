@@ -49,7 +49,11 @@
         <div class="row"><button class="btn link" :disabled="busy || !testCal" @click="selftest">{{ testing ? 'Проверяю…' : 'Проверить запись' }}</button></div>
         <div v-if="s && s.selftest" class="row">
           <span class="lbl">Еженедельная проверка (вс, 05:20)</span>
-          <span :class="s.selftest.ok ? 'val ok' : 'val err'">{{ s.selftest.ok ? 'прошла' : 'не прошла' }} · {{ new Date(s.selftest.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }}</span>
+          <span :class="s.selftest.ok ? 'val ok' : 'val err'">{{ s.selftest.ok ? 'прошла' : 'не прошла' }}{{ s.selftest.name ? ' в «' + s.selftest.name + '»' : '' }} · {{ new Date(s.selftest.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }}</span>
+        </div>
+        <div v-for="c in denied" :key="c.key" class="row">
+          <span class="lbl">{{ c.name }} <small class="muted block">Яндекс не даёт сюда записывать (чужой календарь «только просмотр» или служебный) — в форме его нет</small></span>
+          <button class="btn" :disabled="busy || testing" @click="recheck(c.key)">Проверить снова</button>
         </div>
         <div v-for="(x, i) in testSteps" :key="i" class="row">
           <span :class="x.ok ? 'ok' : 'err'">{{ x.ok ? '✓' : '✕' }}</span><span class="lbl">{{ x.name }}</span>
@@ -193,7 +197,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import Help from './Help.vue'
 import { api } from '../lib/api'
-import { writableCalendars } from '../lib/store'
+import { state, loadConfig, writableCalendars } from '../lib/store'
 
 const props = defineProps({ part: { type: String, default: 'overview' } })
 const s = ref(null)
@@ -210,6 +214,12 @@ const checking = ref(false)
 async function runChecks() {
   checking.value = true
   try { await api.runChecks(); await load() } finally { checking.value = false }
+}
+const denied = computed(() => (state.config?.calendars || []).filter((c) => c.write_denied))
+async function recheck(key) {
+  testing.value = true; testSteps.value = []; err.value = ''
+  try { testSteps.value = (await api.selftestWrite(key)).steps; await loadConfig(); await load() } catch (e) { err.value = e.message }
+  testing.value = false
 }
 async function selftest() {
   testing.value = true; testSteps.value = []; err.value = ''

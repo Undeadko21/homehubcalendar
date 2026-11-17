@@ -68,15 +68,56 @@ def _source_cfg(cal_key: str) -> dict | None:
     return None
 
 
-def _writable(cal_key: str) -> bool:
+DENY_KEY = "write:denied"   # календари, куда Яндекс отказал в записи (403): чужие «только просмотр», служебные
+
+
+_deny_lock = threading.Lock()
+
+
+def write_denied() -> dict:
+    return db.kv_get(DENY_KEY)[0] or {}
+
+
+def family_writes(cal_key: str) -> bool:
+    """Семья уже успешно записывала в этот календарь (журнал правок) или выбрала его для проверки — такой не скрываем."""
+    if (db.kv_get("settings:selftest")[0] or {}).get("calendar") == cal_key:
+        return True
+    return any(e.get("calendar") == cal_key for e in ws.journal())
+
+
+def mark_denied(cal_key: str) -> None:
+    from . import access
+    with _deny_lock:
+        d = write_denied()
+        if cal_key in d:
+            return
+        db.kv_set(DENY_KEY, d | {cal_key: datetime.now(tz).isoformat(timespec="seconds")})
+    c = db.get_calendar(cal_key)
+    name = c["name"] if c else cal_key
+    log.warning("Яндекс не даёт записывать в %s — календарь помечен «только чтение»", cal_key)
+    access.notify(db, "HomeHub: календарь только для чтения",
+                  f"Яндекс не разрешил запись в «{name}», он убран из формы. Если это ошибка — «Состояние и копии» → «Проверить снова».",
+                  priority="low")
+
+
+def clear_denied(cal_key: str) -> None:
+    with _deny_lock:
+        d = write_denied()
+        if d.pop(cal_key, None) is not None:
+            db.kv_set(DENY_KEY, d)
+
+
+def _writable(cal_key: str, allow_denied: bool = False) -> bool:
     s = _source_cfg(cal_key)
-    return bool(s and s.get("type") == "caldav" and s.get("write", True) is not False)
+    if not (s and s.get("type") == "caldav" and s.get("write", True) is not False):
+        return False
+    return allow_denied or cal_key not in write_denied()
 
 
-def make_target(cal_key: str):
+def make_target(cal_key: str, allow_denied: bool = False):
     """Цель записи для календаря; в тестах подменяется."""
     s = _source_cfg(cal_key)
-    if not s or not _writable(cal_key):
+    if not s or not _writable(cal_key, allow_denied):
         raise HTTPException(400, "В этот календарь запись невозможна (он только для чтения)")
     eff = engine.effective_config(s)
     if not (eff.get("username") and eff.get("password")):
@@ -100,7 +141,8 @@ def _ws_changed() -> None:
         log.exception("Облако после записи")
 
 
-ws = writeq.WriteService(db, lambda k: make_target(k), _ws_changed)
+# Очередь записи не смотрит на пометку «только чтение»: пусть решает сервер, иначе отложенные правки пропали бы.
+ws = writeq.WriteService(db, lambda k: make_target(k, allow_denied=True), _ws_changed)
 def _warm() -> None:
     """Прогрев: разобрать события заранее, чтобы первое открытие календаря не ждало."""
     try:
@@ -274,12 +316,21 @@ def _ops_move(op: dict) -> None:
                                      occurrence=e["start"] if e.get("recurring") else None, scope="once" if e.get("recurring") else None))
 
 
-def run_selftest(calendar: str, scheduled: bool = False) -> dict:
+def _forbidden(e: Exception) -> bool:
+    """Именно отказ в праве (403) по ответу сервера — не по тексту ошибки целиком: в адресе бывают «403» (логин, UID)."""
+    from caldav.lib.error import DAVError
+    if not isinstance(e, DAVError):
+        return False
+    reason = str(getattr(e, "reason", "") or "")
+    return bool(re.search(r"\b403\b|Forbidden", reason))
+
+
+def run_selftest(calendar: str, scheduled: bool = False, record: bool = True) -> dict:
     """Проверка записи в живой календарь: создать → перенести → прочитать с сервера → серия с исключением → удалить.
     Идёт мимо локальной базы и журнала (семья ничего не увидит), тестовые события живут секунды."""
     from time import perf_counter
     from . import access, writer
-    target = make_target(calendar)
+    target = make_target(calendar, allow_denied=True)
     rid = _remote_id(calendar)
     steps: list[dict] = []
     day = datetime.now(tz).date() + timedelta(days=30)
@@ -292,7 +343,8 @@ def run_selftest(calendar: str, scheduled: bool = False) -> dict:
             steps.append({"name": name, "ok": True, "ms": round((perf_counter() - t0) * 1000)})
             return out
         except Exception as e:  # noqa: BLE001
-            steps.append({"name": name, "ok": False, "error": writer.friendly(e), "ms": round((perf_counter() - t0) * 1000)})
+            steps.append({"name": name, "ok": False, "error": writer.friendly(e), "ms": round((perf_counter() - t0) * 1000),
+                          **({"forbidden": True} if _forbidden(e) else {})})
             raise
 
     hrefs: list[str] = []
@@ -330,16 +382,32 @@ def run_selftest(calendar: str, scheduled: bool = False) -> dict:
     ok = all(x["ok"] for x in steps)
     log.info("Самопроверка записи %s: %s", calendar, "успешно" if ok else steps)
     res = {"ok": ok, "steps": steps, "calendar": calendar, "at": datetime.now(tz).isoformat(timespec="seconds"), "scheduled": scheduled}
+    # Отказ уже на создании (403) — это не поломка записи, а календарь без права записи: убираем его из пишущих.
+    # В календарь, куда семья уже записывала, не скрываем — это настоящий сбой, тревога как раньше.
+    res["denied"] = bool(steps and steps[0]["name"] == "Создать событие" and steps[0].get("forbidden")) and not family_writes(calendar)
+    if res["denied"]:
+        mark_denied(calendar)
+    elif ok:
+        clear_denied(calendar)
+    if record and not res["denied"]:   # отказ в чужом календаре — не сбой записи, в «Состояние» не пишем
+        _record_selftest(res)
+    return res
+
+
+def _record_selftest(res: dict) -> None:
+    from . import access
+    ok, scheduled, steps = res["ok"], res["scheduled"], res["steps"]
+    cal = db.get_calendar(res["calendar"])
     prev = (db.kv_get("selftest:last")[0] or {})
     db.kv_set("selftest:last", {k: res[k] for k in ("ok", "at", "calendar", "scheduled")} |
-              {"failed": next((x for x in steps if not x["ok"]), None)})
+              {"name": cal["name"] if cal else res["calendar"], "skipped": res.get("skipped") or [],
+               "failed": next((x for x in steps if not x["ok"]), None)})
     if scheduled and not ok:
         bad = next((x for x in steps if not x["ok"]), {})
         access.notify(db, "HomeHub: запись в Яндекс не работает",
                       f"Еженедельная проверка не прошла на шаге «{bad.get('name', '')}»: {bad.get('error', '')}. Правки из приложения могут не доходить.", priority="high")
     elif scheduled and ok and prev.get("ok") is False:
         access.notify(db, "HomeHub: запись в Яндекс снова работает", "Еженедельная проверка прошла.", priority="default")
-    return res
 
 
 def selftest_weekly() -> dict | None:
@@ -347,13 +415,34 @@ def selftest_weekly() -> dict | None:
     cfg = db.kv_get("settings:selftest")[0] or {}
     if cfg.get("enabled") is False:
         return None
-    cal = cfg.get("calendar")
-    if not cal or not _writable(cal):
-        cals = [c for c in db.list_calendars() if _writable(c["key"])]
-        if not cals:
-            return None
-        cal = cals[0]["key"]
-    return run_selftest(cal, scheduled=True)
+    # Помеченные «только чтение» перепроверяем: вдруг доступ дали (успех снимет пометку).
+    for cal in list(write_denied()):
+        if _writable(cal, allow_denied=True):
+            try:
+                run_selftest(cal, scheduled=True, record=False)
+            except Exception:  # noqa: BLE001
+                log.exception("перепроверка %s", cal)
+    keys = [c["key"] for c in db.list_calendars() if _writable(c["key"])]
+    # Сначала выбранный в настройках, затем те, куда семья недавно успешно записывала, затем остальные.
+    used = [e["calendar"] for e in reversed(ws.journal()) if e.get("calendar") in keys]
+    order = list(dict.fromkeys(([cfg["calendar"]] if cfg.get("calendar") in keys else []) + used + keys))
+    if not order:
+        if write_denied():
+            _record_selftest({"ok": False, "scheduled": True, "calendar": "", "at": datetime.now(tz).isoformat(timespec="seconds"),
+                              "steps": [{"name": "Выбор календаря", "ok": False,
+                                         "error": "Нет календаря, куда Яндекс разрешает запись (все помечены «только чтение»)"}]})
+        return None
+    skipped: list[str] = []
+    res = None
+    for cal in order[:4]:
+        res = run_selftest(cal, scheduled=True, record=False)
+        if not res["denied"]:
+            break
+        c = db.get_calendar(cal)
+        skipped.append(c["name"] if c else cal)
+    res["skipped"] = skipped
+    _record_selftest(res)   # если права записи нет ни в одном — это и запишется как сбой
+    return res
 
 
 def backup_drill() -> dict:

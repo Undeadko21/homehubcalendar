@@ -27,7 +27,7 @@
 | `docs/dev/frontend.md` | Vue: store, виды, компоненты, дизайн «как Календарь Apple» |
 | `docs/dev/apps.md` | Android (WebView + виджет + напоминания), iPhone (XcodeGen, AltStore, виджет), Mac, автообновление, Алиса |
 | `docs/dev/outside.md` | снимок и команды через Яндекс.Диск, токены, QR, доступ из интернета, агент VPS |
-| `docs/dev/changelog.md` | подробная история версий v0.1…v0.15 — все тонкости; искать `grep -n <имя> docs/dev/changelog.md` |
+| `docs/dev/changelog.md` | подробная история версий v0.1…v0.15.2 — все тонкости; искать `grep -n <имя> docs/dev/changelog.md` |
 
 Структура бэкенда: `main.py` (app, middleware, PIN, роутеры, SPA), `core.py` (настройки, singletons `db/events/engine/cloud/backup/ws…`), `api/*.py` (маршруты по темам).
 Тесты: `backend/tests/` (`conftest.py` — фикстура `api`; `test_caldav_radicale.py` — настоящий CalDAV; `test_e2e.py` — Playwright против собранного фронта), `frontend/tests/` (vitest), `alice/test_handler.py`.

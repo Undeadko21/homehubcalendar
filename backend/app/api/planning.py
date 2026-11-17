@@ -21,6 +21,7 @@ router = APIRouter()
 def get_config():
     people = core.db.list_people()
     cals = core.db.list_calendars()
+    denied = core.write_denied()
     known = {p["id"] for p in people}
     if any(not (set(c["people"]) & known) for c in cals if not c["hidden"]):
         people = people + [{"id": UNASSIGNED, "name": "Без владельца", "color": "#8a94a6",
@@ -30,7 +31,8 @@ def get_config():
         "timezone": core.settings.timezone,
         "version": __version__,
         "people": people,
-        "calendars": [{**c, "writable": core._writable(c["key"])} for c in cals],
+        "calendars": [{**c, "writable": core._writable(c["key"]),
+                       **({"write_denied": True} if c["key"] in denied else {})} for c in cals],
         "weather": core.settings.weather,
         "pin_enabled": bool(core.settings.pin),
         "accounts": core.engine.accounts(),

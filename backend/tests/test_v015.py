@@ -124,3 +124,77 @@ def test_watch_scrubs_urls_and_query(api):
     body = json.dumps(d, ensure_ascii=False)
     assert "Врач Марк" not in body and '"query"' not in body and '"ip"' not in body
     assert any(x.get("params") == ["people", "q"] for x in d["perf"]["slow"])
+
+
+def test_selftest_skips_calendar_without_write_permission(api, monkeypatch):
+    """Яндекс отвечает 403 на создание в чужом календаре «только просмотр»: проверка помечает его и берёт следующий."""
+    from app import access
+    sent = []
+    monkeypatch.setattr(access, "notify", lambda db, title, text, priority="default": sent.append(title) or True)
+    core = api.core
+    core.db.touch_calendar("ya/shared", "ya", "shared", "Аа общий от мамы", {"people": ["anna"]})   # первый по имени
+    real_create = api.fake.create
+
+    def create(rid, ics):
+        if rid == "shared":
+            from caldav.lib.error import AuthorizationError
+            raise AuthorizationError(url="/calendars/x/shared/", reason="Forbidden")
+        return real_create(rid, ics)
+
+    api.fake.create = create
+    monkeypatch.setattr(core, "_remote_id", lambda key: key.split("/", 1)[1])
+    r = core.selftest_weekly()
+    assert r["ok"] and r["calendar"] == "ya/home" and r["skipped"] == ["Аа общий от мамы"]
+    assert sent == ["HomeHub: календарь только для чтения"]   # о пометке сообщаем, тревоги «запись не работает» нет
+    assert "ya/shared" in core.write_denied()
+    cfg = api.get("/api/config").json()
+    shared = next(c for c in cfg["calendars"] if c["key"] == "ya/shared")
+    assert shared["write_denied"] and not shared["writable"]
+    assert not any("Проверка записи" in p for p in api.get("/api/system").json()["problems"])
+    # ручная проверка снова: доступ дали — календарь возвращается в пишущие
+    api.fake.create = real_create
+    r = api.post("/api/selftest/write", json={"calendar": "ya/shared"}).json()
+    assert r["ok"] and "ya/shared" not in core.write_denied()
+
+
+def test_selftest_real_write_failure_still_alerts(api, monkeypatch):
+    from app import access
+    sent = []
+    monkeypatch.setattr(access, "notify", lambda db, title, text, priority="default": sent.append(title) or True)
+    api.fake.update = lambda rid, href, ics: (_ for _ in ()).throw(RuntimeError("403 Forbidden"))   # 403 не на создании
+    r = api.core.selftest_weekly()
+    assert not r["ok"] and not r["denied"] and sent and "ya/home" not in api.core.write_denied()
+    assert any("Проверка записи в «Дом»" in p for p in api.get("/api/system").json()["problems"])
+
+
+
+def test_selftest_does_not_hide_family_calendar(api, monkeypatch):
+    """403 в календаре, куда семья уже записывала, — настоящий сбой: не прячем, а тревожим."""
+    from app import access
+    from caldav.lib.error import AuthorizationError, PutError
+    sent = []
+    monkeypatch.setattr(access, "notify", lambda db, title, text, priority="default": sent.append(title) or True)
+    core = api.core
+    r = api.post("/api/event", json={"calendar": "ya/home", "title": "Йога", "start": "2026-12-01T10:00:00", "end": "2026-12-01T11:00:00"})
+    assert r.status_code == 200
+    api.fake.create = lambda rid, ics: (_ for _ in ()).throw(AuthorizationError(url="/c/home/", reason="Forbidden"))
+    r = core.selftest_weekly()
+    assert not r["ok"] and not r["denied"] and "ya/home" not in core.write_denied()
+    assert sent and "не работает" in sent[-1]
+    # «403» только в адресе (логин, UID) — не отказ в праве
+    assert not core._forbidden(PutError(url="/calendars/ivan1403%40yandex.ru/x.ics", reason="Service Unavailable"))
+    assert not core._forbidden(RuntimeError("403 Forbidden"))   # не ответ CalDAV-сервера
+    assert core._forbidden(PutError(url="/x", reason="Forbidden"))
+
+
+def test_write_queue_ignores_denied_mark(api):
+    core = api.core
+    core.db.kv_set(core.DENY_KEY, {"ya/home": "2026-11-17T10:00:00"})
+    assert not core._writable("ya/home") and core._writable("ya/home", allow_denied=True)
+    # очередь записи берёт цель и для помеченного календаря (настоящая make_target, без подмены из фикстуры)
+    seen = []
+    import importlib
+    real = importlib.import_module("app.core").__dict__["_writable"]
+    api.core.make_target = lambda key, allow_denied=False: seen.append(allow_denied) or api.fake
+    core.ws.get_target("ya/home")
+    assert seen == [True] and real("ya/home", allow_denied=True)

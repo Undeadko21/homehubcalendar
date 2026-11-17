@@ -798,7 +798,7 @@ def test_event_write_api_with_fake_target(tmp_path, monkeypatch):
         def delete(self, rid, href): del self.store[href]
 
     fake = Fake()
-    monkeypatch.setattr(core, "make_target", lambda key: fake)
+    monkeypatch.setattr(core, "make_target", lambda key, allow_denied=False: fake)
     core.db.touch_calendar("ya/home", "ya", "home", "Дом", {"people": ["anna"]})
     c = TestClient(main.app)
     r = c.post("/api/event", json={"calendar": "ya/home", "title": "Врач", "start": "2026-11-03T10:00:00",
@@ -879,7 +879,7 @@ def test_write_queue_retry_journal_undo(tmp_path, monkeypatch):
         def delete(self, rid, href): self._chk(); del self.store[href]
 
     fake = Fake()
-    monkeypatch.setattr(core, "make_target", lambda key: fake)
+    monkeypatch.setattr(core, "make_target", lambda key, allow_denied=False: fake)
     core.db.touch_calendar("ya/home", "ya", "home", "Дом", {"people": ["anna"]})
     c = TestClient(main.app)
     rng = {"start": "2026-11-01T00:00:00", "end": "2026-11-10T00:00:00"}

@@ -62,7 +62,8 @@ def get_system():
     st = core.db.kv_get("selftest:last")[0]
     if st and st.get("ok") is False:
         f_ = st.get("failed") or {}
-        problems.append(f"Проверка записи в Яндекс не прошла ({f_.get('name', '')}): {f_.get('error', '')}")
+        where = f" в «{st['name']}»" if st.get("name") else ""
+        problems.append(f"Проверка записи{where} не прошла ({f_.get('name', '')}): {f_.get('error', '')}")
     problems += versionwatch.problems(core.db, BUILD)
     problems += builds.problems({"android": core.APP_DIR, "mac": core.MAC_DIR, "ios": core.IOS_DIR}, core.db)
     if core.ws.pending_count():

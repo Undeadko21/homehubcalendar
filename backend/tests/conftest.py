@@ -38,7 +38,7 @@ def api(tmp_path, monkeypatch):
             del self.store[href]
 
     fake = Fake()
-    monkeypatch.setattr(core, "make_target", lambda key: fake)
+    monkeypatch.setattr(core, "make_target", lambda key, allow_denied=False: fake)
     core.db.touch_calendar("ya/home", "ya", "home", "Дом", {"people": ["anna"]})
     client = TestClient(main.app)
     client.fake, client.main, client.core = fake, main, core
