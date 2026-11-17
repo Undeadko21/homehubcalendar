@@ -45,12 +45,27 @@
       </div>
     </section>
 
-    <!-- Пустой день: что ближайшее и когда -->
-    <button v-if="freeDay" class="free-day" :disabled="!nextUp" @click="nextUp && goToDay(nextUp.date)">
-      <strong>{{ isToday ? 'Сегодня' : 'В этот день' }} свободно</strong>
-      <span v-if="nextUp">Ближайшее — {{ nextUp.when }}: {{ nextUp.title }} ›</span>
-      <span v-else-if="nextLoaded">В ближайший месяц событий нет</span>
-    </button>
+    <!-- Пустой день: что ближайшее и когда, и как быстро что-то добавить -->
+    <section v-if="freeDay" class="free-day">
+      <div class="fd-head">
+        <span class="fd-ico" aria-hidden="true">☀︎</span>
+        <div>
+          <strong>{{ isToday ? 'Сегодня' : 'В этот день' }} свободно</strong>
+          <span v-if="nextLoaded && !nextList.length" class="faint">В ближайший месяц событий нет</span>
+          <span v-else-if="nextList.length" class="faint">Ближайшее:</span>
+        </div>
+      </div>
+      <button v-for="n in nextList" :key="n.id" class="fd-next" @click="goToDay(n.date)">
+        <span class="fd-when">{{ n.when }}</span>
+        <span class="fd-title">{{ n.title }}</span>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
+      <div v-if="!state.kiosk" class="fd-acts">
+        <button class="btn filled" @click="newEvent(day)">＋ Добавить на {{ isToday ? 'сегодня' : 'этот день' }}</button>
+        <span v-if="!touchUi" class="faint fd-hint">или протяните мышью по сетке ниже</span>
+        <span v-else class="faint fd-hint">или подержите палец на сетке ниже</span>
+      </div>
+    </section>
 
     <Skeleton v-if="!loaded && !todays.length" blocks :rows="3" class="sk" />
     <section ref="daySec" class="day-section">
@@ -71,7 +86,7 @@
 import Skeleton from '../components/Skeleton.vue'
 import { titleWithIcon } from '../lib/icons'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { state, visiblePeople, openEvent, quickAdd, toast, goToDay, isEventVisible, driverFixes, setDriver } from '../lib/store'
+import { state, visiblePeople, openEvent, quickAdd, toast, goToDay, isEventVisible, driverFixes, setDriver, newEvent } from '../lib/store'
 import { api } from '../lib/api'
 
 const quickText = ref('')
@@ -146,15 +161,26 @@ watch([freeDay, day, () => state.revision], async ([free]) => {
   } catch { /* подсказка необязательна */ }
   nextLoaded.value = true
 }, { immediate: true })
-const nextUp = computed(() => {
-  const e = upcoming.value.find((x) => !x.duty && isEventVisible(x))
-  if (!e) return null
-  const r = eventRange(e)
-  const rel = relativeDayName(r.start, now.value)
-  const dayText = ['Сегодня', 'Завтра'].includes(rel) ? rel.toLowerCase()
-    : r.start.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' })
-  return { date: r.start, title: e.title, when: e.all_day ? dayText : `${dayText} в ${formatTime(r.start)}` }
+// До трёх ближайших событий (по одному на день, чтобы не было трёх повторов одной секции).
+const nextList = computed(() => {
+  const out = []
+  const days = new Set()
+  for (const e of upcoming.value) {
+    if (e.duty || !isEventVisible(e)) continue
+    const r = eventRange(e)
+    const key = isoDate(r.start)
+    if (days.has(key)) continue
+    days.add(key)
+    const rel = relativeDayName(r.start, now.value)
+    const dayText = ['Сегодня', 'Завтра'].includes(rel) ? rel
+      : cap(r.start.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }))
+    out.push({ id: e.id, date: r.start, title: e.title, when: e.all_day ? dayText : `${dayText}, ${formatTime(r.start)}` })
+    if (out.length === 3) break
+  }
+  return out
 })
+const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1)
+const touchUi = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 
 const nextDay = computed(() => addDays(day.value, 1))
 const nextLabel = computed(() => relativeDayName(nextDay.value, now.value))
@@ -204,12 +230,22 @@ const trips = computed(() =>
 .holiday { color: var(--red); font-weight: 600; font-size: 17px; }
 .vacation { color: #34c759; font-weight: 600; font-size: 17px; }
 .free-day {
-  display: flex; flex-direction: column; gap: 2px; text-align: left; border: 0; font: inherit; color: var(--ink);
-  background: var(--surface-2); border-radius: var(--radius-m); padding: 12px 16px; max-width: 760px;
+  display: flex; flex-direction: column; gap: 6px; background: var(--surface-2); border-radius: var(--radius-m); padding: 14px 16px; max-width: 760px;
 }
-.free-day strong { font-size: 17px; }
-.free-day span { color: var(--ink-2); font-size: 14px; }
-.free-day:not(:disabled):hover { background: var(--fill); }
+.fd-head { display: flex; gap: 12px; align-items: center; }
+.fd-head > div { display: flex; flex-direction: column; }
+.fd-head strong { font-size: 17px; }
+.fd-ico { font-size: 26px; color: #ff9500; line-height: 1; }
+.fd-next {
+  display: flex; align-items: center; gap: 10px; border: 0; background: var(--surface); border-radius: 10px; padding: 9px 12px;
+  font: inherit; color: var(--ink); text-align: left; cursor: pointer;
+}
+.fd-next:hover { background: var(--fill); }
+.fd-when { color: var(--ink-2); font-size: 13px; flex: none; width: 9.5em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fd-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.chev { color: var(--ink-3); }
+.fd-hint { font-size: 13px; }
+.fd-acts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
 .sec { font-size: 20px; font-weight: 700; margin: 0 0 10px; letter-spacing: -0.01em; }
 
 .trips .group { background: var(--surface-2); max-width: 760px; }
@@ -223,7 +259,7 @@ const trips = computed(() =>
 .fixbtn:active { transform: scale(.96); }
 .trip { width: 100%; border: 0; background: none; text-align: left; color: inherit; }
 .trip:hover { background: var(--fill); }
-.trip .when { display: flex; flex-direction: column; width: 92px; flex: none; }
+.trip .when { display: flex; flex-direction: column; width: 6.8em; flex: none; white-space: nowrap; }
 .trip .when strong { font-size: 14px; font-weight: 600; }
 .trip .when small { font-size: 12px; color: var(--ink-2); }
 .trip .what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

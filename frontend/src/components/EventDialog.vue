@@ -10,6 +10,7 @@
         <span class="time">{{ formatEventTime(e) }}</span>
         <span v-if="e.recurring" class="tag">повторяется</span>
         <span v-if="e.tentative" class="tag">под вопросом</span>
+        <template v-if="e.location"><br /><a :href="mapUrl" target="_blank" rel="noopener" class="where-top">📍 {{ e.location }}</a></template>
       </p>
 
       <!-- Главные действия — сразу под названием -->
@@ -32,45 +33,6 @@
         <button v-else class="chip-btn danger" :disabled="saving" @click="removeEvent(false)">Удалить событие</button>
         <button class="chip-btn" @click="panel = null">Отмена</button>
         <p class="faint small panel-note">Удалится и в Яндексе. Сразу после можно нажать «Отменить» внизу экрана.</p>
-      </div>
-
-      <!-- Цвет -->
-      <div v-if="!e.duty && !e.private" class="group">
-        <div class="row stack">
-          <div class="row-head">
-            <span class="label">Цвет события
-              <span class="faint win">{{ ownColor ? 'свой' : sharedColor && persons.length > 1 ? 'как у общих встреч' : 'по человеку' }}</span></span>
-          </div>
-          <ColorPick :model-value="ownColor" none-label="По умолчанию" label="Цвет события" :disabled="saving" @update:model-value="saveColor" />
-        </div>
-      </div>
-
-      <!-- Чьё событие -->
-      <div class="group">
-        <div class="row stack">
-          <div class="row-head">
-            <span class="label">Чьё событие</span>
-            <button v-if="!editingPeople" class="btn link" @click="startEdit">Изменить</button>
-          </div>
-          <div v-if="!editingPeople" class="persons">
-            <span v-for="p in persons" :key="p.id" class="person" :style="{ '--c': p.color }">
-              <i></i>{{ p.emoji }} {{ p.name }}
-            </span>
-            <span v-if="!persons.length" class="faint">Без владельца</span>
-            <span v-if="e.people_override" class="faint small">выбрано вручную</span>
-          </div>
-          <template v-else>
-            <PeoplePicker v-model="draft" faces label="Чьё событие" :disabled="saving" />
-            <p class="faint small">
-              {{ e.recurring ? 'Применится ко всем повторам. ' : '' }}Меняется только здесь — в Яндексе событие останется как было.
-            </p>
-            <div class="actions">
-              <button class="btn filled" :disabled="saving" @click="savePeople(draft)">Сохранить</button>
-              <button class="btn gray" :disabled="saving" @click="editingPeople = false">Отмена</button>
-              <button v-if="e.people_override" class="btn" :disabled="saving" @click="savePeople(null)">Как в календаре</button>
-            </div>
-          </template>
-        </div>
       </div>
 
       <!-- Кто отвозит / забирает -->
@@ -167,11 +129,35 @@
         </p>
       </template>
 
-      <div v-if="e.location || e.url || e.description" class="group details">
-        <div v-if="e.location" class="row where">
-          <span class="label">Где</span>
-          <a :href="mapUrl" target="_blank" rel="noopener" class="val">{{ e.location }}</a>
+      <!-- Чьё событие -->
+      <div class="group">
+        <div class="row stack">
+          <div class="row-head">
+            <span class="label">Чьё событие</span>
+            <button v-if="!editingPeople" class="btn link" @click="startEdit">Изменить</button>
+          </div>
+          <div v-if="!editingPeople" class="persons">
+            <span v-for="p in persons" :key="p.id" class="person" :style="{ '--c': p.color }">
+              <i></i>{{ p.emoji }} {{ p.name }}
+            </span>
+            <span v-if="!persons.length" class="faint">Без владельца</span>
+            <span v-if="e.people_override" class="faint small">выбрано вручную</span>
+          </div>
+          <template v-else>
+            <PeoplePicker v-model="draft" faces label="Чьё событие" :disabled="saving" />
+            <p class="faint small">
+              {{ e.recurring ? 'Применится ко всем повторам. ' : '' }}Меняется только здесь — в Яндексе событие останется как было.
+            </p>
+            <div class="actions">
+              <button class="btn filled" :disabled="saving" @click="savePeople(draft)">Сохранить</button>
+              <button class="btn gray" :disabled="saving" @click="editingPeople = false">Отмена</button>
+              <button v-if="e.people_override" class="btn" :disabled="saving" @click="savePeople(null)">Как в календаре</button>
+            </div>
+          </template>
         </div>
+      </div>
+
+      <div v-if="e.url || e.description" class="group details">
         <div v-if="e.url" class="row">
           <span class="label">Ссылка</span>
           <a :href="e.url" target="_blank" rel="noopener" class="val">{{ e.url }}</a>
@@ -185,6 +171,18 @@
         <FilesBox :uid="e.uid" @changed="reload()" />
         <p class="group-note">{{ e.recurring ? 'Вложения общие для всех повторов. ' : '' }}Хранятся на домашнем сервере (до 15 МБ на файл), в Яндекс не попадают.</p>
       </template>
+      <!-- Цвет: свёрнут в одну строку, раскрывается по нажатию -->
+      <div v-if="!e.duty && !e.private" class="group">
+        <button class="row color-row" :aria-expanded="showColor" @click="showColor = !showColor">
+          <span class="label">Цвет события</span>
+          <span class="faint win">{{ ownColor ? 'свой' : sharedColor && persons.length > 1 ? 'как у общих встреч' : 'по человеку' }}</span>
+          <i class="swatch" :style="{ background: color }"></i>
+          <span class="chev" aria-hidden="true">{{ showColor ? '⌃' : '›' }}</span>
+        </button>
+        <div v-if="showColor" class="row stack">
+          <ColorPick :model-value="ownColor" none-label="По умолчанию" label="Цвет события" :disabled="saving" @update:model-value="saveColor" />
+        </div>
+      </div>
       <p v-if="e.private" class="faint small">Детали скрыты: у календаря включено «только занят».</p>
       <p v-if="error" class="conflict">{{ error }}</p>
       <p class="faint small src">Календари: {{ calNames }}</p>
@@ -406,6 +404,8 @@ const MOVES = [
   { id: 'w1', label: 'Через неделю', days: 7 },
 ]
 const panel = ref(null)
+const showColor = ref(false)
+watch(() => e.value?.id, () => { showColor.value = false })
 const movable = computed(() => canMove(e.value))
 function toggle(p) { panel.value = panel.value === p ? null : p }
 watch(() => e.value?.id, () => { panel.value = null })
@@ -437,7 +437,13 @@ async function removeEvent(onlyThis) {
 <style scoped>
 .ev { padding-top: 6px; }
 .head { display: flex; align-items: flex-start; gap: 8px; }
-.acts { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 8px; margin: 2px 0 14px; }
+.acts { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; margin: 2px 0 14px; }
+.where-top { display: inline-block; margin-top: 4px; color: var(--tint); text-decoration: none; font-size: 15px; }
+.color-row { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.color-row .label { flex: none; }
+.color-row .win { flex: 1; }
+.color-row .swatch { width: 18px; height: 18px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.2); }
+.color-row .chev { color: var(--ink-3); font-size: 18px; width: 14px; text-align: center; }
 .act {
   display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 9px 4px 8px; border: 0; border-radius: 12px;
   background: var(--surface-2); color: var(--tint); font: inherit; font-size: 13px; font-weight: 600; text-decoration: none; cursor: pointer;

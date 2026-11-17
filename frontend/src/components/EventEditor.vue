@@ -49,7 +49,7 @@
         <div class="row stack">
           <span class="label">Кто участвует</span>
           <PeoplePicker v-model="f.people" faces label="Кто участвует" :disabled="busy" />
-          <p class="faint small">Никого не выбрано — по владельцам календаря и словам в названии.</p>
+          <p class="faint small">{{ f.people.length ? "Событие будет показано у выбранных." : "Никого не выбрано — по владельцам календаря и словам в названии." }}</p>
         </div>
       </div>
 
@@ -223,6 +223,13 @@ watch(ed, (v) => {
     Object.assign(f, { title: '', location: '', description: '', allDay: false, repeat: '', until: '', people: [] })
     f.startDate = isoDate(d); f.endDate = isoDate(d)
     f.startTime = `${pad(h)}:00`; f.endTime = `${pad(h + 1)}:00`
+    if (v.end && v.allDay) {   // протянули по дням месяца: весь день, конец — последний выделенный день
+      f.allDay = true; f.endDate = isoDate(addDays(new Date(v.end), -1))
+    } else if (v.end) {   // протянули по сетке: точное время начала и конца
+      const e2 = new Date(v.end)
+      f.startTime = hm(d); f.endDate = isoDate(e2); f.endTime = hm(e2)
+    }
+    if (v.people) f.people = v.people.filter((id) => (state.config?.people || []).some((p) => p.id === id))
     let last = ''
     try { last = localStorage.getItem(LS) || '' } catch {}
     const w = cals.value.map((c) => c.key)

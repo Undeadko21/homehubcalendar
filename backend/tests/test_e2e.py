@@ -167,6 +167,29 @@ def test_drag_event_in_week_view_moves_it_in_caldav(page, stack):
     assert "T100000" not in start, start
 
 
+def test_drag_on_empty_week_slot_opens_new_event_for_that_time(page, stack):
+    """Протянуть мышью по пустому месту «Недели» — форма нового события на этот отрезок (шаг 15 минут)."""
+    page.click("text=Неделя")
+    page.locator(".fc-timegrid-event").first.wait_for(timeout=10000)
+    page.wait_for_timeout(1500)   # неделя дорисовывается (праздники, подсветка выходных) — протяжку во время перерисовки она теряет
+    lane = page.locator(".fc-timegrid-slot-lane[data-time='20:00:00']").first
+    lane.scroll_into_view_if_needed()
+    page.evaluate("window.scrollBy(0, 200)")   # чтобы протяжка вниз тоже была на экране
+    col = page.locator(".fc-timegrid-col").last.bounding_box()
+    slot = lane.bounding_box()
+    x, y = col["x"] + col["width"] / 2, slot["y"] + 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x, y + slot["height"] * 3, steps=10)   # ~1,5 часа вниз
+    page.mouse.up()
+    page.wait_for_selector("input[placeholder='Название']")
+    t = page.locator("input[type=time]")
+    a, b = t.nth(0).input_value(), t.nth(1).input_value()
+    assert a == "20:00", (a, b)
+    assert b > a and b[3:] in ("00", "15", "30", "45"), (a, b)
+    page.click("text=Отмена")
+
+
 def test_offline_shell_and_last_data(page, stack):
     """Офлайн-версия: без связи страница открывается из кэша, показывает последние данные и полосу «Нет связи»."""
     page.wait_for_function("navigator.serviceWorker && navigator.serviceWorker.controller !== null", timeout=20000)

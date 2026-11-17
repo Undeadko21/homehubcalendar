@@ -43,11 +43,13 @@
             <button
               v-for="b in lane.blocks" :key="b.key"
               class="block" :class="[{ allday: b.allDay, past: b.past, private: b.e.private, multi: b.e.people.length > 1, 'duty-style': b.e.duty }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
-              :style="{ left: b.x + 'px', width: b.w + 'px', top: b.y + 'px', height: (b.allDay ? ALLDAY_H : ROW_H) - 4 + 'px', ...(b.e.color ? { '--c': b.e.color } : {}) }"
+              :style="{ left: b.x + 'px', width: b.w + 'px', top: b.y + 'px', height: (b.allDay ? ALLDAY_H : ROW_H) - 4 + 'px', ...(b.e.color ? { '--c': b.e.color } : {}), '--on': onColor(b.e.color || lane.person.color) }"
               :title="b.e.title"
               @click="openEvent(b.e)"
               @pointerdown="down($event, b)"
             >
+              <span v-if="tripIssue(b.e)" class="trip-chip" :class="b.e.escort_issue" role="button" :aria-label="chipLabel(b.e)" :title="chipLabel(b.e)"
+                    @click.stop="openDriverPick(b.e)" @pointerdown.stop>🚗{{ b.e.escort_issue === 'conflict' ? '!' : '?' }}</span>
               <span v-if="compact && !b.allDay" class="bs">{{ b.startLabel }}</span>
               <span class="bt">{{ titleWithIcon(b.e) }}</span>
               <span v-if="!compact && !b.allDay && b.w > 90" class="bs">{{ b.time }}</span>
@@ -66,7 +68,9 @@
 import Skeleton from '../components/Skeleton.vue'
 import { titleWithIcon } from '../lib/icons'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { state, visiblePeople, openEvent, setTimelineDays } from '../lib/store'
+import { state, visiblePeople, openEvent, openDriverPick, setTimelineDays } from '../lib/store'
+import { tripIssue, chipLabel } from '../lib/trip'
+import { onColor } from '../lib/contrast'
 import { useRange } from '../lib/useRange'
 import { canMove, moveEvent } from '../lib/moveEvent'
 import { startDrag, dayUnder } from '../lib/drag'
@@ -292,14 +296,17 @@ const nowX = computed(() => {
 .block {
   position: absolute; border: 0; border-radius: 6px; padding: 0 6px; text-align: left;
   display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap;
-  background: color-mix(in srgb, var(--c) 18%, var(--surface)); color: color-mix(in srgb, var(--c) 62%, var(--ink));
+  background: color-mix(in srgb, var(--c) 18%, var(--surface)); color: color-mix(in srgb, var(--c) var(--ev-mix), var(--ink));
   box-shadow: inset 3px 0 0 var(--c); font-size: 13px; line-height: 1;
 }
 .block:hover { background: color-mix(in srgb, var(--c) 28%, var(--surface)); z-index: 1; }
-.block.allday { background: color-mix(in srgb, var(--c) 85%, var(--surface)); color: #fff; box-shadow: none; font-weight: 600; }
-.block.esc-conflict { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--red); }
-.block.esc-unassigned { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--warn); }
-.block.past { opacity: .45; }
+.block.allday { background: color-mix(in srgb, var(--c) 85%, var(--surface)); color: var(--on, #fff); box-shadow: none; font-weight: 600; }
+.trip-chip {
+  flex: none; order: -1; margin-right: 4px; padding: 0 4px; border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 16px;
+  background: var(--warn); color: #fff; cursor: pointer;
+}
+.trip-chip.conflict { background: var(--red); }
+.block.past { opacity: .7; }
 .block.duty-style { background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--c) 10%, var(--surface)) 0 5px, color-mix(in srgb, var(--c) 24%, var(--surface)) 5px 10px); }
 .block.private { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 12%, var(--surface)) 0 5px, color-mix(in srgb, var(--c) 24%, var(--surface)) 5px 10px); color: var(--ink-2); }
 .block.multi::after { content: ''; position: absolute; right: 4px; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); }

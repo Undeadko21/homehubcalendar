@@ -1,5 +1,5 @@
 // Перетаскивание блоков указателем (мышь — сразу, палец — после долгого нажатия, чтобы работала прокрутка).
-// handlers: { onMove(dx, dy, ev), onEnd(dx, dy, ev) → Promise|void, onCancel() }
+// handlers: { onBegin(), onMove(dx, dy, ev), onEnd(dx, dy, ev) → Promise|void, onCancel() }
 const LONG_PRESS = 420
 
 export function startDrag(ev, el, handlers) {
@@ -14,6 +14,7 @@ export function startDrag(ev, el, handlers) {
     active = true
     try { el.setPointerCapture(ev.pointerId) } catch {}
     el.classList.add('dragging')
+    handlers.onBegin?.()
     el.style.pointerEvents = 'none'
     window.addEventListener('touchmove', block, { passive: false })
   }

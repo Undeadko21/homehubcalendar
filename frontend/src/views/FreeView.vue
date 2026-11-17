@@ -340,7 +340,9 @@ function plural(n, one, few, many) {
 .agenda li.escort .ttl { font-style: normal; color: var(--ink-2); }
 
 @media (max-width: 899px) {
-  .free { grid-template-columns: 1fr; padding: 0 12px 30px; }
+  .free { grid-template-columns: minmax(0, 1fr); padding: 0 12px 30px; }
+  .row { flex-wrap: wrap; row-gap: 8px; }   /* крупный текст: переключатели переносятся, а не раздвигают экран */
+  .seg { max-width: 100%; }
   .controls { position: static; }
   .results { padding-top: 6px; }
 }

@@ -35,15 +35,21 @@
           </div>
           <div class="cols">
             <i v-for="h in hours" :key="'l' + h" class="line" :style="{ top: (h - hStart) * hourH + 'px' }"></i>
-            <div v-for="col in columns" :key="col.person.id" class="col" :style="{ '--c': col.person.color }">
+            <div v-for="(col, ci) in columns" :key="col.person.id" class="col" :style="{ '--c': col.person.color }"
+                 @pointerdown.self="create($event, ci)">
+              <div v-if="ghost && ghost.ci === ci" class="ghost" :style="{ top: ghost.y + 'px', height: ghost.h + 'px' }">
+                <span>Новое</span><small>{{ ghost.label }}</small>
+              </div>
               <button
                 v-for="b in col.blocks" :key="b.e.id"
-                class="blk" :class="[{ past: b.past, now: b.current, private: b.e.private, short: b.h < 34, 'duty-style': b.e.duty }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
+                class="blk" :class="[{ 'has-chip': tripIssue(b.e, now), past: b.past, now: b.current, private: b.e.private, short: b.h < 34, 'duty-style': b.e.duty }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
                 :style="{ top: b.y + 'px', height: b.h + 'px', left: b.left + '%', width: b.width + '%' }"
                 :title="`${b.e.title}, ${b.time}`"
                 @click="openEvent(b.e)"
                 @pointerdown="down($event, b.e)"
               >
+                <span v-if="tripIssue(b.e, now)" class="trip-chip" :class="b.e.escort_issue" role="button" :aria-label="chipLabel(b.e)" :title="chipLabel(b.e)"
+                      @click.stop="openDriverPick(b.e)" @pointerdown.stop>🚗{{ b.e.escort_issue === 'conflict' ? '!' : '?' }}</span>
                 <span class="t">{{ titleWithIcon(b.e) }}</span>
                 <span class="tm">{{ b.time }}<template v-if="b.e.location && b.h >= 52">, {{ b.e.location }}</template></span>
                 <EscortBadge v-if="b.e.escort && b.h >= 64" :e="b.e" class="esc" />
@@ -53,12 +59,14 @@
             <!-- Общие события: один блок через колонки всех участников -->
             <button
               v-for="s in spans" :key="s.key"
-              class="blk span" :class="[{ shared: s.people.length > 1 && !s.e.duty, past: s.past, now: s.current, private: s.e.private, short: s.h < 34, 'duty-style': s.e.duty }, s.e.escort_issue ? 'esc-' + s.e.escort_issue : '']"
+              class="blk span" :class="[{ 'has-chip': tripIssue(s.e, now), shared: s.people.length > 1 && !s.e.duty, past: s.past, now: s.current, private: s.e.private, short: s.h < 34, 'duty-style': s.e.duty }, s.e.escort_issue ? 'esc-' + s.e.escort_issue : '']"
               :style="{ '--c': s.color, top: s.y + 'px', height: s.h + 'px', left: `calc(${s.c0} * 100% / ${columns.length})`, width: `calc(${s.c1 - s.c0 + 1} * 100% / ${columns.length} - 4px)` }"
               :title="`${s.e.title}, ${s.time}`"
               @click="openEvent(s.e)"
               @pointerdown="down($event, s.e)"
             >
+              <span v-if="tripIssue(s.e, now)" class="trip-chip" :class="s.e.escort_issue" role="button" :aria-label="chipLabel(s.e)" :title="chipLabel(s.e)"
+                    @click.stop="openDriverPick(s.e)" @pointerdown.stop>🚗{{ s.e.escort_issue === 'conflict' ? '!' : '?' }}</span>
               <span class="t">
                 <span class="dots" aria-hidden="true"><i v-for="pid in s.people" :key="pid" :style="{ '--c': colorOf(pid) }"></i></span>
                 {{ titleWithIcon(s.e) }}
@@ -86,7 +94,10 @@
 // пересекающиеся события — рядом, красная линия текущего времени.
 import { titleWithIcon } from '../lib/icons'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { openEvent } from '../lib/store'
+import { openEvent, openDriverPick, newEventAt } from '../lib/store'
+import { haptic } from '../lib/haptic'
+import { tripIssue, chipLabel, chipHintOnce } from '../lib/trip'
+import { toast } from '../lib/store'
 import { addDays, eventRange, formatTime, sameDay } from '../lib/dates'
 import { canMove, moveEvent } from '../lib/moveEvent'
 import { startDrag } from '../lib/drag'
@@ -105,18 +116,50 @@ const STEP = 15
 const snapMin = (dy) => Math.round(((dy / props.hourH) * 60) / STEP) * STEP
 const px = (min) => (min / 60) * props.hourH
 
+const span = (a, b) => `${formatTime(a)}–${formatTime(b)}`
 function down(ev, e) {
   if (!canMove(e)) return
   const el = ev.currentTarget
+  const r = eventRange(e)
   startDrag(ev, el, {
-    onMove: (dx, dy) => { el.style.transform = `translateY(${px(snapMin(dy))}px)` },
+    onMove: (dx, dy) => {
+      const m = snapMin(dy)
+      el.style.transform = `translateY(${px(m)}px)`
+      el.dataset.tip = span(new Date(+r.start + m * 60000), new Date(+r.end + m * 60000))   // новое время прямо на плашке
+    },
     onEnd: async (dx, dy) => {
       const m = snapMin(dy)
-      const r = eventRange(e)
       if (m) await moveEvent(e, new Date(+r.start + m * 60000), new Date(+r.end + m * 60000))
       el.style.transform = ''
+      delete el.dataset.tip
     },
-    onCancel: () => { el.style.transform = '' },
+    onCancel: () => { el.style.transform = ''; delete el.dataset.tip },
+  })
+}
+
+// Протянуть по пустому месту колонки — новое событие этого человека на выбранный отрезок
+// (мышь — сразу, палец — после долгого нажатия; просто долгое нажатие — час с этого места).
+const ghost = ref(null)
+function create(ev, ci) {
+  const colEl = ev.currentTarget
+  const top = colEl.getBoundingClientRect().top
+  const toMin = (yy) => Math.min(hEnd.value * 60 - STEP, Math.max(hStart.value * 60, hStart.value * 60 + Math.floor(((yy / props.hourH) * 60) / STEP) * STEP))
+  const a = toMin(ev.clientY - top)
+  const at = (m) => new Date(+props.day + m * 60000)
+  const show = (m1) => {
+    const lo = Math.min(a, m1), hi = m1 === a ? a + 60 : Math.max(a, m1) + STEP   // без сдвига — час
+    ghost.value = { ci, y: px(lo - hStart.value * 60), h: px(hi - lo), label: span(at(lo), at(hi)), lo, hi }
+  }
+  startDrag(ev, colEl, {
+    onBegin: () => { show(a); haptic('tap') },   // палец: после долгого нажатия сразу видно, что создаётся
+    onMove: (dx, dy) => show(toMin(ev.clientY - top + dy)),
+    onEnd: () => {
+      const g = ghost.value || { lo: a, hi: a + 60 }
+      const hi = g.hi
+      ghost.value = null
+      newEventAt(at(g.lo), at(hi), [props.columns[ci].person.id])
+    },
+    onCancel: () => { ghost.value = null },
   })
 }
 
@@ -313,10 +356,12 @@ const nowY = computed(() => {
   return v >= 0 && v <= (hEnd.value - hStart.value) * props.hourH ? v : null
 })
 watch([nowY, hStart, isToday], () => nextTick(follow), { flush: 'post' })
+watch(() => allEvents.value.some((e) => tripIssue(e, props.now)), (v) => { if (v) chipHintOnce(toast) }, { immediate: true })
 </script>
 
 <style scoped>
 .dg { --axis: 52px; position: relative; }
+.vp:not(.live) { padding-bottom: 12px; }   /* подпись последнего часа не обрезается */
 .vp.live { --vph: clamp(340px, 54vh, 600px); height: var(--vph); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
 .vp.live::-webkit-scrollbar { display: none; }
 .tail { height: calc(var(--vph, 400px) - 56px); }
@@ -353,24 +398,28 @@ watch([nowY, hStart, isToday], () => nextTick(follow), { flush: 'post' })
   position: absolute; border: 0; text-align: left; overflow: hidden; border-radius: 5px;
   padding: 3px 6px 3px 8px; margin: 0 2px; width: calc(100% - 4px);
   background: color-mix(in srgb, var(--c) 18%, var(--surface));
-  color: color-mix(in srgb, var(--c) 62%, var(--ink));
+  color: color-mix(in srgb, var(--c) var(--ev-mix), var(--ink));
   box-shadow: inset 3px 0 0 var(--c);
   display: flex; flex-direction: column; gap: 1px; line-height: 1.2;
 }
 .blk:hover { background: color-mix(in srgb, var(--c) 28%, var(--surface)); z-index: 2; }
-.blk .t { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.blk .t { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word; }
 .blk .tm { font-size: 11px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .blk.short { flex-direction: row; align-items: center; gap: 6px; padding-top: 1px; padding-bottom: 1px; }
 .blk.short .t { -webkit-line-clamp: 1; white-space: nowrap; }
-.blk.past { opacity: .5; }
+.blk.past { opacity: .7; }
 .blk.span { z-index: 1; }
 .dots { display: inline-flex; gap: 3px; margin-right: 4px; vertical-align: middle; }
 .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); display: block; }
 .blk.duty-style { background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--c) 10%, var(--surface)) 0 5px, color-mix(in srgb, var(--c) 24%, var(--surface)) 5px 10px); }
 .blk.now { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--c); }
 .blk.private { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 10%, var(--surface)) 0 6px, color-mix(in srgb, var(--c) 18%, var(--surface)) 6px 12px); }
-.blk.esc-conflict { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--red); }
-.blk.esc-unassigned { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--warn); }
+.trip-chip {
+  position: absolute; top: 2px; right: 2px; z-index: 1; padding: 0 5px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 18px;
+  background: var(--warn); color: #fff; cursor: pointer; box-shadow: 0 0 0 1.5px var(--surface);
+}
+.trip-chip.conflict { background: var(--red); }
+.blk.has-chip .t { padding-right: 32px; }
 .esc { margin-top: 2px; }
 
 .nowline { position: absolute; left: var(--axis); right: 0; height: 0; border-top: 2px solid var(--red); z-index: 3; pointer-events: none; }
@@ -399,5 +448,16 @@ watch([nowY, hStart, isToday], () => nextTick(follow), { flush: 'post' })
 .blk .rz::after { content: ''; position: absolute; left: 50%; bottom: 2px; width: 18px; height: 3px; margin-left: -9px;
   border-radius: 2px; background: currentColor; opacity: 0; }
 .blk:hover .rz::after { opacity: .35; }
+.blk[data-tip]::before {
+  content: attr(data-tip); position: absolute; left: 4px; top: -22px; padding: 1px 6px; border-radius: 6px;
+  background: var(--ink); color: var(--bg); font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.blk.dragging { overflow: visible; }
+.ghost {
+  position: absolute; left: 2px; right: 2px; z-index: 4; border-radius: 5px; padding: 3px 6px; pointer-events: none;
+  background: color-mix(in srgb, var(--c) 30%, var(--surface)); box-shadow: inset 0 0 0 1.5px var(--c), 0 4px 14px rgba(0,0,0,.18);
+  display: flex; flex-direction: column; font-size: 12px; font-weight: 600; color: color-mix(in srgb, var(--c) var(--ev-mix), var(--ink));
+}
+.ghost small { font-weight: 500; opacity: .85; }
 .blk.dragging { z-index: 5; box-shadow: 0 6px 18px rgba(0, 0, 0, .25); cursor: grabbing; }
 </style>

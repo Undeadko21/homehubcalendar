@@ -43,6 +43,7 @@ export const state = reactive({
   status: null,
   revision: 0, // увеличивается после синхронизации — виды перезагружают данные
   selected: null, // открытое в карточке событие
+  driverPick: null, // событие, для которого открыт быстрый выбор водителя
   timelineDays: prefs.timelineDays || 7,
   weekDaysPref: prefs.weekDays || null, // 3 | 5 | 7; пусто — по размеру экрана
   calView: prefs.calView || 'timeline', // последний календарный вид (вкладка «Календарь» на телефоне)
@@ -129,6 +130,12 @@ export const writableCalendars = () => (state.config?.calendars || []).filter((c
 export function newEvent(date, quick, template) {
   state.editor = { date: date || state.cursor, ...(quick ? { quick } : {}), ...(template ? { template } : {}) }
 }
+// Новое событие на отрезок, протянутый пальцем/мышью по пустому месту сетки (+ чья колонка).
+export function newEventAt(start, end, people, allDay = false) {
+  state.editor = { date: start, end, ...(allDay ? { allDay: true } : {}), ...(people?.length ? { people } : {}) }
+}
+// Быстрый выбор водителя по значку «🚗?» на плашке — без карточки события.
+export function openDriverPick(e) { state.driverPick = e?.duty ? e.duty.parent : e }
 export function editEvent(e) { state.editor = { event: e } }
 
 export function openEvent(e) {

@@ -97,7 +97,7 @@
           <span>{{ pull.busy ? 'Обновляю…' : pull.ready ? 'Отпустите, чтобы обновить' : 'Потяните, чтобы обновить' }}</span>
         </div>
 
-        <main class="main">
+        <main ref="mainEl" class="main">
           <KitchenView v-if="state.view === 'kitchen'" />
           <TodayView v-else-if="state.view === 'today'" />
           <TimelineView v-else-if="state.view === 'timeline'" />
@@ -135,6 +135,7 @@
         </div>
       </Sheet>
       <EventDialog />
+      <DriverPick />
       <EventEditor />
       <SectionWizard />
       <MoveScope />
@@ -153,6 +154,8 @@ import { api, net } from './lib/api'
 import { haptic } from './lib/haptic'
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
 import EventDialog from './components/EventDialog.vue'
+import DriverPick from './components/DriverPick.vue'
+import { attachDaySwipe } from './lib/daySwipe'
 import EventEditor from './components/EventEditor.vue'
 import SectionWizard from './components/SectionWizard.vue'
 import MoveScope from './components/MoveScope.vue'
@@ -279,7 +282,7 @@ let py0 = null, pulling = false
 function scrolledParent(el) {
   for (let n = el; n && n !== document.body; n = n.parentElement) {
     if (n.scrollTop > 0) return true
-    if (n.classList?.contains('no-pull') || n.closest?.('.sheet, .fc-scroller, .dg-scroll')) return true
+    if (n.classList?.contains('no-pull') || n.closest?.('.sheet, .fc-scroller, .dg .vp')) return true
   }
   return false
 }
@@ -291,6 +294,8 @@ function onTouchStart(e) {
 }
 function onTouchMove(e) {
   if (py0 == null) return
+  // идёт перетаскивание или протяжка нового события — это не «потянуть, чтобы обновить»
+  if (document.querySelector('.dragging')) { py0 = null; pulling = false; pull.h = 0; pull.ready = false; return }
   const dy = e.touches[0].clientY - py0
   if (dy <= 0 || window.scrollY > 0) { if (pulling) { pull.h = 0; pull.ready = false } py0 = dy < -10 ? null : py0; return }
   pulling = true
@@ -385,6 +390,12 @@ function tickNight() {
   else if (root.dataset.theme === 'dark') delete root.dataset.theme
 }
 
+const mainEl = ref(null)
+const SWIPE_VIEWS = ['today', 'week', 'timeline', 'family']
+// main появляется после входа — подключаем свайп, когда элемент есть (один раз на элемент)
+watch(mainEl, (el) => {
+  if (el && !el.__swipe) { el.__swipe = true; attachDaySwipe(el, { enabled: () => !state.kiosk && SWIPE_VIEWS.includes(state.view), go: shift }) }
+}, { immediate: true, flush: 'post' })
 onMounted(async () => {
   window.addEventListener('touchstart', onTouchStart, { passive: true })
   window.addEventListener('touchmove', onTouchMove, { passive: true })
@@ -456,7 +467,7 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-bottom: .5px solid var(--line);
-  display: grid; grid-template-columns: auto 1fr; grid-template-areas: 'title nav';
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'title nav';
   align-items: center; gap: 8px 16px; padding: 12px 20px;
 }
 .nav-row { grid-area: nav; display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
@@ -467,7 +478,12 @@ onUnmounted(() => {
 .main-seg { order: 1; }
 .m-sync { display: none; }
 .search-btn :deep(.ico) { width: 20px; height: 20px; color: var(--tint); }
-.title { grid-area: title; margin: 0; font-family: var(--font-display); font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; white-space: nowrap; }
+.title { grid-area: title; margin: 0; font-family: var(--font-display); font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* средняя ширина (и крупный текст): заголовок и переключатели в две строки, чтобы ничего не уезжало за край */
+@media (min-width: 900px) and (max-width: 1100px) {
+  .toolbar { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'title' 'nav'; }
+  .nav-row { justify-content: flex-start; flex-wrap: wrap; }
+}
 .t-main { font-weight: 700; }
 .tabbar button { position: relative; }
 .news-dot { position: absolute; top: 6px; left: calc(50% + 8px); width: 8px; height: 8px; border-radius: 50%; background: var(--red); }

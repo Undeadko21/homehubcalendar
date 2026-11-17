@@ -20,11 +20,11 @@ import { state, hideToast, runToastUndo } from '../lib/store'
 <style scoped>
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); z-index: 90;
-  bottom: calc(24px + env(safe-area-inset-bottom)); max-width: min(560px, calc(100vw - 24px));
+  bottom: calc(24px + env(safe-area-inset-bottom)); width: max-content; max-width: min(560px, calc(100vw - 24px));
   display: flex; align-items: center; gap: 4px; padding: 6px 6px 6px 16px; border-radius: 14px;
   background: #1c1c1e; color: #fff; font-size: 15px; box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
 }
-.txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.txt { overflow: hidden; text-overflow: ellipsis; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.3; }
 .undo { border: 0; background: none; color: #ff9f0a; font: inherit; font-weight: 700; padding: 8px 10px; border-radius: 8px; flex: none; }
 .undo:active { background: rgba(255, 255, 255, .12); }
 .x { border: 0; background: none; color: rgba(255, 255, 255, .6); font-size: 20px; line-height: 1; padding: 6px 10px; flex: none; }

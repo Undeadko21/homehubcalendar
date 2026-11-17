@@ -71,12 +71,14 @@ def main() -> None:
     ap.add_argument("--devices", default="phone,desktop")
     ap.add_argument("--themes", default="light,dark")
     ap.add_argument("--ask", action="store_true", help="ещё снимки «+» и карточки первого события")
+    ap.add_argument("--size", default="", help="размер текста: compact | large (как в «Внешнем виде»)")
     ap.add_argument("--url", help="снимать уже запущенный сервер (песочница прода, tools/sandbox.py) вместо демо")
     a = ap.parse_args()
     if not (DIST / "index.html").exists():
         raise SystemExit("нет frontend/dist — сначала: cd frontend && npm run build")
     from playwright import sync_api
 
+    q = f"&size={a.size}" if a.size else ""
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     index: list[str] = []
@@ -100,21 +102,21 @@ def main() -> None:
                         page.on("pageerror", lambda e: errors.append(str(e)[:300]))
                         for view in a.views.split(","):
                             errors.clear()
-                            page.goto(f"{url}/?view={view}&nointro")
+                            page.goto(f"{url}/?view={view}&nointro{q}")
                             page.wait_for_load_state("networkidle")
                             page.wait_for_timeout(700)
-                            name = f"{dev}-{theme}-{view}.png"
+                            name = f"{dev}-{theme}{'-' + a.size if a.size else ''}-{view}.png"
                             page.screenshot(path=str(out / name), full_page=dev == "desktop")
                             index.append(name + ("  ОШИБКИ: " + " | ".join(errors) if errors else ""))
                         if a.ask:
-                            page.goto(f"{url}/?view=today&nointro")
+                            page.goto(f"{url}/?view=today&nointro{q}")
                             page.wait_for_load_state("networkidle")
                             page.click("button.add-btn")
                             page.wait_for_timeout(500)
                             page.screenshot(path=str(out / f"{dev}-{theme}-plus.png"))
                             index.append(f"{dev}-{theme}-plus.png")
                             page.keyboard.press("Escape")
-                            page.goto(f"{url}/?view=agenda&nointro")
+                            page.goto(f"{url}/?view=agenda&nointro{q}")
                             page.wait_for_load_state("networkidle")
                             pill = page.locator("button.item").first
                             if pill.count():

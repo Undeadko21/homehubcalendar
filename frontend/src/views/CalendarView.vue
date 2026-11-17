@@ -21,7 +21,9 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import ruLocale from '@fullcalendar/core/locales/ru'
-import { state, openEvent, eventColor, personMark, screen, weekDays, setWeekDays, setView, setTimelineDays, savePrefs } from '../lib/store'
+import { state, openEvent, openDriverPick, newEventAt, eventColor, personMark, screen, weekDays, setWeekDays, setView, setTimelineDays, savePrefs, toast } from '../lib/store'
+import { tripIssue, chipLabel, chipHintOnce } from '../lib/trip'
+import { onColor } from '../lib/contrast'
 import { canMove, moveEvent } from '../lib/moveEvent'
 import { useRange } from '../lib/useRange'
 import { addDays, startOfDay, startOfWeek, startOfMonth, isoDate } from '../lib/dates'
@@ -72,7 +74,7 @@ const fcEvents = computed(() =>
       allDay: e.all_day,
       backgroundColor: e.all_day ? `color-mix(in srgb, ${c} 85%, var(--surface))` : `color-mix(in srgb, ${c} 18%, var(--surface))`,
       borderColor: c,
-      textColor: e.all_day ? '#fff' : `color-mix(in srgb, ${c} 62%, var(--ink))`,
+      textColor: e.all_day ? onColor(c) : `color-mix(in srgb, ${c} var(--ev-mix), var(--ink))`,
       classNames: [e.people.length > 1 && !e.duty ? 'is-shared' : '', e.private ? 'is-private' : '', e.escort_issue ? 'esc-' + e.escort_issue : '', e.duty ? 'is-duty' : ''],
       editable: canMove(e),
       extendedProps: { src: e },
@@ -131,13 +133,36 @@ const options = computed(() => {
   ...(dotsMonth.value ? { dateClick: (info) => { state.cursor = info.date; setTimelineDays(1); setView('timeline') } } : {}),
   displayEventEnd: false,
   // В неделе — как у Apple: сначала название, под ним время начала
+  // Короткое (до 45 мин) — одна строка с многоточием; длинное — название в несколько строк с переносом по слогам, время ниже.
   eventContent: (arg) => {
     if (!arg.view.type.startsWith('timeGrid') || arg.event.allDay) return true
     const esc = (s) => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch])
-    return { html: `<div class="ev-t">${esc(arg.event.title)}</div><div class="ev-tm">${esc(arg.timeText)}</div>` }
+    const src = arg.event.extendedProps.src
+    const chip = src && tripIssue(src) ? `<span class="trip-chip ${esc(String(src.escort_issue))}" role="button" title="${esc(chipLabel(src))}">🚗${src.escort_issue === 'conflict' ? '!' : '?'}</span>` : ''
+    const mins = arg.event.end ? (arg.event.end - arg.event.start) / 60000 : 60
+    if (mins <= 45) return { html: `<div class="ev-t one">${chip}${esc(arg.event.title)}</div>` }
+    const lines = Math.max(1, Math.min(4, Math.floor(mins / 30)))
+    // значок — в строке времени, чтобы не закрывал название в узкой колонке
+    return { html: `<div class="ev-t" style="-webkit-line-clamp:${lines}">${esc(arg.event.title)}</div><div class="ev-tm">${chip}${esc(arg.timeText)}</div>` }
   },
   events: dotsMonth.value ? [] : fcEvents.value,
-  eventClick: (info) => openEvent(info.event.extendedProps.src),
+  eventClick: (info) => {
+    const src = info.event.extendedProps.src
+    if (info.jsEvent?.target?.closest?.('.trip-chip')) openDriverPick(src)
+    else openEvent(src)
+  },
+  // Протянуть по пустому месту (мышь — сразу, палец — после долгого нажатия) — новое событие на этот отрезок.
+  selectable: !dotsMonth.value,
+  selectMirror: true,
+  selectMinDistance: 6,
+  selectLongPressDelay: 450,
+  unselectAuto: true,
+  select: (info) => {
+    info.view.calendar.unselect()
+    if (info.allDay && props.mode !== 'month') return
+    if (info.allDay) { newEventAt(info.start, info.end, null, true); return }
+    newEventAt(info.start, info.end)
+  },
   dayCellClassNames: (arg) => dayClasses(arg.date),
   dayHeaderClassNames: (arg) => dayClasses(arg.date),
   dayCellDidMount: (arg) => {
@@ -153,6 +178,8 @@ function dayClasses(d) {
   if (h) return [`hd-${h.type}`]
   return weekend ? ['hd-weekend'] : []
 }
+
+watch(() => events.value.some((e) => tripIssue(e)), (v) => { if (v) chipHintOnce(toast) }, { immediate: true })
 
 // Навигация из шапки приложения → переход в FullCalendar.
 watch(() => [state.cursor, viewName.value], () => {
@@ -236,9 +263,24 @@ watch(() => [state.cursor, viewName.value], () => {
 .cal .fc-event { cursor: pointer; }
 .cal .is-duty { background-image: repeating-linear-gradient(-45deg, transparent 0 5px, rgba(127,127,127,.16) 5px 10px); }
 .cal .is-private { background-image: repeating-linear-gradient(135deg, transparent 0 5px, rgba(127,127,127,.14) 5px 10px); }
-.cal .fc-timegrid-event.esc-conflict { box-shadow: inset 0 0 0 1.5px var(--red) !important; }
-.cal .fc-timegrid-event.esc-unassigned { box-shadow: inset 0 0 0 1.5px var(--warn) !important; }
-.cal .ev-t { font-weight: 600; line-height: 1.2; overflow: hidden; }
+.cal .ev-t {
+  font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  hyphens: auto; -webkit-hyphens: auto; overflow-wrap: normal; word-break: normal;
+}
+/* совсем узкая плашка (пересечения на компьютере): по буквам не ломаем — одна строка с многоточием */
+.cal .fc-timegrid-event .fc-event-main { container-type: inline-size; }
+@container (max-width: 40px) { .cal .ev-t { -webkit-line-clamp: 1 !important; overflow-wrap: normal; } }
+.cal .ev-t.one { display: block; white-space: nowrap; }
+.cal .fc-timegrid-event .fc-event-main { position: relative; }
+.cal .trip-chip {
+  display: inline-block; margin-right: 4px; padding: 0 4px; border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 15px;
+  background: var(--warn); color: #fff; cursor: pointer; vertical-align: 1px;
+}
+.cal .trip-chip.conflict { background: var(--red); }
+.cal .ev-tm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal .fc-daygrid-block-event .fc-event-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.cal .fc-highlight { background: color-mix(in srgb, var(--tint) 18%, transparent); }
 .cal .ev-tm { font-size: 11px; opacity: .8; }
 .cal .fc-daygrid-dot-event.esc-conflict .fc-event-title::after { content: ' !'; color: var(--red); font-weight: 800; }
 @media (max-width: 899px) {

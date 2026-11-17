@@ -9,6 +9,7 @@
   --surface-2: #f2f2f7;
   --fill: rgba(120, 120, 128, .12); /* заливка контролов (сегменты, поля) */
   --ink: #1d1d1f;
+  --ev-mix: 45%;   /* доля цвета события в тексте плашки: в светлой теме темнее, чтобы читалось (контраст ≥ 4.5) */
   --ink-2: #6e6e73;
   --ink-3: #aeaeb2;
   --line: rgba(60, 60, 67, .18);
@@ -35,7 +36,7 @@
   :root:not([data-theme='light']) {
     --bg: #000000; --bg-grouped: #000000; --surface: #1c1c1e; --surface-2: #2c2c2e;
     --fill: rgba(118, 118, 128, .24);
-    --ink: #f5f5f7; --ink-2: #98989d; --ink-3: #636366;
+    --ink: #f5f5f7; --ink-2: #98989d; --ink-3: #636366; --ev-mix: 62%;
     --line: rgba(84, 84, 88, .55); --line-strong: rgba(84, 84, 88, .8);
     --red: #ff453a; --warn: #ff9f0a; --ok: #30d158; --focus: #0a84ff;
     --shadow: 0 0 0 .5px rgba(255,255,255,.06);
@@ -46,7 +47,7 @@
 :root[data-theme='dark'] {
   --bg: #000000; --bg-grouped: #000000; --surface: #1c1c1e; --surface-2: #2c2c2e;
   --fill: rgba(118, 118, 128, .24);
-  --ink: #f5f5f7; --ink-2: #98989d; --ink-3: #636366;
+  --ink: #f5f5f7; --ink-2: #98989d; --ink-3: #636366; --ev-mix: 62%;
   --line: rgba(84, 84, 88, .55); --line-strong: rgba(84, 84, 88, .8);
   --red: #ff453a; --warn: #ff9f0a; --ok: #30d158; --focus: #0a84ff;
   --shadow: 0 0 0 .5px rgba(255,255,255,.06);
@@ -114,13 +115,13 @@ a { color: var(--tint); text-decoration: none; }
   display: block; width: 100%; text-align: left; border: 0;
   background: color-mix(in srgb, var(--c) 16%, var(--surface));
   border-radius: var(--radius-s); padding: 5px 8px 5px 10px; position: relative; overflow: hidden;
-  color: color-mix(in srgb, var(--c) 62%, var(--ink));
+  color: color-mix(in srgb, var(--c) var(--ev-mix), var(--ink));
 }
 .pill::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c); }
 .pill:hover { background: color-mix(in srgb, var(--c) 24%, var(--surface)); }
-.pill.allday { background: color-mix(in srgb, var(--c) 85%, var(--surface)); color: #fff; }
+.pill.allday { background: color-mix(in srgb, var(--c) 85%, var(--surface)); color: var(--on, #fff); }
 .pill.allday::before { display: none; }
-.pill.past { opacity: .5; }
+.pill.past { opacity: .7; }
 /* Поездка за ребёнком в календаре взрослого — со штриховкой */
 .pill.duty, .duty-style {
   background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--c) 10%, var(--surface)) 0 5px, color-mix(in srgb, var(--c) 22%, var(--surface)) 5px 10px);
@@ -212,7 +213,7 @@ select.sel { border: 0; background: var(--fill); border-radius: 8px; padding: 6p
 }
 
 /* Плавные переходы между днями и экранами (View Transitions API; store.animate ставит data-nav). */
-.main { view-transition-name: main; }
+main.main { view-transition-name: main; }   /* только сам экран: у полосы дней рождения тоже есть .main */
 ::view-transition-old(main), ::view-transition-new(main) { animation-duration: .22s; animation-timing-function: cubic-bezier(.2, .8, .2, 1); }
 :root[data-nav='fwd']::view-transition-old(main) { animation-name: vt-out-left; }
 :root[data-nav='fwd']::view-transition-new(main) { animation-name: vt-in-right; }

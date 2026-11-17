@@ -2,7 +2,7 @@
   <button
     class="pill"
     :class="{ allday: e.all_day && !e.private, shared: e.people.length > 1 && !e.duty, past, private: e.private, now: current, issue: e.escort_issue, duty: e.duty, conflict: e.duty && e.escort_issue === 'conflict' }"
-    :style="{ '--c': color }"
+    :style="{ '--c': color, '--on': onColor(color) }"
     @click="openEvent(e)"
   >
     <span class="t">
@@ -25,6 +25,7 @@ import { computed } from 'vue'
 import { state, openEvent, eventColor, personById, personMark } from '../lib/store'
 import { eventRange, formatEventTime } from '../lib/dates'
 import EscortBadge from './EscortBadge.vue'
+import { onColor } from '../lib/contrast'
 
 const props = defineProps({
   e: { type: Object, required: true },
