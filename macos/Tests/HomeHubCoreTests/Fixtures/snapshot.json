@@ -1,0 +1,311 @@
+{
+ "applied": [],
+ "events": [
+  {
+   "all_day": false,
+   "color": "#ff9500",
+   "end": "2026-11-03T18:00:00+05:00",
+   "escort": {
+    "children": [
+     "mark"
+    ],
+    "dropoff": {
+     "conflicts": [],
+     "free": [
+      "anna"
+     ],
+     "person": null,
+     "scope": null,
+     "series_person": null,
+     "skip": false,
+     "window": [
+      "2026-11-03T16:30:00+05:00",
+      "2026-11-03T17:00:00+05:00"
+     ]
+    },
+    "mode": "escort",
+    "mode_auto": true,
+    "mode_reason": null,
+    "mode_scope": null,
+    "only": null,
+    "pickup": {
+     "conflicts": [],
+     "free": [
+      "anna"
+     ],
+     "person": "anna",
+     "scope": "series",
+     "series_person": "anna",
+     "skip": false,
+     "window": [
+      "2026-11-03T18:00:00+05:00",
+      "2026-11-03T18:30:00+05:00"
+     ]
+    },
+    "travel": {
+     "buffer": null,
+     "minutes": null,
+     "source": null
+    }
+   },
+   "escort_issue": "unassigned",
+   "id": "fc3ed2d69bcc66e9",
+   "location": "Бассейн Юность",
+   "people": [
+    "mark"
+   ],
+   "recurring": false,
+   "start": "2026-11-03T17:00:00+05:00",
+   "title": "Плавание",
+   "uid": "2384615d-a364-450a-8d4f-65f474523853@homehub"
+  },
+  {
+   "all_day": false,
+   "duty": {
+    "parent": "fc3ed2d69bcc66e9",
+    "role": "pickup"
+   },
+   "end": "2026-11-03T18:30:00+05:00",
+   "escort_issue": null,
+   "id": "fc3ed2d69bcc66e9:pickup",
+   "location": "Бассейн Юность",
+   "people": [
+    "anna"
+   ],
+   "recurring": false,
+   "start": "2026-11-03T18:00:00+05:00",
+   "title": "Забрать Марка: Плавание",
+   "uid": "2384615d-a364-450a-8d4f-65f474523853@homehub"
+  },
+  {
+   "all_day": false,
+   "end": "2026-11-03T20:30:00+05:00",
+   "id": "7f6b36bd4f820cca",
+   "location": "",
+   "people": [
+    "anna"
+   ],
+   "recurring": false,
+   "start": "2026-11-03T19:30:00+05:00",
+   "title": "Йога",
+   "uid": "65bb3c76-a91a-434b-a855-eff7bede19fd@homehub"
+  },
+  {
+   "all_day": true,
+   "end": "2026-11-06",
+   "id": "c378bf708314c405",
+   "location": "",
+   "people": [
+    "anna"
+   ],
+   "recurring": false,
+   "start": "2026-11-05",
+   "title": "День района",
+   "uid": "990fe7c7-23ad-473d-8bcb-83e74f8214bf@homehub"
+  }
+ ],
+ "generated": "2026-11-03T09:00:00+05:00",
+ "lists": [
+  {
+   "id": 1,
+   "items": [],
+   "name": "Покупки",
+   "sort": 0
+  },
+  {
+   "id": 2,
+   "items": [],
+   "name": "Дела",
+   "sort": 1
+  }
+ ],
+ "people": [
+  {
+   "color": "#007aff",
+   "emoji": "",
+   "id": "anna",
+   "keywords": "",
+   "name": "Анна",
+   "needs_escort": 0
+  },
+  {
+   "color": "#6b7280",
+   "emoji": "",
+   "id": "mark",
+   "keywords": "",
+   "name": "Марк",
+   "needs_escort": 1
+  }
+ ],
+ "reminders": [
+  {
+   "at": "2026-11-03T05:00:00+05:00",
+   "id": "alert:trip:fc3ed2d69bcc66e9:2026-11-03T17:00:00+05:00:unassigned",
+   "kind": "alert",
+   "start": "2026-11-03T17:00:00+05:00",
+   "text": "Откройте календарь и назначьте водителя",
+   "title": "Плавание в 17:00: некому отвезти или забрать",
+   "trip": {
+    "names": {
+     "anna": "Анна"
+    },
+    "need": [
+     {
+      "free": [
+       "anna"
+      ],
+      "person": null,
+      "role": "dropoff"
+     }
+    ],
+    "occurrence": null,
+    "uid": "2384615d-a364-450a-8d4f-65f474523853@homehub"
+   }
+  },
+  {
+   "id": "duty:fc3ed2d69bcc66e9:pickup:2026-11-03T18:00:00+05:00",
+   "kind": "duty",
+   "people": [
+    "anna"
+   ],
+   "start": "2026-11-03T18:00:00+05:00",
+   "text": "Плавание · Бассейн Юность",
+   "title": "Забрать Марка — в 18:00"
+  },
+  {
+   "at": "2026-11-03T18:00:00+05:00",
+   "id": "bday:Оля:2026-11-04:1",
+   "kind": "bday",
+   "text": "",
+   "title": "Завтра день рождения: Оля (36)"
+  },
+  {
+   "at": "2026-11-04T09:00:00+05:00",
+   "id": "bday:Оля:2026-11-04:0",
+   "kind": "bday",
+   "text": "",
+   "title": "Сегодня день рождения: Оля (36)"
+  }
+ ],
+ "v": 2,
+ "widget": {
+  "birthdays": [
+   {
+    "days": 1,
+    "text": "🎂 Оля — завтра (36)"
+   }
+  ],
+  "days": [
+   {
+    "date": "2026-11-03",
+    "events": [
+     {
+      "all_day": false,
+      "colors": [
+       "#ff9500"
+      ],
+      "duty": false,
+      "end": "2026-11-03T18:00:00+05:00",
+      "id": "fc3ed2d69bcc66e9",
+      "issue": "unassigned",
+      "location": "Бассейн Юность",
+      "note": "→ кто?  ← Анна",
+      "now": false,
+      "people": [
+       "mark"
+      ],
+      "start": "2026-11-03T17:00:00+05:00",
+      "time": "17:00–18:00",
+      "title": "Плавание",
+      "who": "Марк"
+     },
+     {
+      "all_day": false,
+      "colors": [
+       "#007aff"
+      ],
+      "duty": true,
+      "end": "2026-11-03T18:30:00+05:00",
+      "id": "fc3ed2d69bcc66e9:pickup",
+      "issue": null,
+      "location": "Бассейн Юность",
+      "note": "",
+      "now": false,
+      "people": [
+       "anna"
+      ],
+      "start": "2026-11-03T18:00:00+05:00",
+      "time": "18:00–18:30",
+      "title": "Забрать Марка: Плавание",
+      "who": "Анна"
+     },
+     {
+      "all_day": false,
+      "colors": [
+       "#007aff"
+      ],
+      "duty": false,
+      "end": "2026-11-03T20:30:00+05:00",
+      "id": "7f6b36bd4f820cca",
+      "issue": null,
+      "location": "",
+      "note": "",
+      "now": false,
+      "people": [
+       "anna"
+      ],
+      "start": "2026-11-03T19:30:00+05:00",
+      "time": "19:30–20:30",
+      "title": "Йога",
+      "who": "Анна"
+     }
+    ],
+    "label": "Сегодня"
+   },
+   {
+    "date": "2026-11-04",
+    "events": [],
+    "label": "Завтра, среда, 4 ноября"
+   },
+   {
+    "date": "2026-11-05",
+    "events": [
+     {
+      "all_day": true,
+      "colors": [
+       "#007aff"
+      ],
+      "duty": false,
+      "end": "2026-11-06",
+      "id": "c378bf708314c405",
+      "issue": null,
+      "location": "",
+      "note": "",
+      "now": false,
+      "people": [
+       "anna"
+      ],
+      "start": "2026-11-05",
+      "time": "весь день",
+      "title": "День района",
+      "who": "Анна"
+     }
+    ],
+    "label": "Четверг, 5 ноября"
+   }
+  ],
+  "generated": "2026-11-03T09:00:00+05:00",
+  "people": {
+   "anna": {
+    "color": "#007aff",
+    "emoji": "",
+    "name": "Анна"
+   },
+   "mark": {
+    "color": "#6b7280",
+    "emoji": "",
+    "name": "Марк"
+   }
+  }
+ }
+}

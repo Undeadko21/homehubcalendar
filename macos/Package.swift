@@ -8,6 +8,6 @@ let package = Package(
         // Логика без интерфейса: коды подключения, расшифровка снимка, «что дальше». Её проверяют тесты.
         .target(name: "HomeHubCore"),
         .executableTarget(name: "HomeHubMac", dependencies: ["HomeHubCore"]),
-        .testTarget(name: "HomeHubCoreTests", dependencies: ["HomeHubCore"]),
+        .testTarget(name: "HomeHubCoreTests", dependencies: ["HomeHubCore"], exclude: ["Fixtures"]),
     ]
 )

@@ -1,0 +1,18 @@
+name: Swift tests
+# Тесты общего кода iPhone/Mac (HomeHubCore) — на каждый пуш и pull request, ничего не собирают и не коммитят.
+# Запускаются и когда меняется то, что сервер кладёт в снимок: форма снимка — контракт с приложениями.
+on:
+  push:
+    paths: ['macos/Sources/**', 'macos/Tests/**', 'macos/Package.swift', 'backend/app/snapshot.py', 'backend/app/reminders.py', '.github/workflows/swift-tests.yml']
+  pull_request:
+    paths: ['macos/Sources/**', 'macos/Tests/**', 'macos/Package.swift', 'backend/app/snapshot.py', 'backend/app/reminders.py', '.github/workflows/swift-tests.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  swift-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - run: cd macos && swift test
