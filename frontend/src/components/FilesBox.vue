@@ -1,7 +1,7 @@
 <template>
   <div class="group files">
     <div v-for="f in files" :key="f.id" class="row file">
-      <span class="fi" aria-hidden="true">{{ f.url ? '🔗' : f.mime.startsWith('image/') ? '🖼' : '📄' }}</span>
+      <span class="fi" aria-hidden="true"><Ico :name="f.url ? 'link' : f.mime.startsWith('image/') ? 'image' : 'file'" /></span>
       <a :href="f.url || `/api/event-files/${f.id}/raw`" target="_blank" rel="noopener" class="fname">
         {{ f.name || f.url }}<small v-if="!f.url" class="faint"> · {{ sizeText(f.size) }}</small>
       </a>
@@ -26,6 +26,7 @@
 </template>
 
 <script setup>
+import Ico from './Ico.vue'
 // Вложения и ссылки: событие (uid события) или дело/покупка (uid `item:<id>`). Хранятся на домашнем сервере.
 import { ref, watch } from 'vue'
 import { api } from '../lib/api'

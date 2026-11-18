@@ -49,7 +49,7 @@
               @pointerdown="down($event, b)"
             >
               <span v-if="tripIssue(b.e)" class="trip-chip" :class="b.e.escort_issue" role="button" :aria-label="chipLabel(b.e)" :title="chipLabel(b.e)"
-                    @click.stop="openDriverPick(b.e)" @pointerdown.stop>🚗{{ b.e.escort_issue === 'conflict' ? '!' : '?' }}</span>
+                    @click.stop="openDriverPick(b.e)" @pointerdown.stop><Ico name="car" />{{ b.e.escort_issue === 'conflict' ? '!' : '?' }}</span>
               <span v-if="compact && !b.allDay" class="bs">{{ b.startLabel }}</span>
               <span class="bt">{{ titleWithIcon(b.e) }}</span>
               <span v-if="!compact && !b.allDay && b.w > 90" class="bs">{{ b.time }}</span>
@@ -65,6 +65,7 @@
 </template>
 
 <script setup>
+import Ico from '../components/Ico.vue'
 import Skeleton from '../components/Skeleton.vue'
 import { titleWithIcon } from '../lib/icons'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
@@ -302,9 +303,11 @@ const nowX = computed(() => {
 .block:hover { background: color-mix(in srgb, var(--c) 28%, var(--surface)); z-index: 1; }
 .block.allday { background: color-mix(in srgb, var(--c) 85%, var(--surface)); color: var(--on, #fff); box-shadow: none; font-weight: 600; }
 .trip-chip {
-  flex: none; order: -1; margin-right: 4px; padding: 0 4px; border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 16px;
-  background: var(--warn); color: #fff; cursor: pointer;
+  flex: none; order: -1; margin-right: 4px; padding: 0 5px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 18px;
+  background: var(--warn); color: #fff; cursor: pointer; position: relative; display: inline-flex; align-items: center;
 }
+.trip-chip :deep(.i) { font-size: 14px; stroke-width: 2; }
+.trip-chip::after { content: ''; position: absolute; inset: -10px -6px; }
 .trip-chip.conflict { background: var(--red); }
 .block.past { opacity: .7; }
 .block.duty-style { background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--c) 10%, var(--surface)) 0 5px, color-mix(in srgb, var(--c) 24%, var(--surface)) 5px 10px); }

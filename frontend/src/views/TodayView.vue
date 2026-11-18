@@ -1,5 +1,5 @@
 <template>
-  <div class="today">
+  <div class="today" :class="{ kiosk: state.kiosk }">
     <section class="hero">
       <div class="clock">
         <span class="hm">{{ hm }}</span>
@@ -30,15 +30,15 @@
             <small>{{ t.day }}</small>
           </span>
           <span class="what">
-            <span class="title">{{ titleWithIcon(t.e) }}</span>
+            <span class="title"><span v-if="t.e.escort_issue" class="state" :title="t.stateText"><Ico name="car" /></span>{{ titleWithIcon(t.e) }}</span>
+            <span class="sr-only">{{ t.stateText }}</span>
             <EscortBadge :e="t.e" />
           </span>
-          <span class="state" :title="t.stateText">{{ t.icon }}</span>
+          <span class="chev" aria-hidden="true">›</span>
         </button>
         <div v-if="t.fixes.length" class="row fixrow">
-          <span class="fix-txt">{{ t.fixes.some((f) => f.text.includes('занят')) ? 'Заменить:' : 'Назначить:' }}</span>
           <button v-for="f in t.fixes" :key="f.role" class="fixbtn" :disabled="fixing" :title="f.text" @click="applyFix(t.e, f)">
-            {{ f.role === 'dropoff' ? '→' : '←' }} {{ f.name }}
+            {{ f.role === 'dropoff' ? 'Отвезёт' : 'Заберёт' }} {{ f.name }}
           </button>
         </div>
         </template>
@@ -48,7 +48,7 @@
     <!-- Пустой день: что ближайшее и когда, и как быстро что-то добавить -->
     <section v-if="freeDay" class="free-day">
       <div class="fd-head">
-        <span class="fd-ico" aria-hidden="true">☀︎</span>
+        <span class="fd-ico" aria-hidden="true"><Ico name="sun" /></span>
         <div>
           <strong>{{ isToday ? 'Сегодня' : 'В этот день' }} свободно</strong>
           <span v-if="nextLoaded && !nextList.length" class="faint">В ближайший месяц событий нет</span>
@@ -83,6 +83,7 @@
 </template>
 
 <script setup>
+import Ico from '../components/Ico.vue'
 import Skeleton from '../components/Skeleton.vue'
 import { titleWithIcon } from '../lib/icons'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -123,7 +124,11 @@ let scrolled = false
 function toGrid() {
   if (scrolled || !daySec.value || !isToday.value || state.kiosk || window.innerWidth >= 900) return
   scrolled = true
-  daySec.value.scrollIntoView({ block: 'start' })
+  // шапка при прокрутке дальше 140 px сворачивается (~80 px) — считаем отступ под ту высоту, что будет после прокрутки
+  const full = document.querySelector('.toolbar')?.offsetHeight || 118
+  const top = daySec.value.getBoundingClientRect().top + window.scrollY
+  const y = top - 84 > 140 ? top - 84 : top - full
+  window.scrollTo({ top: Math.max(0, y) })
 }
 onMounted(() => setTimeout(() => nextTick(toGrid), 1200))
 watch(() => events.value.length, (n) => { if (n) setTimeout(() => nextTick(toGrid), 150) }, { once: true })
@@ -211,8 +216,7 @@ const trips = computed(() =>
         e,
         time: `${formatTime(r.start)}–${formatTime(r.end)}`,
         day: relativeDayName(r.start, now.value),
-        icon: issue === 'conflict' ? '!' : issue === 'unassigned' ? '?' : '✓',
-        stateText: issue === 'conflict' ? 'Конфликт' : issue === 'unassigned' ? 'Никто не назначен' : 'Всё в порядке',
+        stateText: issue === 'conflict' ? 'Назначенный занят' : issue === 'unassigned' ? 'Никто не назначен' : 'Всё в порядке',
         fixes: driverFixes(e),
       }
     }),
@@ -228,6 +232,8 @@ const trips = computed(() =>
 .clock { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
 .hm { font-family: var(--font-display); font-size: clamp(64px, 9vw, 112px); font-weight: 200; letter-spacing: -0.04em; line-height: .9; }
 .holiday { color: var(--red); font-weight: 600; font-size: 17px; }
+/* на компьютере крупные часы не нужны — время скромно, день начинается с событий; на экране на стене — как было */
+@media (min-width: 900px) { .today:not(.kiosk) .hm { font-size: 44px; font-weight: 300; letter-spacing: -0.02em; } }
 .vacation { color: #34c759; font-weight: 600; font-size: 17px; }
 .free-day {
   display: flex; flex-direction: column; gap: 6px; background: var(--surface-2); border-radius: var(--radius-m); padding: 14px 16px; max-width: 760px;
@@ -251,11 +257,11 @@ const trips = computed(() =>
 .trips .group { background: var(--surface-2); max-width: 760px; }
 .fixrow { gap: 8px; align-items: center; flex-wrap: wrap; padding-top: 0 !important; margin-top: -6px; }
 .fixrow::before { display: none; }
-.fix-txt { font-size: 13px; color: var(--ink-2); }
 .fixbtn {
-  border: 0; border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
-  background: color-mix(in srgb, var(--tint) 12%, var(--surface)); color: var(--tint);
+  border: 0; border-radius: 999px; padding: 7px 14px; min-height: 34px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  background: var(--fill); color: var(--ink);
 }
+.fixbtn:hover { background: color-mix(in srgb, var(--ink) 14%, transparent); }
 .fixbtn:active { transform: scale(.96); }
 .trip { width: 100%; border: 0; background: none; text-align: left; color: inherit; }
 .trip:hover { background: var(--fill); }
@@ -264,12 +270,12 @@ const trips = computed(() =>
 .trip .when small { font-size: 12px; color: var(--ink-2); }
 .trip .what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .trip .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trip .state {
-  width: 22px; height: 22px; border-radius: 50%; flex: none; display: grid; place-items: center;
-  font-size: 13px; font-weight: 800; color: #fff; background: var(--ok);
-}
-.trip.conflict .state { background: var(--red); }
-.trip.unassigned .state { background: var(--warn); }
+/* один сигнал: машинка цвета проблемы перед названием (оранжевая — никого, красная — назначенный занят) */
+.trip .state { display: inline-flex; margin-right: 6px; color: var(--warn); font-size: 16px; vertical-align: -2px; }
+.trip.conflict .state { color: var(--red); }
+.trip .chev { color: var(--ink-3); font-size: 20px; flex: none; }
+.fixrow { padding-left: calc(16px + 6.8em + 12px) !important; }
+@media (max-width: 600px) { .fixrow { padding-left: 16px !important; } }
 
 .board {
   display: grid; grid-template-columns: repeat(var(--cols), minmax(210px, 1fr)); gap: 12px;
@@ -292,7 +298,7 @@ const trips = computed(() =>
   .board { grid-template-columns: 1fr; }
   .hm { font-size: 52px; }
   .today { gap: 16px; }
-  .day-section { scroll-margin-top: 118px; }
+  .day-section { scroll-margin-top: var(--toolbar-h, 118px); }
 }
 .kiosk .today { padding: 28px 32px; max-width: none; }
 </style>

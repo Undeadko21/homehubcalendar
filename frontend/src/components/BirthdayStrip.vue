@@ -3,7 +3,7 @@
     <h2 class="sec">Дни рождения</h2>
     <div class="group">
       <div v-for="b in items" :key="b.name + b.date" class="row">
-        <span class="cake" aria-hidden="true">🎂</span>
+        <span class="cake" aria-hidden="true"><Ico name="cake" /></span>
         <span class="main">
           <strong>{{ b.name }}</strong>
           <small>{{ dateText(b) }}<template v-if="b.turns"> · исполнится {{ b.turns }}</template></small>
@@ -15,6 +15,7 @@
 </template>
 
 <script setup>
+import Ico from './Ico.vue'
 import { ref, watch } from 'vue'
 import { api } from '../lib/api'
 import { state } from '../lib/store'
@@ -36,7 +37,7 @@ function phrase(n) {
 <style scoped>
 .sec { font-size: 20px; font-weight: 700; margin: 0 0 10px; letter-spacing: -0.01em; }
 .group { background: var(--surface-2); max-width: 760px; }
-.cake { font-size: 22px; }
+.cake { font-size: 22px; color: #ff2d55; display: inline-flex; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .main small { color: var(--ink-2); font-size: 12px; }
 .cnt { font-weight: 600; font-size: 14px; color: var(--ink-2); white-space: nowrap; }

@@ -109,7 +109,7 @@ const groups = computed(() => {
 .agenda { max-width: 760px; width: 100%; padding: 0 20px 40px; }
 .dh {
   position: sticky; top: var(--toolbar-h, 0px); z-index: 5; margin: 0; padding: 14px 0 6px;
-  background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  background: var(--bg);   /* непрозрачный: события не просвечивают сквозь закреплённый заголовок дня */
   font-size: 13px; font-weight: 600; color: var(--ink-2); border-bottom: .5px solid var(--line);
   display: flex; gap: 8px; align-items: baseline;
 }

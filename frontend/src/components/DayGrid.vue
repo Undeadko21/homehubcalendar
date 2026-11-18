@@ -49,7 +49,7 @@
                 @pointerdown="down($event, b.e)"
               >
                 <span v-if="tripIssue(b.e, now)" class="trip-chip" :class="b.e.escort_issue" role="button" :aria-label="chipLabel(b.e)" :title="chipLabel(b.e)"
-                      @click.stop="openDriverPick(b.e)" @pointerdown.stop>🚗{{ b.e.escort_issue === 'conflict' ? '!' : '?' }}</span>
+                      @click.stop="openDriverPick(b.e)" @pointerdown.stop><Ico name="car" />{{ b.e.escort_issue === 'conflict' ? '!' : '?' }}</span>
                 <span class="t">{{ titleWithIcon(b.e) }}</span>
                 <span class="tm">{{ b.time }}<template v-if="b.e.location && b.h >= 52">, {{ b.e.location }}</template></span>
                 <EscortBadge v-if="b.e.escort && b.h >= 64" :e="b.e" class="esc" />
@@ -66,7 +66,7 @@
               @pointerdown="down($event, s.e)"
             >
               <span v-if="tripIssue(s.e, now)" class="trip-chip" :class="s.e.escort_issue" role="button" :aria-label="chipLabel(s.e)" :title="chipLabel(s.e)"
-                    @click.stop="openDriverPick(s.e)" @pointerdown.stop>🚗{{ s.e.escort_issue === 'conflict' ? '!' : '?' }}</span>
+                    @click.stop="openDriverPick(s.e)" @pointerdown.stop><Ico name="car" />{{ s.e.escort_issue === 'conflict' ? '!' : '?' }}</span>
               <span class="t">
                 <span class="dots" aria-hidden="true"><i v-for="pid in s.people" :key="pid" :style="{ '--c': colorOf(pid) }"></i></span>
                 {{ titleWithIcon(s.e) }}
@@ -90,6 +90,7 @@
 </template>
 
 <script setup>
+import Ico from './Ico.vue'
 // Дневная сетка как в Календаре Apple: общая шкала часов, колонка на человека,
 // пересекающиеся события — рядом, красная линия текущего времени.
 import { titleWithIcon } from '../lib/icons'
@@ -415,9 +416,12 @@ watch(() => allEvents.value.some((e) => tripIssue(e, props.now)), (v) => { if (v
 .blk.now { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px var(--c); }
 .blk.private { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 10%, var(--surface)) 0 6px, color-mix(in srgb, var(--c) 18%, var(--surface)) 6px 12px); }
 .trip-chip {
-  position: absolute; top: 2px; right: 2px; z-index: 1; padding: 0 5px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 18px;
+  position: absolute; top: 2px; right: 2px; z-index: 1; padding: 0 6px; border-radius: 999px; font-size: 12px; font-weight: 700; line-height: 20px;
   background: var(--warn); color: #fff; cursor: pointer; box-shadow: 0 0 0 1.5px var(--surface);
+  display: inline-flex; align-items: center; gap: 1px;
 }
+.trip-chip :deep(.i) { font-size: 15px; stroke-width: 2; }
+.trip-chip::after { content: ''; position: absolute; inset: -10px -6px; }   /* место для пальца больше самого значка */
 .trip-chip.conflict { background: var(--red); }
 .blk.has-chip .t { padding-right: 32px; }
 .esc { margin-top: 2px; }

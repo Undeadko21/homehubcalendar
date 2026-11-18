@@ -24,6 +24,7 @@ import ruLocale from '@fullcalendar/core/locales/ru'
 import { state, openEvent, openDriverPick, newEventAt, eventColor, personMark, screen, weekDays, setWeekDays, setView, setTimelineDays, savePrefs, toast } from '../lib/store'
 import { tripIssue, chipLabel, chipHintOnce } from '../lib/trip'
 import { onColor } from '../lib/contrast'
+import { icoSvg } from '../lib/ico'
 import { canMove, moveEvent } from '../lib/moveEvent'
 import { useRange } from '../lib/useRange'
 import { addDays, startOfDay, startOfWeek, startOfMonth, isoDate } from '../lib/dates'
@@ -72,7 +73,7 @@ const fcEvents = computed(() =>
       start: e.start,
       end: e.end,
       allDay: e.all_day,
-      backgroundColor: e.all_day ? `color-mix(in srgb, ${c} 85%, var(--surface))` : `color-mix(in srgb, ${c} 18%, var(--surface))`,
+      backgroundColor: e.all_day ? `color-mix(in srgb, ${c} 85%, var(--surface))` : `color-mix(in srgb, ${c} var(--ev-bg), var(--surface))`,
       borderColor: c,
       textColor: e.all_day ? onColor(c) : `color-mix(in srgb, ${c} var(--ev-mix), var(--ink))`,
       classNames: [e.people.length > 1 && !e.duty ? 'is-shared' : '', e.private ? 'is-private' : '', e.escort_issue ? 'esc-' + e.escort_issue : '', e.duty ? 'is-duty' : ''],
@@ -138,7 +139,7 @@ const options = computed(() => {
     if (!arg.view.type.startsWith('timeGrid') || arg.event.allDay) return true
     const esc = (s) => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch])
     const src = arg.event.extendedProps.src
-    const chip = src && tripIssue(src) ? `<span class="trip-chip ${esc(String(src.escort_issue))}" role="button" title="${esc(chipLabel(src))}">🚗${src.escort_issue === 'conflict' ? '!' : '?'}</span>` : ''
+    const chip = src && tripIssue(src) ? `<span class="trip-chip ${esc(String(src.escort_issue))}" role="button" title="${esc(chipLabel(src))}">${icoSvg('car')}${src.escort_issue === 'conflict' ? '!' : '?'}</span>` : ''
     const mins = arg.event.end ? (arg.event.end - arg.event.start) / 60000 : 60
     if (mins <= 45) return { html: `<div class="ev-t one">${chip}${esc(arg.event.title)}</div>` }
     const lines = Math.max(1, Math.min(4, Math.floor(mins / 30)))
@@ -274,9 +275,11 @@ watch(() => [state.cursor, viewName.value], () => {
 .cal .ev-t.one { display: block; white-space: nowrap; }
 .cal .fc-timegrid-event .fc-event-main { position: relative; }
 .cal .trip-chip {
-  display: inline-block; margin-right: 4px; padding: 0 4px; border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 15px;
-  background: var(--warn); color: #fff; cursor: pointer; vertical-align: 1px;
+  display: inline-flex; align-items: center; margin-right: 4px; padding: 0 5px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 16px;
+  background: var(--warn); color: #fff; cursor: pointer; vertical-align: 1px; position: relative;
 }
+.cal .trip-chip .i { font-size: 13px; stroke-width: 2.1 !important; }
+.cal .trip-chip::after { content: ''; position: absolute; inset: -10px -6px; }
 .cal .trip-chip.conflict { background: var(--red); }
 .cal .ev-tm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal .fc-daygrid-block-event .fc-event-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }

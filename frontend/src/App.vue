@@ -32,7 +32,7 @@
       </aside>
 
       <div class="content">
-        <header v-if="!state.kiosk" ref="toolbarEl" class="toolbar">
+        <header v-if="!state.kiosk" ref="toolbarEl" class="toolbar" :class="{ compact: compactBar }">
           <div class="nav-row">
             <div class="navs" :class="{ hide: !navigable }">
               <button class="btn icon" aria-label="Назад" @click="shift(-1)" :disabled="!navigable">‹</button>
@@ -70,7 +70,7 @@
 
         <!-- Нет связи: спокойная полоса, данные остаются на экране -->
         <div v-if="net.offline && !state.kiosk" class="netbar" role="status">
-          <span class="nb-ico" aria-hidden="true">⚠︎</span>
+          <span class="nb-ico" aria-hidden="true"><Ico name="warn" /></span>
           <span class="nb-txt">
             <strong>{{ net.server ? 'Сервер дома не отвечает' : 'Нет связи с домом' }}</strong>
             <small>Показываю сохранённое{{ savedText ? ', обновлено ' + savedText : '' }}. Изменения сейчас не сохранятся.</small>
@@ -148,6 +148,7 @@
 </template>
 
 <script setup>
+import Ico from './components/Ico.vue'
 import { computed, defineAsyncComponent, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen, animate, toast } from './lib/store'
 import { api, net } from './lib/api'
@@ -391,12 +392,22 @@ function tickNight() {
 }
 
 const mainEl = ref(null)
+// Телефон: при прокрутке крупный заголовок сворачивается в строку (как в приложениях iPhone), наверху — снова крупный.
+const compactBar = ref(false)
+const onScrollBar = () => {
+  const y = window.scrollY
+  // короткая страница не сворачивается: иначе после сворачивания прокрутка пропадёт и шапка «замигает»
+  // порог больше, чем теряет шапка при сворачивании (~80 px): браузер сдвигает прокрутку на эту разницу, и она не должна упасть ниже 8
+  if (!compactBar.value && y > 140 && document.documentElement.scrollHeight - innerHeight > 220) compactBar.value = true
+  else if (compactBar.value && y < 8) compactBar.value = false
+}
 const SWIPE_VIEWS = ['today', 'week', 'timeline', 'family']
 // main появляется после входа — подключаем свайп, когда элемент есть (один раз на элемент)
 watch(mainEl, (el) => {
   if (el && !el.__swipe) { el.__swipe = true; attachDaySwipe(el, { enabled: () => !state.kiosk && SWIPE_VIEWS.includes(state.view), go: shift }) }
 }, { immediate: true, flush: 'post' })
 onMounted(async () => {
+  window.addEventListener('scroll', onScrollBar, { passive: true })
   window.addEventListener('touchstart', onTouchStart, { passive: true })
   window.addEventListener('touchmove', onTouchMove, { passive: true })
   window.addEventListener('touchend', onTouchEnd)
@@ -426,6 +437,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   timers.forEach(clearInterval); ro?.disconnect()
+  window.removeEventListener('scroll', onScrollBar)
   window.removeEventListener('touchstart', onTouchStart)
   window.removeEventListener('touchmove', onTouchMove)
   window.removeEventListener('touchend', onTouchEnd)
@@ -513,6 +525,7 @@ onUnmounted(() => {
 .dp-month { margin: 0 -4px; }
 .dp-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .t-sub { font-weight: 400; margin-left: 8px; color: var(--ink-2); }
+@media (min-width: 900px) { .t-btn { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; } }
 .cal-seg { display: none; }
 
 .setup {
@@ -542,6 +555,11 @@ onUnmounted(() => {
   .navs { margin-right: auto; }
   .title { font-size: 30px; padding: 0 4px; white-space: normal; }
   .t-sub { font-size: 17px; display: block; margin: 2px 0 0; }
+  .title, .t-sub { transition: font-size .2s ease, margin .2s ease; }
+  .toolbar.compact .title { font-size: 19px; }
+  .toolbar.compact .t-sub { display: inline; font-size: 15px; margin-left: 8px; color: var(--ink-2); }
+  .toolbar.compact .t-chev { display: none; }
+  .toolbar.compact .cal-seg { display: none; }
   .navs.hide { visibility: hidden; }
   .cal-seg { display: flex; grid-area: seg; margin-top: 8px; }
   .cal-seg button { flex: 1; padding: 6px 4px; }

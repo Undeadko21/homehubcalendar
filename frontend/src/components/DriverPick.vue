@@ -111,12 +111,15 @@ function full() { const ev = e.value; close(); openEvent(ev) }
   --c: #888; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border-radius: 14px;
   border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; cursor: pointer;
 }
-.driver .ava { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; background: color-mix(in srgb, var(--c) 22%, var(--surface)); }
+.driver .ava { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; color: #fff; font-weight: 600; background: var(--c); }
+.driver.skip .ava { background: var(--fill); color: var(--ink-3); }
 .driver .dn { font-weight: 600; font-size: 14px; }
 .driver .ds { font-size: 12px; color: var(--green, #34c759); }
 .driver.busy .ds { color: var(--ink-3); }
 .driver.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 12%, var(--surface)); }
 .driver.skip.on { border-color: var(--ink-3); }
 .more { align-self: flex-start; }
+.scope { display: flex; width: 100%; }
+.scope button { flex: 1; }
 .conflict { color: var(--red); margin: 0; }
 </style>

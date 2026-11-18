@@ -39,7 +39,7 @@
       <div v-else class="group items">
         <template v-for="g in sections" :key="g.key">
         <div v-if="g.title" class="sec-h"><span aria-hidden="true">{{ g.icon }}</span> {{ g.title }} <small>{{ g.items.filter((i) => !i.done).length || '' }}</small></div>
-        <div v-for="i in g.items" :key="i.id" v-swipe="{ right: () => toggle(i), left: () => toggle(i) }" class="row item" :class="{ done: i.done }">
+        <div v-for="i in g.items" :key="i.id" v-swipe="{ right: () => toggle(i), left: () => toggle(i) }" class="row item" :class="{ done: i.done, just: justDone === i.id }">
           <button class="check" :aria-label="i.done ? 'Вернуть в список' : 'Отметить выполненным'" :aria-pressed="i.done" @click="toggle(i)">
             <svg v-if="i.done" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9" /></svg>
           </button>
@@ -48,7 +48,7 @@
               <span v-if="i.person_id" class="who" :style="{ '--c': colorOf(i.person_id) }"><i></i>{{ nameOf(i.person_id) }}</span>
               <span v-if="i.due" :class="{ late: !i.done && i.due < today }">до {{ dueText(i.due) }}</span>
             </small>
-            <small v-if="i.files" class="meta"><span class="clip">📎 {{ i.files }}</span></small>
+            <small v-if="i.files" class="meta"><span class="clip"><Ico name="clip" /> {{ i.files }}</span></small>
           </span>
           <button class="x" :class="{ has: i.files }" aria-label="Кому, когда и вложения" title="Кому, когда и вложения" @click="editId = editId === i.id ? null : i.id">⋯</button>
           <button class="x" aria-label="Удалить" @click="remove(i)">×</button>
@@ -80,6 +80,7 @@
 </template>
 
 <script setup>
+import Ico from '../components/Ico.vue'
 import Skeleton from '../components/Skeleton.vue'
 import { haptic } from '../lib/haptic'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -165,8 +166,11 @@ function addItem() {
   newPerson.value = ''; newDue.value = ''
   return guard(() => api.addItem(current.value.id, t, p, d))
 }
+const justDone = ref(null)   // анимация галочки только у той, что отметили сейчас, а не у всех при открытии списка
 function toggle(i) {
   i.done = !i.done
+  justDone.value = i.done ? i.id : null
+  if (i.done) setTimeout(() => { if (justDone.value === i.id) justDone.value = null }, 600)
   haptic(i.done ? 'success' : 'tap')
   return guard(() => api.patchItem(i.id, { done: i.done }))
 }
@@ -208,6 +212,12 @@ async function createList() {
 }
 .item.done .check { background: var(--tint); border-color: var(--tint); }
 .check svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.check { transition: background .18s, border-color .18s, transform .12s; }
+.check:active { transform: scale(.88); }
+.item.just .check { animation: chk-pop .28s cubic-bezier(.3, 1.6, .5, 1); }
+.item.just .check svg path { stroke-dasharray: 20; stroke-dashoffset: 0; animation: chk-draw .22s ease-out .05s both; }
+@keyframes chk-pop { 50% { transform: scale(1.15); } }
+@keyframes chk-draw { from { stroke-dashoffset: 20; } }
 .txt { flex: 1; min-width: 0; overflow-wrap: anywhere; cursor: pointer; }
 .item.done .txt { color: var(--ink-3); text-decoration: line-through; }
 .x { border: 0; background: none; color: var(--ink-3); font-size: 22px; line-height: 1; padding: 4px 8px; }

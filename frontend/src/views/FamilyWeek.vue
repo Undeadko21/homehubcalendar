@@ -73,7 +73,7 @@ const days = computed(() => {
 .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .grid { border-collapse: separate; border-spacing: 0; width: 100%; min-width: calc(64px + var(--n) * 128px); table-layout: fixed; }
 thead th { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 8px 6px; font-weight: 600; font-size: 13px; text-align: left; border-bottom: .5px solid var(--line); }
-.avatar { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--c); color: #fff; font-size: 12px; margin-right: 6px; vertical-align: middle; }
+.avatar { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--c); color: #fff; font-size: 13px; font-weight: 600; margin-right: 6px; vertical-align: middle; }
 th.corner, th.day { width: 64px; }
 th.day { text-align: left; vertical-align: top; padding: 8px 6px; font-weight: 600; border-bottom: .5px solid var(--line); position: sticky; left: 0; background: var(--bg); z-index: 1; }
 .wd { display: block; font-size: 11px; color: var(--ink-2); text-transform: uppercase; }
@@ -84,7 +84,7 @@ tr.off th.day .wd { color: var(--red); }
 td { vertical-align: top; padding: 4px; border-bottom: .5px solid var(--line); border-left: .5px solid var(--line); min-height: 44px; }
 tr.today td { background: color-mix(in srgb, var(--red) 5%, transparent); }
 .chip { display: flex; gap: 5px; width: 100%; text-align: left; margin: 0 0 3px; padding: 3px 6px; border: 0; border-radius: 6px; cursor: pointer;
-  background: color-mix(in srgb, var(--c) 18%, transparent); box-shadow: inset 3px 0 0 var(--c); color: var(--ink); font: inherit; font-size: 12.5px; }
+  background: color-mix(in srgb, var(--c) var(--ev-bg), var(--surface)); box-shadow: inset 3px 0 0 var(--c); color: color-mix(in srgb, var(--c) 35%, var(--ink)); font: inherit; font-size: 12.5px; }
 .chip .t { color: var(--ink-2); font-variant-numeric: tabular-nums; flex: none; }
 .chip .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .chip.duty { font-style: italic; }

@@ -15,5 +15,5 @@ export function chipHintOnce(toast) {
     if (localStorage.getItem(SEEN)) return
     localStorage.setItem(SEEN, '1')
   } catch { return }
-  toast('🚗? — не выбрано, кто везёт. Нажмите на значок, чтобы выбрать.')
+  toast('Машинка на событии — не выбрано, кто везёт. Нажмите на неё.')
 }

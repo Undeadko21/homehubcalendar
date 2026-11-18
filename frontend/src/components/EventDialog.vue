@@ -10,16 +10,16 @@
         <span class="time">{{ formatEventTime(e) }}</span>
         <span v-if="e.recurring" class="tag">повторяется</span>
         <span v-if="e.tentative" class="tag">под вопросом</span>
-        <template v-if="e.location"><br /><a :href="mapUrl" target="_blank" rel="noopener" class="where-top">📍 {{ e.location }}</a></template>
+        <template v-if="e.location"><br /><a :href="mapUrl" target="_blank" rel="noopener" class="where-top"><Ico name="pin" /> {{ e.location }}</a></template>
       </p>
 
       <!-- Главные действия — сразу под названием -->
       <div v-if="!e.private" class="acts" role="toolbar" aria-label="Действия с событием">
-        <button v-if="canEdit" class="act" @click="edit"><span class="ai">✎</span>Изменить</button>
-        <button v-if="movable" class="act" :class="{ on: panel === 'move' }" :aria-expanded="panel === 'move'" @click="toggle('move')"><span class="ai">↷</span>Перенести</button>
-        <button v-if="!e.duty" class="act star" :class="{ on: e.star }" :aria-pressed="!!e.star" :disabled="saving" @click="toggleStar"><span class="ai">{{ e.star ? '★' : '☆' }}</span>{{ e.star ? 'Важное' : 'Отметить' }}</button>
-        <a v-if="e.location" class="act" :href="routeUrl" target="_blank" rel="noopener"><span class="ai">➤</span>Маршрут</a>
-        <button v-if="canEdit" class="act danger" :class="{ on: panel === 'delete' }" :aria-expanded="panel === 'delete'" @click="toggle('delete')"><span class="ai">🗑</span>Удалить</button>
+        <button v-if="canEdit" class="act" @click="edit"><span class="ai"><Ico name="edit" /></span>Изменить</button>
+        <button v-if="movable" class="act" :class="{ on: panel === 'move' }" :aria-expanded="panel === 'move'" @click="toggle('move')"><span class="ai"><Ico name="move" /></span>Перенести</button>
+        <button v-if="!e.duty" class="act star" :class="{ on: e.star }" :aria-pressed="!!e.star" :disabled="saving" @click="toggleStar"><span class="ai"><Ico :name="e.star ? 'star-fill' : 'star'" /></span>{{ e.star ? 'Важное' : 'Отметить' }}</button>
+        <a v-if="e.location" class="act" :href="routeUrl" target="_blank" rel="noopener"><span class="ai"><Ico name="route" /></span>Маршрут</a>
+        <button v-if="canEdit" class="act danger" :class="{ on: panel === 'delete' }" :aria-expanded="panel === 'delete'" @click="toggle('delete')"><span class="ai"><Ico name="trash" /></span>Удалить</button>
       </div>
       <div v-if="panel === 'move'" class="panel">
         <button v-for="o in MOVES" :key="o.id" class="chip-btn" :disabled="saving" @click="quickMove(o)">{{ o.label }}</button>
@@ -191,6 +191,7 @@
 </template>
 
 <script setup>
+import Ico from './Ico.vue'
 import { computed, ref, watch } from 'vue'
 import { state, personById, eventColor, reload, refreshSelected, editEvent, writableCalendars, toast, undoOf, driverFixes } from '../lib/store'
 import { canMove, moveEvent, writableCal } from '../lib/moveEvent'
