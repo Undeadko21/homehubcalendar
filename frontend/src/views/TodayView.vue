@@ -13,7 +13,7 @@
       <input v-model="quickText" placeholder="Быстро: «Йога завтра в 18:30», «купить молоко», «дело: …»" aria-label="Быстро добавить событие, дело или покупку"
              autocomplete="off" enterkeyhint="go" />
       <MicButton @text="(t) => { quickText = t; addQuick() }" @error="(m) => toast(m)" />
-      <button class="btn filled" :disabled="!quickText.trim()">＋</button>
+      <button class="btn filled" :aria-label="quickText.trim() ? 'Добавить' : 'Новое событие'">＋</button>
     </form>
 
     <BirthdayStrip />
@@ -93,7 +93,7 @@ import { api } from '../lib/api'
 const quickText = ref('')
 async function addQuick() {
   const t = quickText.value.trim()
-  if (!t) return
+  if (!t) { newEvent(day.value); return }   // пустое поле — «＋» открывает форму нового события на этот день
   try {
     await quickAdd(t, state.cursor)
     quickText.value = ''
