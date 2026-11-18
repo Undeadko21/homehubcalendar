@@ -19,6 +19,9 @@
         <button v-if="movable" class="act" :class="{ on: panel === 'move' }" :aria-expanded="panel === 'move'" @click="toggle('move')"><span class="ai"><Ico name="move" /></span>Перенести</button>
         <button v-if="!e.duty" class="act star" :class="{ on: e.star }" :aria-pressed="!!e.star" :disabled="saving" @click="toggleStar"><span class="ai"><Ico :name="e.star ? 'star-fill' : 'star'" /></span>{{ e.star ? 'Важное' : 'Отметить' }}</button>
         <a v-if="e.location" class="act" :href="routeUrl" target="_blank" rel="noopener"><span class="ai"><Ico name="route" /></span>Маршрут</a>
+        <button v-if="absentKids.length" class="act" :class="{ on: e.absent }" :aria-pressed="!!e.absent" :disabled="saving" @click="toggleAbsent">
+          <span class="ai"><Ico :name="e.absent ? 'check' : 'close'" /></span>{{ e.absent ? 'Идёт' : 'Не идёт' }}
+        </button>
         <button v-if="canEdit" class="act danger" :class="{ on: panel === 'delete' }" :aria-expanded="panel === 'delete'" @click="toggle('delete')"><span class="ai"><Ico name="trash" /></span>Удалить</button>
       </div>
       <div v-if="panel === 'move'" class="panel">
@@ -38,7 +41,13 @@
       <!-- Кто отвозит / забирает -->
       <template v-if="e.escort">
         <h3 class="group-title">Как добирается {{ childNames }}</h3>
-        <div class="group">
+        <div v-if="e.escort.mode === 'absent'" class="group absent-box">
+          <p class="row hint muted">
+            {{ (e.absent?.note && e.absent.note !== 'не идёт') ? 'Не идёт: ' + e.absent.note : 'Не идёт' }} — водитель не нужен, поездки и напоминаний нет.
+            Вернуть — кнопкой «Идёт» вверху или в настройках («Болеет / не идёт»).
+          </p>
+        </div>
+        <div v-else class="group">
           <div v-if="e.recurring" class="row">
             <div class="seg scope" role="tablist" aria-label="Как применить">
               <button :class="{ on: scope === 'series' }" @click="scope = 'series'">Всегда</button>
@@ -165,6 +174,8 @@
         <div v-if="e.description" class="row stack desc"><template v-for="(part, i) in descParts" :key="i"><a v-if="part.url" :href="part.url" target="_blank" rel="noopener">{{ part.text }}</a><template v-else>{{ part.text }}</template></template></div>
       </div>
 
+      <EventListBox v-if="!e.private && !e.birthday && e.uid" :e="e" />
+
       <!-- Вложения и ссылки: справка, билет, запись к врачу -->
       <template v-if="!e.private && !e.birthday">
         <h3 class="group-title">Вложения и ссылки</h3>
@@ -201,6 +212,7 @@ import { api } from '../lib/api'
 import PeoplePicker from './PeoplePicker.vue'
 import ColorPick from './ColorPick.vue'
 import FilesBox from './FilesBox.vue'
+import EventListBox from './EventListBox.vue'
 import Sheet from './Sheet.vue'
 
 const MODES = [
@@ -406,6 +418,29 @@ const MOVES = [
 ]
 const panel = ref(null)
 const showColor = ref(false)
+// «Не идёт» в этот день — для событий ребёнка (отметка на день для всех его детей, см. «Болеет / не идёт» в настройках)
+const absentKids = computed(() => (e.value && !e.value.duty ? (e.value.escort?.children || []) : []))
+async function toggleAbsent() {
+  const ev = e.value
+  const day = ev.start.slice(0, 10)
+  saving.value = true
+  try {
+    const cur = (await api.absences()).items
+    let next
+    if (ev.absent) {
+      const mine = cur.filter((a) => absentKids.value.includes(a.person) && a.from <= day && day <= a.to)
+      if (mine.some((a) => a.from !== a.to)) { toast('Отмечено на несколько дней — изменить в настройках, «Болеет / не идёт»'); return }
+      next = cur.filter((a) => !mine.includes(a))
+    } else {
+      next = [...cur, ...absentKids.value.map((p) => ({ person: p, from: day, to: day, note: 'не идёт' }))]
+    }
+    await api.saveAbsences(next)
+    haptic('success')
+    toast(ev.absent ? 'Снова идёт' : `${childNames.value || 'Ребёнок'} не идёт весь этот день`)
+    await reload()
+    await refreshSelected()
+  } catch (err) { toast('Не удалось: ' + err.message) } finally { saving.value = false }
+}
 watch(() => e.value?.id, () => { showColor.value = false })
 const movable = computed(() => canMove(e.value))
 function toggle(p) { panel.value = panel.value === p ? null : p }
@@ -498,6 +533,7 @@ h2 { flex: 1; margin: 0; font-size: 22px; line-height: 1.2; font-weight: 700; le
 .small { font-size: 13px; margin: 0; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .group-title { margin: 22px 4px 6px; }
+.absent-box { margin-bottom: 14px; }
 .group-note { margin: 6px 4px 0; }
 .scope, .modes { width: 100%; }
 .modes button { flex: 1; }

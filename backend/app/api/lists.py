@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from fastapi import APIRouter
 
-from .. import core, shops
+from .. import core, eventlists, shops
 from .files import drop as drop_files
 
 
@@ -50,6 +50,34 @@ class ItemPatch(BaseModel):
 def get_shops():
     """Отделы магазина для списка покупок, в порядке обхода."""
     return [shops.INFO[k] for k in shops.ORDER]
+
+
+class EventListIn(BaseModel):
+    uid: str
+    list_id: int | None = None
+    new_name: str | None = None
+
+
+@router.get("/api/event-list")
+def get_event_list(uid: str, occurrence: str | None = None):
+    """Список вещей у события (для повторяющегося — отметки сброшены к новому вхождению)."""
+    return {"list": eventlists.for_occurrence(core.db, uid, occurrence)}
+
+
+@router.put("/api/event-list")
+def put_event_list(body: EventListIn):
+    """Привязать существующий список, создать новый (new_name) или отвязать (оба пусто)."""
+    lid, own = body.list_id, False
+    if body.new_name and body.new_name.strip():
+        lid, own = core.db.add_list(body.new_name.strip()[:80]), True
+    if lid is not None:
+        lst = next((l for l in core.db.lists() if l["id"] == lid), None)
+        if lst is None:
+            raise HTTPException(404, "Нет такого списка")
+        if not own and shops.is_shopping(lst["name"]):
+            raise HTTPException(400, "Список покупок к событию не привязывается — создайте список вещей")
+    eventlists.attach(core.db, body.uid, lid, own)
+    return {"list": eventlists.for_occurrence(core.db, body.uid, None)}
 
 
 @router.get("/api/lists")

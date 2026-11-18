@@ -42,7 +42,7 @@
             </div>
             <button
               v-for="b in lane.blocks" :key="b.key"
-              class="block" :class="[{ allday: b.allDay, past: b.past, private: b.e.private, multi: b.e.people.length > 1, 'duty-style': b.e.duty }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
+              class="block" :class="[{ absent: b.e.absent, star: b.e.star, allday: b.allDay, past: b.past, private: b.e.private, multi: b.e.people.length > 1, 'duty-style': b.e.duty }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
               :style="{ left: b.x + 'px', width: b.w + 'px', top: b.y + 'px', height: (b.allDay ? ALLDAY_H : ROW_H) - 4 + 'px', ...(b.e.color ? { '--c': b.e.color } : {}), '--on': onColor(b.e.color || lane.person.color) }"
               :title="b.e.title"
               @click="openEvent(b.e)"
@@ -301,7 +301,8 @@ const nowX = computed(() => {
   box-shadow: inset 3px 0 0 var(--c); font-size: 13px; line-height: 1;
 }
 .block:hover { background: color-mix(in srgb, var(--c) 28%, var(--surface)); z-index: 1; }
-.block.allday { background: color-mix(in srgb, var(--c) 85%, var(--surface)); color: var(--on, #fff); box-shadow: none; font-weight: 600; }
+.block.allday { font-weight: 600; }
+.block.allday.star { background: color-mix(in srgb, var(--c) 85%, var(--surface)); color: var(--on, #fff); box-shadow: none; }
 .trip-chip {
   flex: none; order: -1; margin-right: 4px; padding: 0 5px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 18px;
   background: var(--warn); color: #fff; cursor: pointer; position: relative; display: inline-flex; align-items: center;

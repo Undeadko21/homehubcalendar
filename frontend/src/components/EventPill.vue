@@ -1,7 +1,7 @@
 <template>
   <button
     class="pill"
-    :class="{ allday: e.all_day && !e.private, shared: e.people.length > 1 && !e.duty, past, private: e.private, now: current, issue: e.escort_issue, duty: e.duty, conflict: e.duty && e.escort_issue === 'conflict' }"
+    :class="{ absent: e.absent, star: e.star, allday: e.all_day && !e.private, shared: e.people.length > 1 && !e.duty, past, private: e.private, now: current, issue: e.escort_issue, duty: e.duty, conflict: e.duty && e.escort_issue === 'conflict' }"
     :style="{ '--c': color, '--on': onColor(color) }"
     @click="openEvent(e)"
   >

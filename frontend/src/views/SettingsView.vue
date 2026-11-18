@@ -183,6 +183,8 @@
     <BirthdaysEditor />
     <h3 class="group-title">Школьные каникулы</h3>
     <SchoolBreaks />
+    <h3 class="group-title">Болеет / не идёт</h3>
+    <AbsencesBox />
     </template>
 
     <!-- Напоминания -->
@@ -483,6 +485,7 @@ import ColorPick from '../components/ColorPick.vue'
 import EventReminders from '../components/EventReminders.vue'
 import ChangeLog from '../components/ChangeLog.vue'
 import SchoolBreaks from '../components/SchoolBreaks.vue'
+import AbsencesBox from '../components/AbsencesBox.vue'
 import StatsPanel from '../components/StatsPanel.vue'
 import SystemPanel from '../components/SystemPanel.vue'
 import Help from '../components/Help.vue'

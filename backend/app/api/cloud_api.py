@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .. import __version__
-from .. import reminders, snapshot, portable
+from .. import eventlists, reminders, snapshot, portable, weather
 from ..cloud import CloudError
 from fastapi import APIRouter
 
@@ -21,6 +21,29 @@ class EventRemindersIn(BaseModel):
     people: dict[str, list[int]] = {}
     allday_people: list[str] | None = None
     allday_time: str | None = None
+
+
+class MorningIn(BaseModel):
+    enabled: bool | None = None
+    time: str | None = None
+    people: list[str] | None = None
+    go: bool | None = None
+
+
+@router.get("/api/settings/morning")
+def get_morning():
+    """Утренняя сводка «мой день» и «Пора выезжать»."""
+    return reminders.load_morning(core.db)
+
+
+@router.put("/api/settings/morning")
+def put_morning(body: MorningIn):
+    try:
+        v = reminders.save_morning(core.db, body.enabled, body.time, body.people, body.go)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    core.cloud.tick(force=True)   # снимок для телефонов — сразу
+    return v
 
 
 @router.get("/api/settings/event-reminders")
@@ -112,7 +135,9 @@ def get_reminders(hours: int = 36, lead: int = 30, people: str | None = None):
     items = reminders.build(evs, core.db.birthdays(), now, core.tz, wanted, max(0, min(lead, 240)), 2,
                             reminders.load_rules(core.db), reminders.load_allday(core.db),
                             [i for l in core.db.lists() for i in l["items"]], core.db.sync_status(),
-                            names={p["id"]: p["name"] for p in core.db.list_people()})
+                            names={p["id"]: p["name"] for p in core.db.list_people()},
+                            morning=reminders.load_morning(core.db), weather=weather.cached(core.settings.weather),
+                            event_lists=eventlists.todo_texts(core.db))
     lo, hi = now - timedelta(hours=3), now + timedelta(hours=max(1, min(hours, 72)))
     return {"now": now.isoformat(timespec="seconds"),
             "items": [r for r in items if lo <= datetime.fromisoformat(r["at"]) <= hi]}
@@ -122,7 +147,7 @@ def get_reminders(hours: int = 36, lead: int = 30, people: str | None = None):
 @router.get("/api/snapshot")
 def get_snapshot():
     """То же, что лежит в облаке (но без шифрования): виджет и напоминания на 7 дней."""
-    return snapshot.build(core.events, core.db, core.tz)
+    return snapshot.build(core.events, core.db, core.tz, weather_cfg=core.settings.weather)
 
 
 class CloudIn(BaseModel):

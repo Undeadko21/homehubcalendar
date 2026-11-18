@@ -26,6 +26,18 @@
       </div>
     </div>
 
+    <!-- «Когда последний раз?» — по каждому человеку: последний раз и следующий -->
+    <section v-if="lastInfo.length" class="last" aria-label="Когда последний раз">
+      <div v-for="x in lastInfo" :key="x.person || '-'" class="lrow">
+        <span class="lava" :style="{ background: personById[x.person]?.color || 'var(--ink-3)' }">{{ personById[x.person]?.emoji || (personById[x.person]?.name || '•')[0] }}</span>
+        <span class="ltxt">
+          <strong>{{ personById[x.person]?.name || 'Общее' }}</strong>
+          <span>последний раз — {{ x.last ? ago(x.last) : 'не было за год' }}<template v-if="x.count > 1"> · за год {{ x.count }} {{ times(x.count) }}</template></span>
+          <span :class="{ warn: !x.next }">следующий — {{ x.next ? whenNext(x.next) : 'не запланирован' }}</span>
+        </span>
+      </div>
+    </section>
+
     <p v-if="!active" class="hint">Введите слово или выберите человека, период или календарь. Без периода ищет за последние 2 месяца и на год вперёд.</p>
     <p v-else-if="loading && !results.length" class="hint">Ищу…</p>
     <p v-else-if="error" class="hint err">{{ error }}</p>
@@ -79,6 +91,15 @@ const from = ref(saved.from || '')
 const to = ref(saved.to || '')
 const calendar = ref(saved.calendar || '')
 const results = ref([])
+const lastInfo = ref([])
+const dshort = (s) => new Date(s.length > 10 ? s : s + 'T12:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: new Date(s).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined })
+function ago(x) {
+  const days = Math.round((Date.now() - new Date(x.start.length > 10 ? x.start : x.start + 'T12:00')) / 86400000)
+  const rel = days < 1 ? 'сегодня' : days < 45 ? `${days} дн. назад` : days < 365 ? `${Math.round(days / 30)} мес. назад` : 'больше года назад'
+  return `${dshort(x.start)} (${rel})`
+}
+const whenNext = (x) => dshort(x.start)
+const times = (n) => (n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 12 && n % 100 <= 14) ? 'раза' : 'раз')
 const loading = ref(false)
 const error = ref('')
 const input = ref(null)
@@ -110,7 +131,7 @@ async function run() {
   try {
     sessionStorage.setItem('homecal.search', JSON.stringify({ text: text.value, who: who.value, period: period.value, from: from.value, to: to.value, calendar: calendar.value }))
   } catch { /* без хранилища */ }
-  if (!active.value) { results.value = []; return }
+  if (!active.value) { results.value = []; lastInfo.value = []; return }
   const my = ++seq
   loading.value = true
   error.value = ''
@@ -118,8 +139,9 @@ async function run() {
     const params = { q: text.value.trim(), ...range() }
     if (who.value.length) params.people = who.value.join(',')
     if (calendar.value) params.calendar = calendar.value
-    const r = await api.search(params)
-    if (my === seq) results.value = period.value === 'past' ? [...r].reverse() : r
+    const [r, l] = await Promise.all([api.search(params),
+      params.q.length >= 3 && period.value !== 'custom' ? api.searchLast(params.q, params.people).catch(() => ({ items: [] })) : { items: [] }])
+    if (my === seq) { results.value = period.value === 'past' ? [...r].reverse() : r; lastInfo.value = l.items }
   } catch (e) {
     if (my === seq) error.value = 'Не удалось выполнить поиск: ' + e.message
   } finally {
@@ -168,4 +190,10 @@ function when(e) {
 .s { font-size: 13px; color: var(--ink-2); }
 .who { font-size: 12px; color: var(--ink-3); }
 .group { margin-top: 8px; }
+.last { display: flex; flex-direction: column; gap: 8px; background: var(--surface-2); border-radius: var(--radius-m); padding: 12px 14px; margin: 12px 0; }
+.lrow { display: flex; gap: 12px; align-items: flex-start; }
+.lava { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; color: #fff; font-size: 16px; font-weight: 600; }
+.ltxt { display: flex; flex-direction: column; font-size: 14px; line-height: 1.35; color: var(--ink-2); }
+.ltxt strong { color: var(--ink); font-size: 15px; }
+.ltxt .warn { color: var(--warn); }
 </style>

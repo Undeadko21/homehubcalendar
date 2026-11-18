@@ -9,6 +9,8 @@
       <WeatherNow />
     </section>
 
+    <NowNext v-if="isToday && !state.kiosk" :events="todays" :now="now" />
+
     <form class="quick" @submit.prevent="addQuick">
       <input v-model="quickText" placeholder="Быстро: «Йога завтра в 18:30», «купить молоко», «дело: …»" aria-label="Быстро добавить событие, дело или покупку"
              autocomplete="off" enterkeyhint="go" />
@@ -104,6 +106,7 @@ import { addDays, startOfDay, overlaps, isoDate, isoLocal, eventRange, sameDay, 
 import EventPill from '../components/EventPill.vue'
 import EscortBadge from '../components/EscortBadge.vue'
 import WeatherNow from '../components/WeatherNow.vue'
+import NowNext from '../components/NowNext.vue'
 import DayGrid from '../components/DayGrid.vue'
 import BirthdayStrip from '../components/BirthdayStrip.vue'
 import CountdownStrip from '../components/CountdownStrip.vue'

@@ -42,7 +42,7 @@
               </div>
               <button
                 v-for="b in col.blocks" :key="b.e.id"
-                class="blk" :class="[{ 'has-chip': tripIssue(b.e, now), past: b.past, now: b.current, private: b.e.private, short: b.h < 34, 'duty-style': b.e.duty }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
+                class="blk" :class="[{ absent: b.e.absent, 'has-chip': tripIssue(b.e, now), past: b.past, now: b.current, private: b.e.private, short: b.h < 34, 'duty-style': b.e.duty }, b.e.escort_issue ? 'esc-' + b.e.escort_issue : '']"
                 :style="{ top: b.y + 'px', height: b.h + 'px', left: b.left + '%', width: b.width + '%' }"
                 :title="`${b.e.title}, ${b.time}`"
                 @click="openEvent(b.e)"
@@ -59,7 +59,7 @@
             <!-- Общие события: один блок через колонки всех участников -->
             <button
               v-for="s in spans" :key="s.key"
-              class="blk span" :class="[{ 'has-chip': tripIssue(s.e, now), shared: s.people.length > 1 && !s.e.duty, past: s.past, now: s.current, private: s.e.private, short: s.h < 34, 'duty-style': s.e.duty }, s.e.escort_issue ? 'esc-' + s.e.escort_issue : '']"
+              class="blk span" :class="[{ absent: s.e.absent, 'has-chip': tripIssue(s.e, now), shared: s.people.length > 1 && !s.e.duty, past: s.past, now: s.current, private: s.e.private, short: s.h < 34, 'duty-style': s.e.duty }, s.e.escort_issue ? 'esc-' + s.e.escort_issue : '']"
               :style="{ '--c': s.color, top: s.y + 'px', height: s.h + 'px', left: `calc(${s.c0} * 100% / ${columns.length})`, width: `calc(${s.c1 - s.c0 + 1} * 100% / ${columns.length} - 4px)` }"
               :title="`${s.e.title}, ${s.time}`"
               @click="openEvent(s.e)"

@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from . import countdown, birthdays as bd, ops, reminders, widget
+from . import countdown, birthdays as bd, eventlists, ops, reminders, weather, widget
 from .db import Database
 from .events import EventService
 
@@ -19,13 +19,13 @@ HORIZON_DAYS = 7
 def _compact(e: dict) -> dict:
     """Событие для офлайн-экрана телефона: без описаний, ссылок и родительского события поездки."""
     out = {k: e[k] for k in ("id", "uid", "title", "start", "end", "all_day", "location", "people", "recurring",
-                             "escort", "escort_issue", "color") if k in e}
+                             "escort", "escort_issue", "color", "absent") if k in e}
     if e.get("duty"):
         out["duty"] = {"role": e["duty"]["role"], "parent": e["duty"]["parent"]["id"]}
     return out
 
 
-def build(events: EventService, db: Database, tz: ZoneInfo, now: datetime | None = None) -> dict:
+def build(events: EventService, db: Database, tz: ZoneInfo, now: datetime | None = None, weather_cfg: dict | None = None) -> dict:
     now = (now or datetime.now(tz)).astimezone(tz)
     start = datetime.combine(now.date(), time(0), tz)
     evs = events.events(start, start + timedelta(days=HORIZON_DAYS + 1))
@@ -42,7 +42,9 @@ def build(events: EventService, db: Database, tz: ZoneInfo, now: datetime | None
         "reminders": reminders.build(evs, db.birthdays(), now, tz, None, None, HORIZON_DAYS,
                                     reminders.load_rules(db), reminders.load_allday(db),
                                     [i for l in db.lists() for i in l["items"]], db.sync_status(),
-                                    names={pid: p["name"] for pid, p in people.items()}),
+                                    names={pid: p["name"] for pid, p in people.items()},
+                                    morning=reminders.load_morning(db), weather=weather.cached(weather_cfg or {}),
+                                    event_lists=eventlists.todo_texts(db)),
         # --- для офлайн-экрана и команд с телефона (этап 2) ---
         "people": [{k: p.get(k) for k in ("id", "name", "color", "emoji", "needs_escort", "keywords")} for p in people.values()],
         "events": [_compact(e) for e in shown],

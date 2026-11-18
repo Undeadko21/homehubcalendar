@@ -18,7 +18,7 @@
               <small v-if="d.holiday && d.holiday.type !== 'vacation'" class="hn">{{ d.holiday.name }}</small>
             </th>
             <td v-for="p in cols" :key="p.id">
-              <button v-for="e in d.cells[p.id]" :key="e.id" class="chip" :class="{ duty: e.duty, shared: e.people.length > 1 }"
+              <button v-for="e in d.cells[p.id]" :key="e.id" class="chip" :class="{ absent: e.absent, duty: e.duty, shared: e.people.length > 1 }"
                       :style="{ '--c': eventColor(e) }" @click="openEvent(e)">
                 <span class="t">{{ e.all_day ? '' : time(e, d.date) }}</span>
                 <span class="n">{{ titleWithIcon(e) }}</span>

@@ -60,7 +60,9 @@ def build(events: list[dict], people: dict[str, dict], tz: ZoneInfo, now: dateti
                 if conflicts:
                     note = "занят(а): " + ", ".join(c["title"] for c in conflicts)
             if esc:
-                if esc["mode"] == "home":
+                if esc["mode"] == "absent":
+                    note = (e.get("absent") or {}).get("note") or esc.get("mode_reason") or "не идёт"
+                elif esc["mode"] == "home":
                     note = "дома"
                 elif esc["mode"] == "together":
                     note = "все вместе"

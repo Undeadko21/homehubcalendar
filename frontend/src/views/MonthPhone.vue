@@ -10,9 +10,12 @@
         <button v-for="c in w.days" :key="c.key" class="cell" :class="{ out: !c.inMonth, we: c.weekend, off: c.off }" :disabled="!c.inMonth" @click="pick(c.date)">
           <template v-if="c.inMonth">
             <span class="dn" :class="{ today: c.today, sel: c.sel && !c.today, selt: c.sel && c.today }">{{ c.date.getDate() }}</span>
-            <span class="bars">
-              <i v-for="(col, i) in c.colors" :key="i" :style="{ background: col }"></i>
+            <!-- кто занят в этот день (цвет человека) и важное событие коротко -->
+            <span v-if="c.who.length" class="who" aria-hidden="true">
+              <b v-for="p in c.who.slice(0, 4)" :key="p.id" :style="{ '--c': p.color }"></b><i v-if="c.who.length > 4">+</i>
             </span>
+            <span v-else-if="c.colors.length" class="bars"><i v-for="(col, i) in c.colors" :key="i" :style="{ background: col }"></i></span>
+            <span v-if="c.star" class="star-t" :style="{ '--c': c.starColor }">{{ c.star }}</span>
           </template>
         </button>
       </div>
@@ -77,8 +80,12 @@ const weeks = computed(() => {
       const key = isoDate(date)
       const list = byDay.value[key] || []
       const colors = [...new Set(list.map((e) => eventColor(e)))].slice(0, 5)
+      const ids = [...new Set(list.filter((e) => !e.absent).flatMap((e) => e.people))].filter((p) => !p.startsWith('_') && personById.value?.[p] && !personById.value[p].hidden)
+      const who = ids.map((p) => ({ id: p, color: personById.value[p].color, mark: personMark.value?.[p] || personById.value[p].name[0] }))
+      const st = list.find((e) => e.star) || list.find((e) => e.birthday)
+      const star = st ? st.title.replace(/^[^\p{L}\p{N}]+/u, '') : ''
       const h = holidayMap.value[key]
-      return { key, date, inMonth: date.getMonth() === month, weekend: i > 4, off: !!h && h.type !== 'vacation', colors, today: sameDay(date, today), sel: sameDay(date, state.cursor) }
+      return { key, date, inMonth: date.getMonth() === month, weekend: i > 4, off: !!h && h.type !== 'vacation', colors, who, star, starColor: st ? eventColor(st) : null, today: sameDay(date, today), sel: sameDay(date, state.cursor) }
     })
     out.push({ n: isoWeek(addDays(ws, 3)), current: days.some((d) => d.today), days })
   }
@@ -125,19 +132,24 @@ const te = (e) => {
 <style scoped>
 .mp { padding: 0 0 24px; }
 .grid { padding: 0 0 0 2px; }
-.wk-head, .week { display: grid; grid-template-columns: 22px repeat(7, 1fr); align-items: start; }
+.wk-head, .week { display: grid; grid-template-columns: 22px repeat(7, minmax(0, 1fr)); align-items: start; }
 .wk-head { font-size: 12px; font-weight: 600; text-align: center; padding: 2px 0 4px; border-bottom: 1px solid var(--line-strong); }
 .wk-head .we { color: var(--ink-2); }
 .week { border-bottom: 1px solid var(--line); min-height: 68px; }
 .wn { font-size: 10px; font-weight: 600; color: var(--ink-3); padding: 2px 0 0 2px; }
 .wn.cur { color: var(--red); }
-.cell { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 6px; background: none; border: 0; font: inherit; color: var(--ink); cursor: pointer; min-height: 68px; -webkit-tap-highlight-color: transparent; }
+.cell { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 6px; background: none; border: 0; font: inherit; color: var(--ink); cursor: pointer; min-height: 68px; -webkit-tap-highlight-color: transparent; }
 .cell:disabled { cursor: default; }
 .cell.we .dn, .cell.off .dn { color: var(--ink-2); }
 .dn { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; font-size: 20px; font-weight: 500; }
 .dn.today { background: var(--red); color: #fff; font-weight: 600; }
 .dn.sel { background: var(--ink); color: var(--bg); }
 .dn.selt { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--red); }
+.who { display: flex; gap: 3px; align-items: center; height: 10px; }
+.who b { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.who i { font-style: normal; font-size: 10px; color: var(--ink-3); margin-left: 1px; }
+.star-t { max-width: 100%; padding: 0 2px; font-size: 9.5px; font-weight: 600; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: color-mix(in srgb, var(--c) var(--ev-mix), var(--ink)); }
 .bars { display: flex; width: 78%; height: 5px; gap: 0; border-radius: 3px; overflow: hidden; opacity: .55; }
 .bars i { flex: 1; height: 100%; display: block; }
 

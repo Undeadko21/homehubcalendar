@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from .. import __version__
 from ..events import UNASSIGNED
 from ..freetime import find_free
-from .. import birthdays as bd, escorts, recent, school, stats, widget
+from .. import absences, birthdays as bd, escorts, recent, school, stats, widget
 from fastapi import APIRouter
 
 from .. import core
@@ -65,6 +65,24 @@ def put_school(body: SchoolIn):
     school.save_settings(core.db, body.hide, body.hide_words)
     core.events.invalidate()   # школьные события скрываются/возвращаются сразу
     return {"breaks": school.load(core.db), **school.settings(core.db)}
+
+
+class AbsencesIn(BaseModel):
+    items: list[dict]
+
+
+@router.get("/api/absences")
+def get_absences():
+    return {"items": absences.load(core.db)}
+
+
+@router.put("/api/absences")
+def put_absences(body: AbsencesIn):
+    known = {p["id"] for p in core.db.list_people()}
+    items = absences.prune(absences.clean(body.items, known), core._today_start().date())
+    out = absences.save(core.db, items, known)
+    core.events.invalidate()   # события и поездки пересчитываются сразу
+    return {"items": out}
 
 
 @router.get("/api/recent-events")
@@ -307,6 +325,53 @@ def delete_birthday(bid: int):
 
 
 # ---------- поиск ----------
+_last_cache: dict = {"at": 0.0, "day": None, "svc": None, "events": []}
+
+
+def _year_of_events() -> list[dict]:
+    """События за год назад и полгода вперёд — для «последний раз». Сборка такого диапазона тяжёлая
+    (шире окна ленты), поэтому храним 10 минут: правка свежего события станет видна с этой задержкой."""
+    import time as _t
+    today = core._today_start()
+    if _last_cache["day"] != today or _last_cache["svc"] is not core.events or _t.time() - _last_cache["at"] > 600:
+        _last_cache.update(events=core.events.events(today - timedelta(days=365), today + timedelta(days=183)),
+                           at=_t.time(), day=today, svc=core.events)
+    return _last_cache["events"]
+
+
+@router.get("/api/search/last")
+def search_last(q: str = "", people: str | None = None):
+    """«Когда последний раз?»: по названию/месту — последнее прошедшее и ближайшее будущее, по каждому человеку
+    (до 4 человек; события без людей — общей строкой). Смотрит год назад и полгода вперёд."""
+    q = " ".join(q.lower().split())
+    if len(q) < 3:
+        return {"items": []}
+    who = {p for p in (people or "").split(",") if p}
+    now = datetime.now(core.tz)
+    today = core._today_start()
+    by: dict[str, dict] = {}
+    for e in _year_of_events():
+        if e.get("duty") or e.get("absent") or e.get("private"):
+            continue
+        if not (q in e["title"].lower() or q in (e.get("location") or "").lower()):
+            continue
+        ppl = [p for p in e["people"] if not p.startswith("_")] or [""]
+        for pid in ppl:
+            if who and pid not in who:
+                continue
+            slot = by.setdefault(pid, {"person": pid or None, "last": None, "next": None, "count": 0})
+            s = core._parse_dt(e["start"]) if not e["all_day"] else datetime.combine(date.fromisoformat(e["start"][:10]), time(0), core.tz)
+            brief = {"title": e["title"], "start": e["start"], "all_day": e["all_day"]}
+            if s < now:
+                slot["count"] += 1
+                if not slot["last"] or e["start"] > slot["last"]["start"]:
+                    slot["last"] = brief
+            elif not slot["next"] or e["start"] < slot["next"]["start"]:
+                slot["next"] = brief
+    items = sorted(by.values(), key=lambda x: (x["last"] or {}).get("start", ""), reverse=True)[:4]
+    return {"items": items}
+
+
 @router.get("/api/search")
 def search(q: str = "", people: str | None = None, calendar: str | None = None,
            start: str | None = None, end: str | None = None):

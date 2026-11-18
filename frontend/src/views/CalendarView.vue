@@ -73,10 +73,10 @@ const fcEvents = computed(() =>
       start: e.start,
       end: e.end,
       allDay: e.all_day,
-      backgroundColor: e.all_day ? `color-mix(in srgb, ${c} 85%, var(--surface))` : `color-mix(in srgb, ${c} var(--ev-bg), var(--surface))`,
+      backgroundColor: e.all_day && e.star ? `color-mix(in srgb, ${c} 85%, var(--surface))` : `color-mix(in srgb, ${c} var(--ev-bg), var(--surface))`,
       borderColor: c,
-      textColor: e.all_day ? onColor(c) : `color-mix(in srgb, ${c} var(--ev-mix), var(--ink))`,
-      classNames: [e.people.length > 1 && !e.duty ? 'is-shared' : '', e.private ? 'is-private' : '', e.escort_issue ? 'esc-' + e.escort_issue : '', e.duty ? 'is-duty' : ''],
+      textColor: e.all_day && e.star ? onColor(c) : `color-mix(in srgb, ${c} var(--ev-mix), var(--ink))`,
+      classNames: [e.people.length > 1 && !e.duty ? 'is-shared' : '', e.private ? 'is-private' : '', e.escort_issue ? 'esc-' + e.escort_issue : '', e.duty ? 'is-duty' : '', e.absent ? 'is-absent' : '', e.all_day && !e.star ? 'is-calm' : ''],
       editable: canMove(e),
       extendedProps: { src: e },
     }
@@ -283,6 +283,7 @@ watch(() => [state.cursor, viewName.value], () => {
 .cal .trip-chip.conflict { background: var(--red); }
 .cal .ev-tm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal .fc-daygrid-block-event .fc-event-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.cal .fc-event.is-calm { border-width: 0 0 0 3px !important; border-radius: 4px; }
 .cal .fc-highlight { background: color-mix(in srgb, var(--tint) 18%, transparent); }
 .cal .ev-tm { font-size: 11px; opacity: .8; }
 .cal .fc-daygrid-dot-event.esc-conflict .fc-event-title::after { content: ' !'; color: var(--red); font-weight: 800; }

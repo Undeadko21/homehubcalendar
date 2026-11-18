@@ -21,7 +21,8 @@
 Как добирается (role='mode', значения escort | together | home):
   escort   — кто-то отвозит и забирает (роли выше);
   together — едут все вместе, выбирать водителя не нужно;
-  home     — событие дома, везти не нужно.
+  home     — событие дома, везти не нужно;
+  absent   — ребёнок в этот день не идёт («Болеет / не идёт», absences.py) — не выбирается вручную.
 Если не задано вручную, определяется само: «дома» — по словам в названии/месте
 или домашнему адресу; «вместе» — если среди участников есть взрослый.
 """
@@ -104,7 +105,7 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
              before_min: int = 30, after_min: int = 30,
              home_words: list[str] | None = None, home_address: str = "",
              templates: list[dict] | None = None, places: list[dict] | None = None,
-             travel_buffer: int = 5, routes: dict[str, int] | None = None) -> None:
+             travel_buffer: int = 5, routes: dict[str, int] | None = None, away=None) -> None:
     """Добавляет каждому событию ребёнка поле escort и уровень проблемы escort_issue."""
     children = {pid for pid, p in people.items() if p.get("needs_escort")}
     adults = [pid for pid, p in people.items() if not p.get("needs_escort") and not p.get("hidden")]
@@ -114,7 +115,7 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
     # Занятость взрослых: события со временем, где они участвуют.
     busy: dict[str, list[tuple[datetime, datetime, dict]]] = {pid: [] for pid in adults}
     for e in events:
-        if e["all_day"] or not e.get("busy", True):
+        if e["all_day"] or not e.get("busy", True) or e.get("absent"):
             continue
         s, en = _dt(e["start"]), _dt(e["end"])
         for pid in e["people"]:
@@ -136,7 +137,9 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
         manual = m_once if m_once in MODES else (m_series if m_series in MODES else None)
         grown = [pid for pid in e["people"] if pid in people and pid not in children]
         home_reason = _home_match(e, home_words or [], home_address)
-        if manual:
+        if e.get("absent"):
+            mode, reason = "absent", e["absent"]["note"]
+        elif manual:
             mode, reason = manual, None
         elif home_reason:
             mode, reason = "home", home_reason
@@ -149,7 +152,7 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
         info: dict = {
             "children": kids,
             "mode": mode,
-            "mode_auto": manual is None,
+            "mode_auto": manual is None and mode != "absent",
             "mode_reason": reason,
             "mode_scope": "once" if m_once in MODES else ("series" if m_series in MODES else None),
         }
@@ -205,10 +208,14 @@ def annotate(events: list[dict], people: dict[str, dict], assignments: dict[tupl
                 "conflicts": [],
                 "free": [],
             }
-            # Кто свободен в это окно (подсказка при выборе).
+            # Кто свободен в это окно (подсказка при выборе). Отсутствующий взрослый («уехал») не свободен.
             for pid in adults:
+                if away and away(pid, w0.date()):
+                    continue
                 if not any(_overlaps(w0, w1, b0, b1) and ev["id"] != e["id"] for b0, b1, ev in busy[pid]):
                     info[role]["free"].append(pid)
+            if person and away and away(person, w0.date()):
+                info[role]["conflicts"].append({"title": "в отъезде / болеет", "start": w0.isoformat(), "end": w1.isoformat(), "kind": "away"})
             if person:
                 duties.append((person, w0, w1, e, role))
         e["escort"] = info

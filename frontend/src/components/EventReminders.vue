@@ -23,6 +23,34 @@
         <input id="ad-time" v-model="adTime" type="time" class="tm" :disabled="busy" @change="saveAd" />
       </div>
     </div>
+    <h3 class="group-title">Утренняя сводка «мой день»</h3>
+    <div class="group">
+      <div class="row between">
+        <label for="mo-on">Присылать по утрам</label>
+        <input id="mo-on" v-model="mo.enabled" type="checkbox" class="switch" :disabled="busy" @change="saveMo" />
+      </div>
+      <template v-if="mo.enabled">
+        <div class="row stack">
+          <span class="label">Кому</span>
+          <div class="choices" role="group" aria-label="Кому присылать утреннюю сводку">
+            <button v-for="p in adults" :key="p.id" type="button" class="choice skip" :class="{ on: mo.people.includes(p.id) }"
+                    :aria-pressed="mo.people.includes(p.id)" :disabled="busy" @click="toggleMo(p.id)">{{ p.emoji }} {{ p.name }}</button>
+          </div>
+        </div>
+        <div class="row between">
+          <label for="mo-time">Во сколько</label>
+          <input id="mo-time" v-model="mo.time" type="time" class="tm" :disabled="busy" @change="saveMo" />
+        </div>
+      </template>
+      <div class="row between">
+        <label for="mo-go">«Пора выезжать» тому, кто везёт</label>
+        <input id="mo-go" v-model="mo.go" type="checkbox" class="switch" :disabled="busy" @change="saveMo" />
+      </div>
+    </div>
+    <p class="group-note">
+      Сводка — свои события и поездки на сегодня и погода. «Пора выезжать» приходит в момент выезда, если известно время
+      в дороге (по карте, правилу места или вручную в поездке).
+    </p>
     <p v-if="error" class="group-note err">{{ error }}</p>
     <p class="group-note">
       Можно выбрать несколько вариантов: например за день и за 30 минут. Напоминание приходит о событиях этого человека
@@ -45,6 +73,20 @@ const choices = ref([5, 10, 15, 30, 60, 120, 1440])
 const busy = ref(false)
 const error = ref('')
 const ppl = computed(() => (state.config?.people || []).filter((p) => !p.id.startsWith('_') && !p.hidden))
+const adults = computed(() => ppl.value.filter((p) => !p.needs_escort))
+const mo = ref({ enabled: true, time: '07:30', people: [], go: true })
+api.morning().then((r) => { mo.value = r }).catch(() => {})
+function toggleMo(id) {
+  const s = new Set(mo.value.people)
+  s.has(id) ? s.delete(id) : s.add(id)
+  mo.value.people = [...s]
+  saveMo()
+}
+async function saveMo() {
+  busy.value = true
+  error.value = ''
+  try { mo.value = await api.saveMorning(mo.value) } catch (e) { error.value = 'Не удалось сохранить: ' + e.message } finally { busy.value = false }
+}
 const label = (m) => (m >= 1440 ? 'за день' : m >= 60 ? `за ${m / 60} ч` : `за ${m} мин`)
 const has = (id, m) => (rules.value[id] || []).includes(m)
 

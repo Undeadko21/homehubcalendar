@@ -1,6 +1,7 @@
 <template>
   <span class="escort" :class="e.escort_issue || 'ok'">
-    <span v-if="e.escort.mode === 'home'" class="role mode">⌂ дома</span>
+    <span v-if="e.escort.mode === 'absent'" class="role mode">{{ absentText(e) }}</span>
+    <span v-else-if="e.escort.mode === 'home'" class="role mode">⌂ дома</span>
     <span v-else-if="e.escort.mode === 'together'" class="role mode">все вместе</span>
     <span v-for="r in roles" :key="r.role" class="role" :class="{ bad: r.conflict, none: r.missing }" :title="r.title">
       <span class="dir" aria-hidden="true">{{ r.role === 'dropoff' ? '→' : '←' }}</span>
@@ -15,6 +16,7 @@ import { computed } from 'vue'
 import { personById } from '../lib/store'
 
 const props = defineProps({ e: { type: Object, required: true } })
+const absentText = (e) => { const n = e.absent?.note || e.escort.mode_reason || ''; return !n || n === 'не идёт' ? 'не идёт' : `не идёт: ${n}` }
 const roles = computed(() =>
   ['dropoff', 'pickup']
     .map((role) => ({ role, r: props.e.escort[role] }))

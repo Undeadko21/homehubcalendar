@@ -7,7 +7,7 @@ import threading
 from datetime import date, datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
-from . import escorts, live, routing, school
+from . import absences, escorts, live, routing, school
 from .db import Database
 from .expand import expand_ics
 
@@ -207,12 +207,15 @@ class EventService:
         if hide:
             wide = [e for e in wide if not hide(e)]
         people = {p["id"]: p for p in self.db.list_people()}
+        absent_items = absences.load(self.db)
+        absences.mark(wide, absent_items, {pid for pid, p in people.items() if p.get("needs_escort")})   # до поездок и конфликтов
         cfg = self.escort_settings()
         escorts.annotate(wide, people, self.db.escorts(), cfg["before_minutes"], cfg["after_minutes"],
                          [w.strip() for w in str(cfg.get("home_words") or "").split(",") if w.strip()],
                          str(cfg.get("home_address") or "").strip(),
                          templates=self.db.templates(), places=cfg.get("places") or [],
-                         travel_buffer=int(cfg.get("travel_buffer") or 0), routes=self.routes(cfg))
+                         travel_buffer=int(cfg.get("travel_buffer") or 0), routes=self.routes(cfg),
+                         away=absences.away(absent_items) if absent_items else None)
         self._apply_colors(wide)
         counts = self.db.event_file_counts()
         if counts:

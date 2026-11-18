@@ -18,7 +18,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 
 from . import BUILD, __version__
-from . import access, deploywatch, ops, versionwatch
+from . import access, deploywatch, ops, versionwatch, weather
 from . import sessions as sessions_mod
 from . import live
 from .perf import SLOW_MS
@@ -48,6 +48,9 @@ async def lifespan(app: FastAPI):
         core.scheduler.add_job(lambda: versionwatch.check(core.db, BUILD), "interval", minutes=30, id="version-watch",
                                max_instances=1, coalesce=True, next_run_time=datetime.now() + timedelta(minutes=20))
         core.scheduler.add_job(core.routes_refresh, "interval", minutes=30, id="routes", max_instances=1, coalesce=True)
+        # погода для утренней сводки — заранее, снимок берёт её из кэша
+        core.scheduler.add_job(lambda: weather.daily(core.settings.weather), "interval", minutes=30, id="weather", max_instances=1,
+                               coalesce=True, next_run_time=datetime.now(core.tz) + timedelta(seconds=20))
         core.scheduler.add_job(core.run_checks, "cron", hour=4, minute=10, id="checks", max_instances=1, coalesce=True,
                           misfire_grace_time=6 * 3600)
         core.scheduler.add_job(core.backup_drill, "cron", day=1, hour=4, minute=40, id="backup-drill", max_instances=1, coalesce=True,

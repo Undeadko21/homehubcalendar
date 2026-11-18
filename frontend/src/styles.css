@@ -128,9 +128,16 @@ a { color: var(--tint); text-decoration: none; }
 }
 .pill::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c); }
 .pill:hover { background: color-mix(in srgb, var(--c) 24%, var(--surface)); }
-.pill.allday { background: color-mix(in srgb, var(--c) 85%, var(--surface)); color: var(--on, #fff); }
-.pill.allday::before { display: none; }
+/* «весь день» спокойно — как обычные события (светлая заливка и полоска); сплошной цвет — только у важных (звёздочка) */
+.pill.allday { font-weight: 600; }
+.pill.allday.star { background: color-mix(in srgb, var(--c) 85%, var(--surface)); color: var(--on, #fff); }
+.pill.allday.star::before { display: none; }
 .pill.past { opacity: .7; }
+/* «не идёт» (болеет, уехал): приглушено и зачёркнуто */
+.blk.absent, .block.absent, .pill.absent, .chip.absent, .item.absent, .cal .fc-event.is-absent { opacity: .5; }
+:root[data-theme='dark'] :is(.blk, .block, .pill, .chip, .item).absent, :root[data-theme='dark'] .cal .fc-event.is-absent { opacity: .65; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) :is(.blk, .block, .pill, .chip, .item).absent, :root:not([data-theme='light']) .cal .fc-event.is-absent { opacity: .65; } }
+.blk.absent .t, .block.absent .bt, .pill.absent > .t, .chip.absent .n, .item.absent .t, .cal .fc-event.is-absent .ev-t { text-decoration: line-through; text-decoration-thickness: 1.5px; }
 /* Поездка за ребёнком в календаре взрослого — со штриховкой */
 .pill.duty, .duty-style {
   background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--c) 10%, var(--surface)) 0 5px, color-mix(in srgb, var(--c) 22%, var(--surface)) 5px 10px);
@@ -167,7 +174,7 @@ input.field, select.field, textarea.field {
   background: var(--surface-2) !important;
   color: var(--ink) !important;
 }
-.no-color-mix .pill.allday, .no-color-mix .block.allday { background: var(--c) !important; color: #fff !important; }
+.no-color-mix .pill.allday.star, .no-color-mix .block.allday.star { background: var(--c) !important; color: #fff !important; }
 .no-color-mix .cal .fc-event { background: var(--surface-2) !important; color: var(--ink) !important; }
 .no-color-mix .cal .fc-event .fc-event-main { color: var(--ink) !important; }
 

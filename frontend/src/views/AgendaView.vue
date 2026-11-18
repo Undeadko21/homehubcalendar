@@ -7,7 +7,7 @@
         <small v-if="g.holiday" class="hname">{{ g.holiday.name }}</small>
       </h2>
       <button v-for="e in g.events" :key="e.id" class="item" :style="{ '--c': eventColor(e) }"
-              :class="{ past: isPast(e), duty: e.duty, conflict: e.duty && e.escort_issue === 'conflict' }" @click="openEvent(e)"
+              :class="{ absent: e.absent, past: isPast(e), duty: e.duty, conflict: e.duty && e.escort_issue === 'conflict' }" @click="openEvent(e)"
               v-swipe="canMove(e) ? { left: () => toTomorrow(e) } : {}" @pointerdown="down($event, e)">
         <span class="time">
           <template v-if="e.all_day">весь день</template>
