@@ -30,4 +30,22 @@ describe('значки событий', () => {
     expect(titleWithIcon({ title: 'Что-то' })).toBe('Что-то')
     state.icons = false
   })
+  it('новые правила v0.20 и без ложных срабатываний', () => {
+    expect(eventIcon({ title: 'Кружок лего' })).toBe('🤖')
+    expect(eventIcon({ title: 'Лего-конструктор' })).toBe('🤖')
+    expect(eventIcon({ title: 'Встреча с коллегой' })).toBe('💼')
+    expect(eventIcon({ title: 'Карате' })).toBe('🥋')
+    expect(eventIcon({ title: 'Бокс' })).toBe('🥋')
+    expect(eventIcon({ title: 'Купить боксы для обуви' })).toBe('')
+    expect(eventIcon({ title: 'Генеральная репетиция' })).toBe('')
+    expect(eventIcon({ title: 'Аналоговое ТВ' })).toBe('')
+    expect(eventIcon({ title: 'Налоги' })).toBe('💳')
+    expect(eventIcon({ title: 'Каток' })).toBe('⛷️')
+    expect(eventIcon({ title: 'Уборка' })).toBe('🧹')
+  })
+  it('свой значок важнее правил; пустой — без значка', () => {
+    expect(eventIcon({ title: 'Бассейн', icon: '🐬' })).toBe('🐬')
+    expect(eventIcon({ title: 'Бассейн', icon: '' })).toBe('')
+    expect(eventIcon({ title: 'Бассейн', icon: '🐬', private: true })).toBe('')
+  })
 })

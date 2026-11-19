@@ -86,6 +86,43 @@ def set_event_color(body: EventColor):
     return {"ok": True}
 
 
+class EventIcon(BaseModel):
+    uid: str
+    title: str = ""
+    icon: str | None = None   # None — снова «по словам в названии», "" — без значка
+    same_title: bool = True   # запомнить и для других событий с таким же названием
+
+
+def icon_title_key(title: str) -> str:
+    return " ".join((title or "").lower().replace("ё", "е").split())
+
+
+# Только символы эмодзи: картинки, знаки, вариационный селектор, ZWJ, тон кожи (без букв, пробелов и управляющих)
+_EMOJI = __import__("re").compile("^[\U0001F000-\U0001FAFF\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]{1,8}$")
+
+
+@router.post("/api/event-icon")
+def set_event_icon(body: EventIcon):
+    """Свой значок события (по UID — на все повторы) и, по желанию, для всех событий с таким же названием."""
+    if body.icon and not _EMOJI.match(body.icon):
+        raise HTTPException(400, "Значок — один эмодзи")
+    by_uid = dict(core.db.kv_get("event_icons")[0] or {})
+    by_title = dict(core.db.kv_get("icon_titles")[0] or {})
+    key = icon_title_key(body.title)
+    if body.icon is None:   # «Авто»: снять и свой, и запомненный по названию — иначе он вернётся
+        by_uid.pop(body.uid, None)
+        if key:
+            by_title.pop(key, None)
+    else:
+        by_uid[body.uid] = body.icon
+        if body.same_title and key:
+            by_title[key] = body.icon
+    core.db.kv_set("event_icons", by_uid)
+    core.db.kv_set("icon_titles", by_title)
+    core.events.invalidate()
+    return {"ok": True}
+
+
 class EventStar(BaseModel):
     uid: str
     star: bool

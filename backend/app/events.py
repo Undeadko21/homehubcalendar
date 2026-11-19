@@ -276,9 +276,18 @@ class EventService:
         stars, _ = self.db.kv_get("event_stars")
         stars = stars or {}
         shared = self.shared_color()
+        icons = self.db.kv_get("event_icons")[0] or {}
+        icon_titles = self.db.kv_get("icon_titles")[0] or {}
         for e in evs:
             if e.get("uid") in stars:
                 e["star"] = True
+            # Свой значок (карточка события): по UID, иначе по названию; личные («Занят») — без значка.
+            if not e.get("private") and not e.get("birthday"):
+                ic = icons.get(e.get("uid"))
+                if ic is None and icon_titles:
+                    ic = icon_titles.get(" ".join((e.get("title") or "").lower().replace("ё", "е").split()))
+                if ic is not None:
+                    e["icon"] = ic
             c = own.get(e.get("uid"))
             if not c and shared and len([p for p in e["people"] if not p.startswith("_")]) > 1:
                 c = shared

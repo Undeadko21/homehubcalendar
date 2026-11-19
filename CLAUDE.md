@@ -29,7 +29,7 @@
 | `docs/dev/outside.md` | снимок и команды через Яндекс.Диск, токены, QR, доступ из интернета, агент VPS |
 | `docs/dev/decisions.md` | журнал решений: от чего пользователь отказался и почему так сделано — читать перед предложениями |
 | `docs/dev/parallel.md` | параллельная работа исполнителей в отдельных ветках и каталогах |
-| `docs/dev/changelog.md` | подробная история версий v0.1…v0.19.0 — все тонкости; искать `grep -n <имя> docs/dev/changelog.md` |
+| `docs/dev/changelog.md` | подробная история версий v0.1…v0.20.0 — все тонкости; искать `grep -n <имя> docs/dev/changelog.md` |
 
 Структура бэкенда: `main.py` (app, middleware, PIN, роутеры, SPA), `core.py` (настройки, singletons `db/events/engine/cloud/backup/ws…`), `api/*.py` (маршруты по темам).
 Тесты: `backend/tests/` (`conftest.py` — фикстура `api`; `test_caldav_radicale.py` — настоящий CalDAV; `test_e2e.py` — Playwright против собранного фронта), `frontend/tests/` (vitest), `alice/test_handler.py`.

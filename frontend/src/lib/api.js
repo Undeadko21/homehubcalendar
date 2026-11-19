@@ -95,6 +95,7 @@ export const api = {
   undoChange: (id) => request('POST', `/api/changes/${id}/undo`),
   flushChanges: () => request('POST', '/api/changes/flush'),
   setEventColor: (uid, color) => request('POST', '/api/event-color', { uid, color }),
+  setEventIcon: (uid, title, icon, sameTitle) => request('POST', '/api/event-icon', { uid, title, icon, same_title: sameTitle }),
   setEventStar: (uid, star) => request('POST', '/api/event-star', { uid, star }),
   countdowns: () => request('GET', '/api/countdowns'),
   shops: () => request('GET', '/api/shops'),

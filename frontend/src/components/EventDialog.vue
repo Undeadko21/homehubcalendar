@@ -194,6 +194,20 @@
           <ColorPick :model-value="ownColor" none-label="По умолчанию" label="Цвет события" :disabled="saving" @update:model-value="saveColor" />
         </div>
       </div>
+      <!-- Значок: свой (запоминается и для событий с таким же названием) или по словам -->
+      <div v-if="!e.duty && !e.private && !e.birthday" class="group">
+        <button class="row color-row" :aria-expanded="showIcon" @click="showIcon = !showIcon">
+          <span class="label">Значок</span>
+          <span class="faint win">{{ typeof e.icon === 'string' ? (e.icon ? 'свой' : 'без значка') : autoIcon ? 'по названию' : 'нет' }}{{ state.icons ? '' : ' · значки выключены' }}</span>
+          <span class="ico-now" aria-hidden="true">{{ shownIcon }}</span>
+          <span class="chev" aria-hidden="true">{{ showIcon ? '⌃' : '›' }}</span>
+        </button>
+        <div v-if="showIcon" class="row stack">
+          <label class="same"><input v-model="iconSameTitle" type="checkbox" /> Для всех событий «{{ e.title }}»</label>
+          <IconPick :model-value="typeof e.icon === 'string' ? e.icon : null" :disabled="saving" @update:model-value="saveIcon" />
+          <p v-if="!state.icons" class="faint small">Значки выключены на этом устройстве — «Настройки» → «Внешний вид».</p>
+        </div>
+      </div>
       <p v-if="e.private" class="faint small">Детали скрыты: у календаря включено «только занят».</p>
       <p v-if="error" class="conflict">{{ error }}</p>
       <p class="faint small src">Календари: {{ calNames }}</p>
@@ -211,6 +225,8 @@ import { eventRange, formatEventTime, formatTime, relativeDayName } from '../lib
 import { api } from '../lib/api'
 import PeoplePicker from './PeoplePicker.vue'
 import ColorPick from './ColorPick.vue'
+import IconPick from './IconPick.vue'
+import { eventIcon } from '../lib/icons'
 import FilesBox from './FilesBox.vue'
 import EventListBox from './EventListBox.vue'
 import Sheet from './Sheet.vue'
@@ -229,6 +245,21 @@ const ROLES = [
 const e = computed(() => state.selected)
 // Свой цвет: тот, что отличается от общего цвета встреч (сервер отдаёт один и тот же ключ color).
 const sharedColor = computed(() => state.config?.shared_color || null)
+const showIcon = ref(false)
+const iconSameTitle = ref(true)
+watch(() => e.value?.uid, () => { iconSameTitle.value = true; showIcon.value = false })
+const autoIcon = computed(() => (e.value ? eventIcon({ ...e.value, icon: undefined }) : ''))
+const shownIcon = computed(() => (e.value ? eventIcon(e.value) : ''))
+async function saveIcon(i) {
+  if (!e.value) return
+  saving.value = true
+  error.value = ''
+  try {
+    await api.setEventIcon(e.value.uid, e.value.title, i, iconSameTitle.value)
+    await reload()
+    await refreshSelected()
+  } catch (err) { error.value = err.message } finally { saving.value = false }
+}
 const ownColor = ref(null)
 watch(e, (v) => { ownColor.value = v?.color && v.color !== sharedColor.value ? v.color : null }, { immediate: true })
 async function saveColor(c) {
@@ -479,6 +510,10 @@ async function removeEvent(onlyThis) {
 .color-row .label { flex: none; }
 .color-row .win { flex: 1; }
 .color-row .swatch { width: 18px; height: 18px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.2); }
+.color-row .ico-now { font-size: 18px; min-width: 18px; text-align: center; }
+.same { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 14px; color: var(--ink-2); }
+.same input { accent-color: var(--accent, #ff3b30); }
+.group + .group { margin-top: 12px; }
 .color-row .chev { color: var(--ink-3); font-size: 18px; width: 14px; text-align: center; }
 .act {
   display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 9px 4px 8px; border: 0; border-radius: 12px;

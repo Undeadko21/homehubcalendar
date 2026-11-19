@@ -349,7 +349,7 @@
     <h3 class="group-title">Значки и отклик</h3>
     <div class="group">
       <label class="row">
-        <span class="lbl">Значки событий <small class="muted block">По словам в названии: 🏊 бассейн, 🩺 врач, 🎂 день рождения, 📚 школа, ⚽ футбол…</small></span>
+        <span class="lbl">Значки событий <small class="muted block">По словам в названии: 🏊 бассейн, 🩺 врач, 🎂 день рождения, 📚 школа, ⚽ футбол… Свой значок — в карточке события.</small></span>
         <input :checked="state.icons" type="checkbox" class="switch" @change="setIcons($event.target.checked)" />
       </label>
       <label class="row">
