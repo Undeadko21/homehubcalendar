@@ -582,8 +582,8 @@ const groups = computed(() => {
       { id: 'sources', title: 'Яндекс и другие календари', color: '#34c759', warn: bad,
         sub: bad ? 'есть ошибка синхронизации' : (srcs.find((s) => s.last_ok) ? 'обновлено ' + fmt(srcs.find((s) => s.last_ok).last_ok) : 'аккаунт, подписки, синхронизация'),
         icon: ico('<path d="M20 12a8 8 0 01-14 5.300M4 12a8 8 0 0114-5.300"/><path d="M18 3v4h-4M6 21v-4h4"/>') },
-      { id: 'outside', title: 'Связь вне дома', color: '#5ac8fa', warn: outsideBad,
-        sub: outsideBad ? 'нет связи снаружи' : 'облако, интернет-адрес, устройства',
+      { id: 'outside', title: 'Связь вне дома', color: '#5ac8fa', warn: outsideBad.value,
+        sub: outsideBad.value ? 'нет связи снаружи' : 'облако, интернет-адрес, устройства',
         icon: ico('<path d="M2 9a15 15 0 0120 0M5 12.500a10 10 0 0114 0M8.500 16a5 5 0 017 0M12 19.500h.01"/>') },
     ] },
     { title: 'Приложения и экраны', items: [

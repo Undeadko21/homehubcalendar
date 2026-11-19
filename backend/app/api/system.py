@@ -144,14 +144,50 @@ def get_watch(request: Request):
              "where": (e.get("url") or "").split("?")[0].split("#")[0][-80:], "stack": _scrub(e.get("stack") or "")[:600],
              "app": sessions_mod.app_version(e.get("ua") or "") or sessions_mod.platform(e.get("ua") or "")}
             for e in core.CLIENT_LOG[-20:]]
+    noise = _noise()
     return {
         "version": sysinfo["version"], "started": sysinfo["started"], "now": sysinfo["now"],
-        "problems": [_scrub(p) for p in sysinfo["problems"]], "sources": srcs, "syncing": sysinfo["syncing"],
+        "problems": [_scrub(p) for p in sysinfo["problems"]] + noise.pop("problems"), "sources": srcs, "noise": noise, "syncing": sysinfo["syncing"],
         "backup": {k: sysinfo["backup"].get(k) for k in ("last_ok", "last_error")}, "selftest": sysinfo["selftest"],
         "db_size": sysinfo["db_size"], "counts": {k: sysinfo["counts"][k] for k in ("calendars", "objects")},
         "slow_requests": sysinfo["slow_requests"], "perf": _perf_for_watch(), "client_errors": errs,
         "apps": {"android": _ver(core.APP_DIR, "versionName"), "ios": _ver(core.IOS_DIR, "version"), "mac": _ver(core.MAC_DIR, "version")},
     }
+
+
+# Шум уведомлений: выше этого за сутки — дозор сообщит (новые виды напоминаний могут начать спамить незаметно).
+NOISE_CHANGES_24H = 30     # «Изменено/Новое/Отменено» (changes.py)
+NOISE_REMINDERS_24H = 60   # всего напоминаний в снимке на ближайшие сутки (то, что покажут телефоны)
+
+
+def _noise() -> dict:
+    """Сколько уведомлений получит семья: по видам (префикс id), без текстов. Сбой подсчёта — не ошибка сводки.
+    Собирает снимок, как выгрузка в облако раз в 2 минуты: побочное действие то же (отметки вещей к следующему разу)."""
+    from datetime import timedelta
+    from .. import changes, snapshot
+    try:
+        now = datetime.now(core.tz)
+        items = snapshot.build(core.events, core.db, core.tz, now=now, weather_cfg=core.settings.weather)["reminders"]
+        by_kind: dict[str, int] = {}
+        for r in items:
+            try:
+                at = datetime.fromisoformat(r["at"])
+            except (KeyError, ValueError):
+                continue
+            if now - timedelta(hours=24) <= at <= now + timedelta(hours=24):
+                k = str(r.get("id", "")).split(":")[0] or "?"
+                by_kind[k] = by_kind.get(k, 0) + 1
+        chg = len(changes.recent(core.db, 1))
+        upcoming = sum(by_kind.values())
+        problems = []
+        if chg > NOISE_CHANGES_24H:
+            problems.append(f"Шум: «кто что изменил» — {chg} записей за сутки (порог {NOISE_CHANGES_24H})")
+        if upcoming > NOISE_REMINDERS_24H:
+            top = ", ".join(f"{k} {n}" for k, n in sorted(by_kind.items(), key=lambda x: -x[1])[:3])
+            problems.append(f"Шум: {upcoming} напоминаний в окне ±24 ч (порог {NOISE_REMINDERS_24H}; больше всего: {top})")
+        return {"changes_24h": chg, "reminders_24h": by_kind, "problems": problems}
+    except Exception as e:  # noqa: BLE001
+        return {"error": type(e).__name__, "problems": []}
 
 
 _URL_RE = re.compile(r"(?:https?|webcal)://\S+|[\w.+-]+@[\w-]+\.[\w.-]+")

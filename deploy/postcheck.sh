@@ -37,6 +37,9 @@ if [ -n "${WATCH_TOKEN:-}" ]; then
 import json, sys
 w = json.loads(sys.argv[1]); bad = 0
 for p in w.get("problems", []):
+    if p.startswith("Шум:"):   # шум уведомлений зависит от дня семьи, не от выкатки — сообщаем, но не откатываем
+        print("заметка:", p)
+        continue
     print("ПРОБЛЕМА (Состояние):", p); bad = 1
 for e in w.get("client_errors", [])[-5:]:
     print("ошибка экрана:", e.get("at"), e.get("where"), (e.get("message") or "")[:120])

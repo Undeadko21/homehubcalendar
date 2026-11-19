@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
     paths: ['macos/**', '!macos/release/**', '.github/workflows/macos.yml']
+  # Pull request: собрать до слияния (правки Swift идут в main только через PR — deploy/check.sh); в репозиторий кладёт только main.
+  pull_request:
+    paths: ['macos/**', '!macos/release/**', '.github/workflows/macos.yml']
   workflow_dispatch:
 permissions:
   contents: write

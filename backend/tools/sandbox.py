@@ -163,7 +163,38 @@ def main() -> int:
         else:
             shutil.rmtree(tmp, ignore_errors=True)
     print("OK: песочница чистая" if not bad else f"ПРОБЛЕМ: {bad}")
+    if not bad:
+        mark_ok()
     return 1 if bad else 0
+
+
+RISKY = ["db", "events", "expand", "snapshot", "writer", "writeq", "ops", "sync", "cloud", "backup", "core", "main"]
+
+
+def mark_ok() -> None:
+    """Отметка для deploy/check.sh: песочница пройдена на ЭТИХ правках рискованных файлов (хеш их диффа с origin/main)."""
+    try:
+        git = lambda *a: subprocess.run(["git", "-C", str(ROOT), *a], capture_output=True, text=True, check=True).stdout  # noqa: E731
+        try:
+            base = git("merge-base", "HEAD", "origin/main").strip()
+        except subprocess.CalledProcessError:
+            base = "HEAD"
+        files = [l for l in set(git("diff", "--name-only", base).split() + git("ls-files", "--others", "--exclude-standard").split())
+                 if l.startswith("backend/app/sources/") or l in {f"backend/app/{n}.py" for n in RISKY}]
+        if not files:
+            return
+        import hashlib
+        files = sorted(files)
+        diff = subprocess.run(["git", "-C", str(ROOT), "diff", base, "--", *files], capture_output=True).stdout
+        new = subprocess.run(["git", "-C", str(ROOT), "ls-files", "--others", "--exclude-standard", "--", *files],
+                             capture_output=True, text=True).stdout.split()
+        for f in sorted(new):   # содержимое новых файлов — как в deploy/check.sh
+            diff += (ROOT / f).read_bytes()
+        mark = Path(git("rev-parse", "--git-path", "hh-sandbox-ok").strip())   # в worktree .git — файл, не каталог
+        (mark if mark.is_absolute() else ROOT / mark).write_text(hashlib.sha256(diff).hexdigest()[:16])
+        print("отметка для deploy/check.sh записана")
+    except Exception as e:  # noqa: BLE001
+        print("отметку записать не вышло:", e)
 
 
 if __name__ == "__main__":
