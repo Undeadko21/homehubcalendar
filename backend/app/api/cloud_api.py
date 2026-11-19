@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .. import __version__
-from .. import eventlists, reminders, snapshot, portable, weather
+from .. import changes, eventlists, reminders, snapshot, portable, weather
 from ..cloud import CloudError
 from fastapi import APIRouter
 
@@ -28,6 +28,13 @@ class MorningIn(BaseModel):
     time: str | None = None
     people: list[str] | None = None
     go: bool | None = None
+    changes: bool | None = None
+
+
+@router.get("/api/event-changes")
+def get_event_changes(days: int = 7):
+    """Журнал «что изменилось» за неделю (для «Состояния»)."""
+    return {"items": changes.recent(core.db, max(1, min(days, 31)))}
 
 
 @router.get("/api/settings/morning")
@@ -39,7 +46,7 @@ def get_morning():
 @router.put("/api/settings/morning")
 def put_morning(body: MorningIn):
     try:
-        v = reminders.save_morning(core.db, body.enabled, body.time, body.people, body.go)
+        v = reminders.save_morning(core.db, body.enabled, body.time, body.people, body.go, body.changes)
     except ValueError as e:
         raise HTTPException(400, str(e))
     core.cloud.tick(force=True)   # снимок для телефонов — сразу
@@ -137,7 +144,7 @@ def get_reminders(hours: int = 36, lead: int = 30, people: str | None = None):
                             [i for l in core.db.lists() for i in l["items"]], core.db.sync_status(),
                             names={p["id"]: p["name"] for p in core.db.list_people()},
                             morning=reminders.load_morning(core.db), weather=weather.cached(core.settings.weather),
-                            event_lists=eventlists.todo_texts(core.db))
+                            event_lists=eventlists.todo_texts(core.db, evs, now), change_items=changes.reminders(core.db, now, wanted))
     lo, hi = now - timedelta(hours=3), now + timedelta(hours=max(1, min(hours, 72)))
     return {"now": now.isoformat(timespec="seconds"),
             "items": [r for r in items if lo <= datetime.fromisoformat(r["at"]) <= hi]}

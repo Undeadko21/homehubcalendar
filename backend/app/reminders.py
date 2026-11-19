@@ -74,10 +74,12 @@ def load_morning(db: Database) -> dict:
     adults = [p["id"] for p in db.list_people() if not p.get("needs_escort") and not p.get("hidden") and not p["id"].startswith("_")]
     people = v.get("people")
     return {"enabled": v.get("enabled", True), "time": v.get("time") or "07:30",
-            "people": [p for p in people if p in adults] if people is not None else adults, "go": v.get("go", True)}
+            "people": [p for p in people if p in adults] if people is not None else adults, "go": v.get("go", True),
+            "changes": v.get("changes", True)}
 
 
-def save_morning(db: Database, enabled: bool | None, time_: str | None, people: list[str] | None, go: bool | None) -> dict:
+def save_morning(db: Database, enabled: bool | None, time_: str | None, people: list[str] | None, go: bool | None,
+                 changes_: bool | None = None) -> dict:
     cur = dict(db.kv_get(MORNING_KEY)[0] or {})
     if enabled is not None:
         cur["enabled"] = bool(enabled)
@@ -91,6 +93,8 @@ def save_morning(db: Database, enabled: bool | None, time_: str | None, people: 
         cur["people"] = [p for p in dict.fromkeys(people) if p in known]
     if go is not None:
         cur["go"] = bool(go)
+    if changes_ is not None:
+        cur["changes"] = bool(changes_)
     db.kv_set(MORNING_KEY, cur)
     return load_morning(db)
 
@@ -162,7 +166,7 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
           allday: dict | None = None, todos: list[dict] | None = None,
           sync_statuses: list[dict] | None = None, names: dict[str, str] | None = None,
           morning: dict | None = None, weather: dict | None = None,
-          event_lists: dict[str, list[str]] | None = None) -> list[dict]:
+          event_lists: dict[str, list] | None = None, change_items: list[dict] | None = None) -> list[dict]:
     now = now.astimezone(tz)
     today = now.date()
     out: list[dict] = []
@@ -170,8 +174,14 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
 
     def take(e: dict) -> str:
         """«Взять: шапочка, очки» — неотмеченное из списка вещей события (eventlists.py)."""
-        t = event_lists.get(e.get("uid") or "")
-        return ("\nВзять: " + ", ".join(t)) if t else ""
+        t = [x["text"] if isinstance(x, dict) else x for x in event_lists.get(e.get("uid") or "", [])]
+        return ("\nВзять: " + ", ".join(t[:8]) + (f" и ещё {len(t) - 8}" if len(t) > 8 else "")) if t else ""
+
+    def take_ids(e: dict) -> dict:
+        """Для кнопки «Всё взял» (Android 2.12): id пунктов, которые отметить. Только у своего списка события —
+        общий (например, «Покупки») кнопкой не трогаем."""
+        ids = [x["id"] for x in event_lists.get(e.get("uid") or "", []) if isinstance(x, dict) and x.get("own")]
+        return {"take_ids": ids} if ids else {}
 
     # Дела со сроком: утром в день срока и накануне вечером. С исполнителем — как напоминание о встрече (фильтр по людям
     # на устройстве), без исполнителя — всем.
@@ -217,7 +227,7 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
             text += " · занят(а): " + ", ".join(c["title"] for c in conflicts)
         item = {"id": f"duty:{e['id']}:{e['start']}", "kind": "duty", "start": e["start"],
                 "people": [p for p in e["people"] if not p.startswith("_")],
-                "title": f"{head} — в {start.strftime('%H:%M')}", "text": text + take(e)}
+                "title": f"{head} — в {start.strftime('%H:%M')}", "text": text + take(e), **take_ids(e)}
         if lead is not None:
             item["at"] = (start - timedelta(minutes=lead)).isoformat()
         out.append(item)
@@ -235,7 +245,8 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
             out.append({"id": f"go:{e['id']}:{e['start']}", "kind": "event", "at": go_at.isoformat(timespec="seconds"),
                         "start": e["start"], "people": item["people"],
                         "title": f"Пора выезжать — {head[:1].lower() + head[1:]}: {rest}" if rest else f"Пора выезжать: {e['title']}",
-                        "text": go_text + take(e)})
+                        "text": go_text + take(e), **take_ids(e),
+                        **({"route": e["location"]} if e.get("location") and "://" not in e["location"] else {})})   # кнопка «Маршрут» (Android 2.12)
 
     # Обычные встречи: у каждого человека свои интервалы.
     if event_rules:
@@ -258,7 +269,7 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
                     text += f" · {e['location']}"
                 out.append({"id": f"event:{e['id']}:{e['start']}:{m}", "kind": "event", "at": at.isoformat(timespec="seconds"),
                             "start": e["start"], "people": who,
-                            "title": f"{e['title']} — {_lead_text(m)}", "text": text + take(e)})
+                            "title": f"{e['title']} — {_lead_text(m)}", "text": text + take(e), **take_ids(e)})
 
     # События на весь день: накануне вечером (дни рождения напоминает блок bday ниже).
     if allday and allday.get("people"):
@@ -317,6 +328,9 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
                     "title": f"{e['title']} в {s.astimezone(tz).strftime('%H:%M')}: {what}", "text": "Откройте календарь и назначьте водителя",
                     "trip": {"uid": e.get("uid"), "occurrence": e["start"] if e.get("recurring") else None, "need": need,
                              "names": {pid: names[pid] for n in need for pid in [*n["free"], n["person"]] if pid in names}}})
+
+    if change_items and (morning or {}).get("changes", True):
+        out += change_items   # «Изменено: …» (changes.py) — уже отфильтрованы по людям
 
     if morning and morning.get("enabled") and morning.get("people"):
         out += _morning(events, today, now, tz, people, morning, weather or {}, horizon_days, names)

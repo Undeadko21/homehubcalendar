@@ -40,8 +40,10 @@ enum Notifier {
                     fire = DateParse.parse(at)
                 }
                 if let f = fire, f > now { items.append((f, r)) }
-                else if let f = fire, ["alert", "digest"].contains(r.kind), now.timeIntervalSince(f) < 24 * 3600,
-                        !shown.contains(r.id) {
+                else if let f = fire, !shown.contains(r.id),
+                        (["alert", "digest"].contains(r.kind) && now.timeIntervalSince(f) < 24 * 3600)
+                            || (r.id.hasPrefix("chg:") && now.timeIntervalSince(f) < 3 * 3600) {
+                    // «Изменено: …» (сервер 0.19) замечается между обновлениями — тоже сразу, один раз, если свежее 3 ч.
                     // Срочные предупреждения (поездка без водителя, дайджест, молчащая синхронизация) приходят, когда уже
                     // «пора»: показываем сразу, один раз на устройство.
                     items.append((now.addingTimeInterval(2), r)); fresh.append(r.id)

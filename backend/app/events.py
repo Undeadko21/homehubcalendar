@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import threading
 from datetime import date, datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
-from . import absences, escorts, live, routing, school
+from . import absences, changes, escorts, live, routing, school
 from .db import Database
 from .expand import expand_ics
+
+log = logging.getLogger(__name__)
 
 ESCORT_DEFAULTS = {"before_minutes": 30, "after_minutes": 30, "home_words": "дома", "home_address": "",
                    "travel_buffer": 5, "places": [], "show_duties": False,
@@ -59,6 +62,7 @@ class EventService:
         self._refresh_pending = False
         self._refreshing = False
         self._warm_timer: threading.Timer | None = None
+        self._diff_base: list[dict] | None = None   # прошлая сборка окна — для журнала «что изменилось» (changes.py)
 
     def _invalidate_countdown(self) -> None:
         from . import countdown
@@ -102,7 +106,7 @@ class EventService:
                 today = datetime.now(self.tz).date()
                 t0 = datetime.combine(today, dtime(0), self.tz)
                 with self._wide_lock:
-                    evs = self._compose(t0 - timedelta(days=self.WIDE_BACK + 1), t0 + timedelta(days=self.WIDE_FWD + 1))
+                    evs = self._compose(t0 - timedelta(days=self.WIDE_BACK + 1), t0 + timedelta(days=self.WIDE_FWD + 1), track=True)
             except Exception:  # noqa: BLE001 — не получилось собрать: пусть следующий запрос соберёт сам
                 with self._lock:
                     self._refreshing = False
@@ -162,7 +166,7 @@ class EventService:
                     return self._wide[1]
                 gen = self._cache_gen
             t0 = datetime.combine(today, dtime(0), self.tz)
-            evs = self._compose(t0 - timedelta(days=self.WIDE_BACK + 1), t0 + timedelta(days=self.WIDE_FWD + 1))
+            evs = self._compose(t0 - timedelta(days=self.WIDE_BACK + 1), t0 + timedelta(days=self.WIDE_FWD + 1), track=True)
             with self._lock:
                 if gen == self._cache_gen:          # пока собирали, данные могли измениться
                     self._wide = (today, evs)
@@ -201,8 +205,10 @@ class EventService:
             self._cache[key] = result
         return result
 
-    def _compose(self, start: datetime, end: datetime) -> list[dict]:
-        wide = self._build(start, end)
+    def _compose(self, start: datetime, end: datetime, track: bool = False) -> list[dict]:
+        wide = self._build(start, end, cache=track)
+        if track:
+            self._track_changes(wide)
         hide = school.hidden_filter(self.db)   # во время каникул школьные события не показываем
         if hide:
             wide = [e for e in wide if not hide(e)]
@@ -227,6 +233,31 @@ class EventService:
         wide += escorts.add_to_adults(wide, people)
         wide.sort(key=lambda e: (e["start"][:10], not e["all_day"], e["start"], e["title"]))
         return wide
+
+    def _track_changes(self, built: list[dict]) -> None:
+        """Сравнить сборку окна с прошлой и записать изменения (до фильтров каникул/«болеет»/поездок)."""
+        snap = [{k: e.get(k) for k in ("id", "uid", "start", "end", "title", "location", "all_day", "people", "calendars",
+                                        "private", "duty")}
+                for e in built]
+        cals = self.db.list_calendars()
+        # Что видно: скрыть/показать календарь или человека, подключить подписку, сделать календарь личным —
+        # это настройки, а не изменения событий: такая сборка становится новой точкой отсчёта.
+        meta = (frozenset(c["key"] for c in cals if not c.get("hidden")),
+                frozenset(c["key"] for c in cals if c.get("private")),
+                frozenset(p["id"] for p in self.db.list_people() if not p.get("hidden")))
+        prev, self._diff_base = self._diff_base, snap
+        prev_meta, self._diff_meta = getattr(self, "_diff_meta", None), meta
+        # Первая сборка; всё пропало (сбой загрузки); с пустой ленты сразу пачка (первая загрузка календарей
+        # после запуска); другие настройки видимости — не изменения, а новая точка отсчёта.
+        if prev is None or not snap or (not prev and len(snap) > changes.MASS) or prev_meta != meta:
+            return
+        try:
+            found = changes.diff(prev, snap, datetime.now(self.tz))
+            if found:
+                names = {c["key"]: c.get("name") or c["key"] for c in self.db.list_calendars()}
+                changes.record(self.db, found, self.tz, names)
+        except Exception:  # noqa: BLE001 — журнал не должен ломать ленту
+            log.exception("Журнал изменений")
 
     def routes(self, cfg: dict | None = None) -> dict[str, int]:
         """Время по карте до мест событий (из кэша), если включено в настройках поездок."""
@@ -266,7 +297,7 @@ class EventService:
             return evs
         return [e for e in evs if not e.get("duty")]
 
-    def _build(self, start: datetime, end: datetime) -> list[dict]:
+    def _build(self, start: datetime, end: datetime, cache: bool = False) -> list[dict]:
         people = {p["id"]: p for p in self.db.list_people()}
         raw: list[dict] = []
         for cal in self.db.list_calendars():
@@ -274,7 +305,7 @@ class EventService:
                 continue
             owners = [pid for pid in cal["people"] if pid in people]
             for ics in self.db.objects_for(cal["key"]):
-                for occ in expand_ics(ics, start, end, self.tz):
+                for occ in expand_ics(ics, start, end, self.tz, cache=cache):
                     d = occ.to_dict()
                     d["calendar"] = cal["key"]
                     d["owners"] = owners

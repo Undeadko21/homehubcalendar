@@ -39,6 +39,7 @@ Kotlin, без лишних зависимостей (core-ktx, WorkManager). П
   напоминания. Подключение: `AppBridge.setCloud(код)` (кнопка в настройках сервера, дома). Тест совместимости шифра: `CloudTest`.
 - Напоминания (`Reminders.kt`): из снимка, ставит `AlarmManager`
   (inexact, без спец. разрешений), `ReminderReceiver` показывает уведомление; показанные id — в `Prefs.shownReminders`.
+  - С 2.12: кнопки «Маршрут» (поле `route` у «Пора выезжать») и «Всё взял» (`take_ids`, `TakeActionReceiver` → `item_done` через Outbox); `chg:` — «кто что изменил» (kind `event`). iPhone/Mac 1.7.1/1.6.2 показывают `chg:` сразу, как `alert`.
   Настройки (вкл/кто/за сколько минут) — на телефоне, мост `getNotify/setNotify/requestNotifications/testNotification`.
   По умолчанию выключены: человек выбирает, чьи поездки ему напоминать. Строка дней рождения в виджете — `birthdays` из `/api/widget`.
 - Обновление: приложение само качает APK в кэш и открывает установщик (FileProvider, REQUEST_INSTALL_PACKAGES).

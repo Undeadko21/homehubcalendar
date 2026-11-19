@@ -18,7 +18,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 
 from . import BUILD, __version__
-from . import access, deploywatch, ops, versionwatch, weather
+from . import access, changes, deploywatch, ops, versionwatch, weather
 from . import sessions as sessions_mod
 from . import live
 from .perf import SLOW_MS
@@ -29,7 +29,13 @@ from .api import apps, cloud_api, files, lists, planning, system, writing
 
 def poll_cloud() -> None:
     """Команды, которые телефоны оставили в облаке, применяем и сразу обновляем снимок."""
-    if core.cloud.poll_ops(lambda items: ops.apply(core.db, items, {"event_add": core._ops_event, "event_quick": core._ops_event, "event_move": core._ops_move})):
+    def via_cloud(fn):   # журнал «что изменилось»: правка события пришла командой через облако
+        def run(op):
+            changes.note_write("", via_cloud=True)
+            return fn(op)
+        return run
+    handlers = {"event_add": via_cloud(core._ops_event), "event_quick": via_cloud(core._ops_event), "event_move": via_cloud(core._ops_move)}
+    if core.cloud.poll_ops(lambda items: ops.apply(core.db, items, handlers)):
         core.events.invalidate()
         core.cloud.tick(force=True)
 
@@ -90,9 +96,17 @@ async def timing(request: Request, call_next):
     t0 = perf_counter()
     status = 500
     rev_before = live.rev
+    p = request.url.path
+    wrote = request.method != "GET" and (p in ("/api/event", "/api/quick", "/api/event-people") or p.startswith("/api/event/")
+                                         or (p.startswith("/api/changes/") and p.endswith("/undo")))
+    prev_write = dict(changes._last_write)
+    if wrote:
+        changes.note_write(request.headers.get("user-agent", ""))   # журнал «что изменилось»: откуда правка
     try:
         resp = await call_next(request)
         status = resp.status_code
+        if wrote and status >= 400:   # запись не прошла (PIN, ошибка) — «откуда» не меняем
+            changes._last_write.update(prev_write)
         # Любая успешная запись через API — повод обновить остальные открытые экраны.
         if request.method != "GET" and status < 400 and request.url.path not in ("/api/client-log", "/api/login"):
             after = live.bump()

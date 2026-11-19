@@ -107,6 +107,7 @@ def test_event_list_attach_reset_and_reminder_text(api):
                             event_lists=__import__("app.eventlists", fromlist=["x"]).todo_texts(core.db))
     go = next(x for x in items if x["id"].startswith("go:"))
     assert "Взять: " in go["text"] and ("очки" in go["text"] or "шапочка" in go["text"])
+    assert go["route"] == "Бассейн Юность" and len(go["take_ids"]) == 1   # одна вещь уже отмечена
     # следующее вхождение (прошлое уже прошло) — отметки сброшены
     api.patch(f"/api/items/{lst['items'][0]['id']}", json={"done": True})
     nxt = api.get("/api/event-list", params={"uid": swim["uid"], "occurrence": later}).json()["list"]

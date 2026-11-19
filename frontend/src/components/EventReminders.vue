@@ -46,10 +46,15 @@
         <label for="mo-go">«Пора выезжать» тому, кто везёт</label>
         <input id="mo-go" v-model="mo.go" type="checkbox" class="switch" :disabled="busy" @change="saveMo" />
       </div>
+      <div class="row between">
+        <label for="mo-chg">Кто что изменил — события на две недели (для всей семьи)</label>
+        <input id="mo-chg" v-model="mo.changes" type="checkbox" class="switch" :disabled="busy" @change="saveMo" />
+      </div>
     </div>
     <p class="group-note">
       Сводка — свои события и поездки на сегодня и погода. «Пора выезжать» приходит в момент выезда, если известно время
-      в дороге (по карте, правилу места или вручную в поездке).
+      в дороге (по карте, правилу места или вручную в поездке). Изменения — «Изменено: Английский — 20.11 16:00 → 17:00» тем, чьё
+      событие, с пометкой откуда правка; журнал — в «Состоянии».
     </p>
     <p v-if="error" class="group-note err">{{ error }}</p>
     <p class="group-note">
@@ -74,7 +79,7 @@ const busy = ref(false)
 const error = ref('')
 const ppl = computed(() => (state.config?.people || []).filter((p) => !p.id.startsWith('_') && !p.hidden))
 const adults = computed(() => ppl.value.filter((p) => !p.needs_escort))
-const mo = ref({ enabled: true, time: '07:30', people: [], go: true })
+const mo = ref({ enabled: true, time: '07:30', people: [], go: true, changes: true })
 api.morning().then((r) => { mo.value = r }).catch(() => {})
 function toggleMo(id) {
   const s = new Set(mo.value.people)

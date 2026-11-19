@@ -24,7 +24,8 @@ object Outbox {
     /** Добавляет команду и возвращает её id. */
     @Synchronized
     fun add(context: Context, op: JSONObject): String {
-        val id = Prefs(context).deviceId + "-" + System.currentTimeMillis() + "-" + (Math.random() * 1000).toInt()
+        // UUID в хвосте: несколько команд подряд (кнопка «Всё взял») в одну миллисекунду не совпадут по id
+        val id = Prefs(context).deviceId + "-" + System.currentTimeMillis() + "-" + java.util.UUID.randomUUID().toString().take(8)
         op.put("id", id).put("t", System.currentTimeMillis())
         val list = pending(context)
         list.put(op)

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+from collections import OrderedDict
 from dataclasses import asdict, dataclass, field
 from datetime import timezone, date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -104,7 +106,41 @@ def is_cancelled_title(title: str) -> bool:
     return bool(_CANCELLED_RE.match(title or ""))
 
 
-def expand_ics(ics_text: str, range_start: datetime, range_end: datetime, tz: ZoneInfo) -> list[Occurrence]:
+# Готовые вхождения по (тексту объекта, диапазону): лента пересобирается после каждой правки и синхронизации,
+# а меняются единицы объектов из сотен — остальные берём отсюда, не разбирая iCalendar заново.
+# Окно ленты в течение дня одно и то же, поэтому попадания почти всегда. Вхождения не изменяются (to_dict — копия).
+_OCC: "OrderedDict[tuple, tuple[Occurrence, ...]]" = OrderedDict()
+_OCC_MAX = 30000
+_OCC_LOCK = threading.Lock()
+_OCC_RANGE: tuple | None = None
+
+
+def expand_ics(ics_text: str, range_start: datetime, range_end: datetime, tz: ZoneInfo,
+               cache: bool = False) -> list[Occurrence]:
+    """cache=True — только для широкого окна ленты (одно на день): хранятся вхождения лишь текущего окна,
+    при смене окна (новый день) кэш очищается; узкие запросы и проверки пересечений кэш не засоряют."""
+    if not cache:
+        return _expand_ics(ics_text, range_start, range_end, tz)
+    global _OCC_RANGE
+    rng = (range_start.isoformat(), range_end.isoformat(), str(tz))
+    ck = (len(ics_text), hash(ics_text)) + rng
+    with _OCC_LOCK:
+        if rng != _OCC_RANGE:
+            _OCC.clear()
+            _OCC_RANGE = rng
+        hit = _OCC.get(ck)
+        if hit is not None:
+            _OCC.move_to_end(ck)
+            return list(hit)
+    out = _expand_ics(ics_text, range_start, range_end, tz)
+    with _OCC_LOCK:
+        _OCC[ck] = tuple(out)
+        while len(_OCC) > _OCC_MAX:
+            _OCC.popitem(last=False)
+    return out
+
+
+def _expand_ics(ics_text: str, range_start: datetime, range_end: datetime, tz: ZoneInfo) -> list[Occurrence]:
     key = (len(ics_text), hash(ics_text))
     b = _BOUNDS.get(key)
     if b is not None:

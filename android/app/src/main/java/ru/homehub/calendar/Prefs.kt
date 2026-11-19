@@ -50,10 +50,21 @@ class Prefs(context: Context) {
         get() = sp.getInt("notify_lead", 30)
         set(v) = sp.edit().putInt("notify_lead", v).apply()
 
-    /** Уже показанные напоминания (чтобы не повторять), последние 300. */
+    /**
+     * Уже показанные напоминания (чтобы не повторять). Храним «id\tвремя показа» и вычищаем старше двух суток —
+     * раньше HashSet обрезался takeLast(300) в случайном порядке и мог «забыть» свежие id.
+     */
     var shownReminders: Set<String>
-        get() = sp.getStringSet("shown_reminders", emptySet()) ?: emptySet()
-        set(v) = sp.edit().putStringSet("shown_reminders", v.toList().takeLast(300).toSet()).apply()
+        get() = (sp.getStringSet("shown_reminders2", null) ?: emptySet()).map { it.substringBefore('\t') }.toSet() +
+            (sp.getStringSet("shown_reminders", emptySet()) ?: emptySet())
+        set(v) {
+            val now = System.currentTimeMillis()
+            val old = (sp.getStringSet("shown_reminders2", null) ?: emptySet())
+                .associate { it.substringBefore('\t') to (it.substringAfter('\t', "").toLongOrNull() ?: now) }
+            val keep = v.associateWith { old[it] ?: now }.filterValues { now - it < 2 * 86_400_000L }
+            sp.edit().putStringSet("shown_reminders2", keep.map { "${it.key}\t${it.value}" }.toSet())
+                .remove("shown_reminders").apply()
+        }
 
     /** Напоминания, поставленные в будильник (чтобы снять устаревшие). */
     var scheduledReminders: Set<String>

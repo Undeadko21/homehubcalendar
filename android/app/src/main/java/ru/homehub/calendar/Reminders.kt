@@ -45,7 +45,8 @@ object Reminders {
         }
     }
 
-    fun show(context: Context, id: String, title: String, text: String, trip: String? = null) {
+    fun show(context: Context, id: String, title: String, text: String, trip: String? = null,
+             route: String? = null, take: String? = null) {
         channel(context)
         val open = PendingIntent.getActivity(
             context, 0, Intent(context, MainActivity::class.java),
@@ -60,6 +61,7 @@ object Reminders {
             .setAutoCancel(true)
             .setColor(context.getColor(R.color.red))
         tripActions(context, id, trip).forEach { n.addAction(it) }
+        extraActions(context, id, route, take).forEach { n.addAction(it) }
         context.getSystemService(NotificationManager::class.java)?.notify(id.hashCode(), n.build())
     }
 
@@ -123,10 +125,36 @@ object Reminders {
         return out
     }
 
-    private fun pending(context: Context, id: String, title: String = "", text: String = "", trip: String? = null): PendingIntent {
+    /**
+     * «Маршрут» (поле route — адрес, у «Пора выезжать») и «Всё взял» (take_ids — неотмеченные вещи из списка события):
+     * маршрут открывает Яндекс Карты, «Всё взял» отмечает вещи командой item_done через облако, как кнопки поездок.
+     */
+    private fun extraActions(context: Context, id: String, route: String?, take: String?): List<Notification.Action> {
+        val icon = Icon.createWithResource(context, R.drawable.ic_notify)
+        val out = mutableListOf<Notification.Action>()
+        if (!route.isNullOrBlank()) {
+            val url = "https://yandex.ru/maps/?rtt=auto&rtext=~" + Uri.encode(route)
+            val pi = PendingIntent.getActivity(context, (id + "route").hashCode(),
+                Intent(Intent.ACTION_VIEW, Uri.parse(url)), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            out += Notification.Action.Builder(icon, "Маршрут", pi).build()
+        }
+        val prefs = Prefs(context)
+        if (!take.isNullOrBlank() && take != "[]" && prefs.cloudToken != null && prefs.cloudKey != null) {
+            val i = Intent(context, TakeActionReceiver::class.java).setAction(TakeActionReceiver.ACTION)
+                .setData(Uri.parse("homehub://take/" + Uri.encode(id)))
+                .putExtra("nid", id.hashCode()).putExtra("ids", take)
+            val pi = PendingIntent.getBroadcast(context, (id + "take").hashCode(), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            out += Notification.Action.Builder(icon, "Всё взял", pi).build()
+        }
+        return out
+    }
+
+    private fun pending(context: Context, id: String, title: String = "", text: String = "", trip: String? = null,
+                        route: String? = null, take: String? = null): PendingIntent {
         val i = Intent(context, ReminderReceiver::class.java).setAction(ACTION)
             .setData(Uri.parse("homehub://reminder/" + Uri.encode(id)))
             .putExtra("id", id).putExtra("title", title).putExtra("text", text).putExtra("trip", trip)
+            .putExtra("route", route).putExtra("take", take)
         return PendingIntent.getBroadcast(context, 0, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
@@ -175,11 +203,13 @@ object Reminders {
             val title = r.optString("title")
             val text = r.optString("text")
             val trip = r.optJSONObject("trip")?.toString()
+            val route = r.optString("route").takeIf { it.isNotEmpty() }
+            val take = r.optJSONArray("take_ids")?.toString()
             if (at <= now) {
-                show(context, id, title, text, trip)
+                show(context, id, title, text, trip, route, take)
                 shown += id
             } else {
-                alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending(context, id, title, text, trip))
+                alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending(context, id, title, text, trip, route, take))
                 scheduled += id
             }
         }
@@ -199,7 +229,7 @@ class ReminderReceiver : BroadcastReceiver() {
         val prefs = Prefs(context)
         if (!prefs.notifyEnabled || id in prefs.shownReminders) return
         Reminders.show(context, id, intent.getStringExtra("title").orEmpty(), intent.getStringExtra("text").orEmpty(),
-            intent.getStringExtra("trip"))
+            intent.getStringExtra("trip"), intent.getStringExtra("route"), intent.getStringExtra("take"))
         prefs.shownReminders = prefs.shownReminders + id
         prefs.scheduledReminders = prefs.scheduledReminders - id
     }
@@ -231,6 +261,35 @@ class TripActionReceiver : BroadcastReceiver() {
                 .setSmallIcon(R.drawable.ic_notify)
                 .setContentTitle(done)
                 .setContentText(if (sent) "Отправлено, календарь обновится в течение минуты" else "Нет связи — отправлю при следующем обновлении")
+                .setColor(context.getColor(R.color.red))
+                .setTimeoutAfter(15_000)
+                .setAutoCancel(true)
+                .build()
+            nm?.notify(nid, n)
+            if (sent) Widgets.refreshLater(context, 90)
+            result.finish()
+        }.start()
+    }
+}
+
+/** «Всё взял» в напоминании со списком вещей: отметить пункты (item_done) через облако, без открытия приложения. */
+class TakeActionReceiver : BroadcastReceiver() {
+    companion object { const val ACTION = "ru.homehub.calendar.TAKE" }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val nid = intent.getIntExtra("nid", 0)
+        val ids = runCatching { JSONArray(intent.getStringExtra("ids") ?: "[]") }.getOrNull() ?: JSONArray()
+        for (k in 0 until ids.length()) {
+            Outbox.add(context, JSONObject().put("type", "item_done").put("item_id", ids.optLong(k)).put("done", true))
+        }
+        val result = goAsync()
+        Thread {
+            val sent = runCatching { Outbox.push(context) }.getOrDefault(false)
+            val n = Notification.Builder(context, "reminders")
+                .setSmallIcon(R.drawable.ic_notify)
+                .setContentTitle("Отмечено: всё взяли")
+                .setContentText(if (sent) "Список обновится в течение минуты" else "Нет связи — отправлю при следующем обновлении")
                 .setColor(context.getColor(R.color.red))
                 .setTimeoutAfter(15_000)
                 .setAutoCancel(true)

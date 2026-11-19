@@ -29,10 +29,10 @@ def test_refresh_serves_old_feed_until_new_is_ready(api):
     gate, entered = threading.Event(), threading.Event()
     real = svc._compose
 
-    def slow(s, e):
+    def slow(s, e, **kw):
         entered.set()
         gate.wait(5)
-        return real(s, e) + [{"marker": True, "start": a.isoformat(), "end": z.isoformat(), "all_day": False}]
+        return real(s, e, **kw) + [{"marker": True, "start": a.isoformat(), "end": z.isoformat(), "all_day": False}]
 
     svc._compose = slow
     try:

@@ -28,6 +28,7 @@
           <span v-else class="val muted">{{ s.backup.last_ok ? ago(s.backup.last_ok) : 'ещё не было' }}</span></div>
         <div class="row"><span class="lbl">Версия сервера</span><span class="val muted">{{ s.version }}</span></div>
       </div>
+      <ChangesLog />
       </template>
       <template v-if="part === 'checks'">
       <h3 class="group-title">Проверка данных</h3>
@@ -196,6 +197,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import Help from './Help.vue'
+import ChangesLog from './ChangesLog.vue'
 import { api } from '../lib/api'
 import { state, loadConfig, writableCalendars } from '../lib/store'
 

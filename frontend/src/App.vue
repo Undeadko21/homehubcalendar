@@ -136,6 +136,12 @@
       </Sheet>
       <EventDialog />
       <DriverPick />
+      <Sheet :open="keysHelp" title="Горячие клавиши" @close="keysHelp = false">
+        <div class="keys">
+          <div v-for="k in KEYS" :key="k.keys" class="krow"><kbd>{{ k.keys }}</kbd><span>{{ k.text }}</span></div>
+          <p class="faint">Работают и в русской раскладке. В полях ввода — не мешают печатать.</p>
+        </div>
+      </Sheet>
       <EventEditor />
       <SectionWizard />
       <MoveScope />
@@ -150,13 +156,14 @@
 <script setup>
 import Ico from './components/Ico.vue'
 import { computed, defineAsyncComponent, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen, animate, toast } from './lib/store'
+import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen, animate, toast, newEvent } from './lib/store'
 import { api, net } from './lib/api'
 import { haptic } from './lib/haptic'
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
 import EventDialog from './components/EventDialog.vue'
 import DriverPick from './components/DriverPick.vue'
 import { attachDaySwipe } from './lib/daySwipe'
+import { attachHotkeys, KEYS } from './lib/hotkeys'
 import EventEditor from './components/EventEditor.vue'
 import SectionWizard from './components/SectionWizard.vue'
 import MoveScope from './components/MoveScope.vue'
@@ -392,6 +399,8 @@ function tickNight() {
 }
 
 const mainEl = ref(null)
+const keysHelp = ref(false)
+let detachKeys = null
 // Телефон: при прокрутке крупный заголовок сворачивается в строку (как в приложениях iPhone), наверху — снова крупный.
 const compactBar = ref(false)
 const onScrollBar = () => {
@@ -408,6 +417,14 @@ watch(mainEl, (el) => {
 }, { immediate: true, flush: 'post' })
 onMounted(async () => {
   window.addEventListener('scroll', onScrollBar, { passive: true })
+  detachKeys = attachHotkeys({
+    enabled: () => !state.kiosk && !state.needLogin,
+    today: goToday,
+    shift: (d) => { if (navigable.value) shift(d) },
+    newEvent: () => newEvent(state.cursor),
+    setView,
+    help: () => { keysHelp.value = true },
+  })
   window.addEventListener('touchstart', onTouchStart, { passive: true })
   window.addEventListener('touchmove', onTouchMove, { passive: true })
   window.addEventListener('touchend', onTouchEnd)
@@ -438,6 +455,7 @@ onMounted(async () => {
 onUnmounted(() => {
   timers.forEach(clearInterval); ro?.disconnect()
   window.removeEventListener('scroll', onScrollBar)
+  detachKeys?.()
   window.removeEventListener('touchstart', onTouchStart)
   window.removeEventListener('touchmove', onTouchMove)
   window.removeEventListener('touchend', onTouchEnd)
@@ -581,4 +599,8 @@ onUnmounted(() => {
 }
 :deep(.ico) { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .kiosk .content { padding-top: 0; }
+.keys { display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
+.krow { display: flex; align-items: center; gap: 14px; }
+.krow kbd { min-width: 64px; text-align: center; font: 600 13px var(--font-text, inherit); padding: 4px 8px; border-radius: 6px;
+  background: var(--fill); box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--ink) 18%, transparent); }
 </style>

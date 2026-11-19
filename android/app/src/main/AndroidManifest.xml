@@ -93,6 +93,9 @@
         <receiver
             android:name=".TripActionReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".TakeActionReceiver"
+            android:exported="false" />
 
         <service
             android:name=".WidgetService"

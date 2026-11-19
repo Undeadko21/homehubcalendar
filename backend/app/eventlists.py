@@ -7,12 +7,21 @@
 from __future__ import annotations
 
 import threading
+import logging
 from datetime import datetime
 
 from .db import Database
 
 KEY = "event_lists"
+log = logging.getLogger(__name__)
 _lock = threading.Lock()
+
+
+def _aware(x: datetime | None, ref: datetime | None) -> datetime | None:
+    """Дата события на весь день — без пояса; сравниваем в поясе второго значения (иначе TypeError)."""
+    if x is None or ref is None or (x.tzinfo is None) == (ref.tzinfo is None):
+        return x
+    return x.replace(tzinfo=ref.tzinfo) if x.tzinfo is None else x.replace(tzinfo=None)
 
 
 def _dt(s: str | None) -> datetime | None:
@@ -55,7 +64,8 @@ def for_occurrence(db: Database, uid: str, occurrence: str | None, now: datetime
         new, old = _dt(occurrence), _dt(link.get("occ"))
         if new is None:
             return lst
-        now = now or datetime.now(new.tzinfo)
+        now = _aware(now, new) if now else datetime.now(new.tzinfo)
+        old = _aware(old, new)
         if old is None:
             link["occ"] = new.isoformat()
         elif new > old and old < now:
@@ -72,11 +82,30 @@ def for_occurrence(db: Database, uid: str, occurrence: str | None, now: datetime
         return lst
 
 
-def todo_texts(db: Database) -> dict[str, list[str]]:
-    """{uid: [что ещё не отмечено]} — для напоминаний."""
+def todo_texts(db: Database, events: list[dict] | None = None, now: datetime | None = None) -> dict[str, list[dict]]:
+    """{uid: [{id, text} — что ещё не отмечено]} — для напоминаний (текст «Взять: …» и кнопка «Всё взял» на Android).
+    events — лента для напоминаний: у повторяющегося события отметки прошлого раза снимаются, как при открытии
+    следующего вхождения (иначе «Всё взял» из уведомления, не открывая событие, сработало бы только однажды)."""
     m = load(db)
     if not m:
         return {}
+    if events:
+        nxt: dict[str, str] = {}
+        for e in events:
+            uid, link = e.get("uid"), m.get(e.get("uid") or "")
+            if not link or not link.get("own") or e.get("duty"):
+                continue
+            s = _dt(e.get("start"))
+            old = _aware(_dt(link.get("occ")), s)
+            if s and old and s > old and (uid not in nxt or s < _aware(_dt(nxt[uid]), s)):
+                nxt[uid] = e["start"]
+        for uid, start in nxt.items():
+            try:
+                for_occurrence(db, uid, start, now)
+            except Exception:  # noqa: BLE001 — сброс отметок не должен ломать снимок и напоминания
+                log.exception("Список вещей: сброс к следующему разу")
+        m = load(db)
     lists = {l["id"]: l for l in db.lists()}
-    return {uid: [i["text"] for i in lists[v["list"]]["items"] if not i["done"]][:8]
+    own = {uid: bool(v.get("own")) for uid, v in m.items()}
+    return {uid: [{"id": i["id"], "text": i["text"], "own": own[uid]} for i in lists[v["list"]]["items"] if not i["done"]]
             for uid, v in m.items() if v.get("list") in lists}

@@ -157,6 +157,7 @@ export const api = {
   domainCheck: (domain) => request('POST', '/api/access/domain-check', { domain }),
   eventReminders: () => request('GET', '/api/settings/event-reminders'),
   morning: () => request('GET', '/api/settings/morning'),
+  eventChanges: () => request('GET', '/api/event-changes'),
   saveMorning: (v) => request('PUT', '/api/settings/morning', v),
   absences: () => request('GET', '/api/absences'),
   saveAbsences: (items) => request('PUT', '/api/absences', { items }),

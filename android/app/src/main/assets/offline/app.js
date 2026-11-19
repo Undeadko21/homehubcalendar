@@ -102,6 +102,10 @@
   function escBadge(s, e) {
     if (!e.escort) return null
     var x = e.escort
+    if (x.mode === 'absent') {   // «болеет / не идёт» (сервер 0.18)
+      var n = (e.absent && e.absent.note) || x.mode_reason || ''
+      return h('span', { class: 'tag warn', text: !n || /^не ид/.test(n) ? (n || 'не идёт') : 'не идёт: ' + n })
+    }
     if (x.mode === 'home') return h('span', { class: 'tag', text: 'дома' })
     if (x.mode === 'together') return h('span', { class: 'tag', text: 'все вместе' })
     var parts = []
@@ -172,6 +176,7 @@
     box.appendChild(h('p', { class: 'sub', text: dayLabel(e.start.slice(0, 10)) + (e.all_day ? ', весь день' : ', ' + hm(e.start) + '–' + hm(e.end)) + (e.location ? ' · ' + e.location : '') }))
     if (!e.escort) { box.appendChild(h('p', { class: 'sub', text: 'У этого события нет поездок. Менять его можно только дома.' })); return }
     var x = e.escort
+    if (x.mode === 'absent') { box.appendChild(h('p', { class: 'sub', text: 'Не идёт — водитель не нужен. Вернуть можно в календаре, когда будет связь с домом.' })); return }
     var op = function (role, p) { queue({ type: 'escort', uid: e.uid, occurrence: scope === 'once' && e.recurring ? e.start : null, role: role, person: p }) }
     if (e.recurring) box.appendChild(h('div', { class: 'seg', style: 'margin:6px 0' }, [
       h('button', { class: scope === 'series' ? 'on' : '', text: 'Всегда', onclick: function () { scope = 'series'; render() } }),
