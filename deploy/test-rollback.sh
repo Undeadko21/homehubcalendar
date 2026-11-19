@@ -15,6 +15,9 @@ echo "docker \$*" >> "$T/docker.log"
 if [ "\$1" = "compose" ] && [ "\$2" = "up" ]; then
   if [ -e "$T/app/BROKEN" ]; then rm -f "$T/healthy"; else touch "$T/healthy"; fi
 fi
+# проверка на копии базы: «docker run» падает, если в новой версии есть файл CANARY_BAD
+if [ "\$1" = "run" ] && [ -e "$T/app/CANARY_BAD" ]; then echo "events неделя  500  ← ОШИБКА"; echo "ПРОБЛЕМ: 1"; exit 1; fi
+if [ "\$1" = "image" ]; then echo "sha256:old"; fi
 exit 0
 EOF
 cat > "$T/bin/curl" <<EOF
@@ -57,4 +60,30 @@ FIX=$(git rev-parse HEAD)
 cd "$T/app"; APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1
 check "исправление применено" "[ \"\$(git rev-parse HEAD)\" = \"$FIX\" ]"
 check "метка плохого коммита снята" "[ ! -e data/.bad_commit ]"
+
+# 4. новая версия не проходит проверку на копии базы — контейнер не трогаем, остаёмся на прежней
+cd "$T/seed"; touch CANARY_BAD; echo v4 > VERSION; git add -A; git commit -qm canary-bad; git push -q origin main
+CB=$(git rev-parse HEAD)
+cd "$T/app"; : > "$T/docker.log"
+set +e; APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1; rc=$?; set -e
+check "не прошла проверку → код выхода 1" "[ $rc -eq 1 ]"
+check "рабочая копия осталась на прошлом коммите" "[ \"\$(git rev-parse HEAD)\" = \"$FIX\" ]"
+check "плохой коммит записан, причина — проверка" "[ \"\$(cat data/.bad_commit)\" = \"$CB\" ] && grep -q 'копии базы' data/.bad_reason"
+check "в отчёте — строка с ошибкой" "grep -q ОШИБКА data/.canary_report"
+check "контейнер не перезапускали" "! grep -q 'compose up' \"$T/docker.log\""
+check "образ вернули на прежний" "grep -q 'tag sha256:old' \"$T/docker.log\""
+check "копия базы удалена" "[ ! -e data/.canary ]"
+
+# 5. исправление после непрошедшей проверки — ставится
+cd "$T/seed"; git rm -q CANARY_BAD; echo v5 > VERSION; git add -A; git commit -qm fix2; git push -q origin main
+F2=$(git rev-parse HEAD)
+cd "$T/app"; APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1
+check "исправление после проверки применено" "[ \"\$(git rev-parse HEAD)\" = \"$F2\" ] && [ ! -e data/.bad_reason ] && [ ! -e data/.bad_commit ]"
+check "проверку запускали с --init и именем (таймаут останавливает контейнер)" "grep -q 'run --rm --init --name hh-canary --network none' \"$T/docker.log\""
+
+# 6. выключатель data/.no_canary — проверка не запускается, версия ставится
+cd "$T/seed"; touch CANARY_BAD; echo v6 > VERSION; git add -A; git commit -qm no-canary; git push -q origin main
+NC=$(git rev-parse HEAD)
+cd "$T/app"; touch data/.no_canary; : > "$T/docker.log"; APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1
+check "с data/.no_canary проверка не запускается" "[ \"\$(git rev-parse HEAD)\" = \"$NC\" ] && ! grep -q ' run ' \"$T/docker.log\""
 echo "Откат деплоя работает."

@@ -19,7 +19,8 @@ if [ -n "$swift" ] && [ "$branch" = "main" ] && [ "${HH_SWIFT_PR_OK:-}" = "" ]; 
 fi
 
 echo "== песочница прода для рискованных правок"
-# Лента, снимок, база, запись, команды из облака — прогнать код на копии настоящей базы (backend/tools/sandbox.py).
+# Лента, снимок, база, запись, команды из облака. Дом в любом случае проверит новую версию на копии настоящей базы перед
+# подменой (deploy/update.sh → sandbox.py --canary) и не поставит её при ошибке; здесь — раньше, если есть копия базы.
 risky=$(echo "$changed" | grep -E '^backend/app/(db|events|expand|snapshot|writer|writeq|ops|sync|cloud|backup|core|main)\.py$|^backend/app/sources/' || true)
 if [ -n "$risky" ]; then
   # хеш: дифф рискованных файлов + содержимое новых (неотслеживаемых) — так же считает sandbox.py mark_ok()
@@ -27,13 +28,9 @@ if [ -n "$risky" ]; then
   have=$(cat "$(git rev-parse --git-path hh-sandbox-ok)" 2>/dev/null || true)   # --git-path: и в worktree исполнителя
   if [ "$have" = "$want" ]; then
     echo "песочница пройдена на этих правках"
-  elif [ -n "${HH_SANDBOX_SKIP:-}" ]; then
-    echo "ВНИМАНИЕ: песочница пропущена — ${HH_SANDBOX_SKIP}. Сообщить пользователю в отчёте о выкатке."
   else
-    echo "СТОП: рискованные файлы без прогона песочницы:"; echo "$risky" | sed 's/^/  /'
-    echo "  python backend/tools/sandbox.py <копия базы> [--key …]   (успех запишет отметку для этих правок)"
-    echo "  или HH_SANDBOX_SKIP=\"почему нельзя\" ./deploy/check.sh — и сказать об этом пользователю"
-    exit 1
+    echo "песочница здесь не прогонялась (нет копии базы) — проверит дом перед подменой версии:"; echo "$risky" | sed 's/^/  /'
+    echo "  после пуша смотреть: версия на /api/health сменилась? нет — «Состояние»/дозор: «не прошло проверку на копии базы»"
   fi
 fi
 
@@ -45,6 +42,8 @@ echo "== тесты интерфейса"
 (cd frontend && npm test --silent >/tmp/homehub-vitest.log 2>&1 || { tail -40 /tmp/homehub-vitest.log; exit 1; })
 echo "== сборка фронтенда"
 (cd frontend && npm run build >/tmp/homehub-build.log 2>&1 || { tail -30 /tmp/homehub-build.log; exit 1; })
+echo "== откат автообновления (update.sh без настоящего Docker)"
+bash deploy/test-rollback.sh >/tmp/homehub-rollback.log 2>&1 || { cat /tmp/homehub-rollback.log; exit 1; }
 echo "== тесты навыка Алисы"
 python -m pytest -q alice/test_handler.py
 echo "OK: можно пушить"

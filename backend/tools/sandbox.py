@@ -4,6 +4,8 @@
     python backend/tools/sandbox.py backup.db.gz.enc --key <ключ k>    # зашифрованная копия с Яндекс.Диска (app:/backups)
     python backend/tools/sandbox.py ... --ui                           # ещё открыть экраны в браузере и собрать ошибки консоли
     python backend/tools/sandbox.py ... --keep-data                    # не стирать временную папку (там данные семьи!)
+    python /hh/backend/tools/sandbox.py копия --canary                   # проверка дома перед подменой (deploy/update.sh, внутри
+                                                                        # нового образа без сети): медленно — предупреждение, не провал
 
 Безопасность: база копируется во временную папку; зашифрованные секреты (токены Диска, пароль CalDAV) из копии УДАЛЯЮТСЯ — сервер без них
 не может ни синхронизироваться, ни писать в Диск; планировщик выключен; весь исходящий трафик заведён в никуда (прокси-заглушка).
@@ -28,6 +30,9 @@ from datetime import date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# В образе (проверка перед подменой, deploy/update.sh) код сервера лежит в /app, собранный интерфейс — в /app/static.
+APP_DIR = Path(os.environ.get("HH_SANDBOX_APP_DIR") or ROOT / "backend")
+STATIC_DIR = os.environ.get("HOMECAL_STATIC") or str(ROOT / "frontend" / "dist")
 sys.path.insert(0, str(ROOT / "backend"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shots import _port, _wait  # noqa: E402
@@ -67,14 +72,14 @@ def start(tmp: Path) -> tuple[subprocess.Popen, str]:
     (tmp / "config.yaml").write_text("timezone: Asia/Yekaterinburg\nsources: []\n", encoding="utf-8")
     port = _port()
     env = {**os.environ, "HOMECAL_CONFIG": str(tmp / "config.yaml"), "HOMECAL_DATA_DIR": str(tmp / "data"),
-           "HOMECAL_STATIC": str(ROOT / "frontend" / "dist"), "HOMECAL_NO_SCHEDULER": "1", "HOMECAL_PIN": "",
+           "HOMECAL_STATIC": STATIC_DIR, "HOMECAL_NO_SCHEDULER": "1", "HOMECAL_PIN": "",
            # исходящее — в никуда: ни Яндекс, ни погода, ни карты, ни ntfy
            "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "ALL_PROXY": "http://127.0.0.1:9",
            "http_proxy": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.1:9", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
-    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(port)], cwd=ROOT / "backend", env=env,
+    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(port)], cwd=APP_DIR, env=env,
                             stdout=subprocess.DEVNULL, stderr=(tmp / "server.err").open("w"))
     url = f"http://127.0.0.1:{port}"
-    _wait(url + "/api/health", 60)
+    _wait(url + "/api/health", 180)
     return proc, url
 
 
@@ -121,6 +126,7 @@ def main() -> int:
     ap.add_argument("--key", default=os.environ.get("HH_SANDBOX_KEY"), help="ключ k (лучше через переменную HH_SANDBOX_KEY — аргументы видны в ps)")
     ap.add_argument("--ui", action="store_true")
     ap.add_argument("--keep-data", action="store_true")
+    ap.add_argument("--canary", action="store_true", help="проверка перед подменой версии дома: провал — только ошибки и падение")
     a = ap.parse_args()
     tmp = Path(tempfile.mkdtemp(prefix="hh-sandbox-"))
     proc = None
@@ -136,8 +142,8 @@ def main() -> int:
             flag = ""
             if code != 200:
                 flag, bad = f"  ← ОШИБКА {code} {err}", bad + 1
-            elif ms > SLOW_MS:
-                flag, bad = "  ← МЕДЛЕННО", bad + 1
+            elif ms > SLOW_MS:   # дома на настоящем железе «медленно» бывает и без вины версии — там только предупреждаем
+                flag, bad = "  ← МЕДЛЕННО", bad + (0 if a.canary else 1)
             print(f"{name:26} {code}  {ms:5d} мс  {size:8d} Б  {('n=' + str(n)) if n != '' else ''}{flag}")
         if a.ui:
             out = tmp / "shots"
@@ -163,7 +169,7 @@ def main() -> int:
         else:
             shutil.rmtree(tmp, ignore_errors=True)
     print("OK: песочница чистая" if not bad else f"ПРОБЛЕМ: {bad}")
-    if not bad:
+    if not bad and not a.canary:
         mark_ok()
     return 1 if bad else 0
 
