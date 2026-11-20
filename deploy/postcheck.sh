@@ -68,9 +68,21 @@ if quiet:
 else:
     for e in errs[-5:]:
         print("ошибка экрана:", e.get("at"), e.get("where"), (e.get("message") or "")[:120])
-slow = [r for r in w.get("perf", {}).get("routes", []) if (r.get("p95") or 0) > 1500 and (r.get("n") or 0) >= 5]
-for r in slow:
-    print("медленно:", {k: r.get(k) for k in ("route", "p95", "n")} if quiet else r); bad = 1
+# Медленно — провал, только если медленных запросов к маршруту 3+ (один выброс: правка в Яндексе заняла 9 с и лента ждала её —
+# при n≈20 он и есть p95; такое бывает и без вины выкатки — v0.21.1)
+perf = w.get("perf", {})
+times = {}
+for s in perf.get("slow", []):
+    times[s.get("route")] = times.get(s.get("route"), 0) + 1
+slow = []
+for r in perf.get("routes", []):
+    if (r.get("p95") or 0) > 1500 and (r.get("n") or 0) >= 5:
+        info = {k: r.get(k) for k in ("route", "p95", "n")} if quiet else r
+        if times.get(r.get("route"), 0) >= 3:
+            slow.append(r)
+            print("медленно:", info, "— медленных запросов:", times[r.get("route")]); bad = 1
+        else:
+            print("заметка: единичный медленный запрос:", info)
 print("watch: проблем %d, медленных маршрутов %d" % (len(w.get("problems", [])), len(slow)))
 sys.exit(bad)
 PY
