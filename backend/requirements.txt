@@ -1,6 +1,6 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
-caldav>=1.4
+caldav>=3.7.0
 icalendar>=6.0
 recurring-ical-events>=3.3
 httpx>=0.27
