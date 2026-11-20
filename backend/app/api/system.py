@@ -180,7 +180,9 @@ def _noise() -> dict:
             if now - timedelta(hours=24) <= at <= now + timedelta(hours=24):
                 k = str(r.get("id", "")).split(":")[0] or "?"
                 by_kind[k] = by_kind.get(k, 0) + 1
-        chg = len(changes.recent(core.db, 1))
+        rec = changes.recent(core.db, 1)
+        chg = sum(int(c.get("times") or 1) for c in rec)
+        mass = [{"at": c["at"], "times": c.get("times", 1), **(c.get("stats") or {})} for c in rec if c.get("mass")][:5]
         upcoming = sum(by_kind.values())
         problems = []
         if chg > NOISE_CHANGES_24H:
@@ -188,7 +190,7 @@ def _noise() -> dict:
         if upcoming > NOISE_REMINDERS_24H:
             top = ", ".join(f"{k} {n}" for k, n in sorted(by_kind.items(), key=lambda x: -x[1])[:3])
             problems.append(f"Шум: {upcoming} напоминаний в окне ±24 ч (порог {NOISE_REMINDERS_24H}; больше всего: {top})")
-        return {"changes_24h": chg, "reminders_24h": by_kind, "problems": problems}
+        return {"changes_24h": chg, "mass_24h": mass, "reminders_24h": by_kind, "problems": problems}
     except Exception as e:  # noqa: BLE001
         return {"error": type(e).__name__, "problems": []}
 

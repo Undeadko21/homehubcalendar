@@ -165,3 +165,24 @@ def test_take_list_all_day_series_does_not_crash(api):
     out = eventlists.todo_texts(db, [{"uid": "AD", "start": now.strftime("%Y-%m-%d")}], now)
     assert [x["text"] for x in out["AD"]] == ["термос"]
     assert api.get("/api/reminders").status_code == 200
+
+
+def test_uid_flip_is_not_a_change_and_mass_collapses(api):
+    """Та же встреча под другим UID — не «удалено + новое»; пачки подряд — одна строка со счётчиком и разбивкой (v0.21)."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("Asia/Yekaterinburg")
+    now = datetime.now(tz).replace(microsecond=0)
+    ev = lambda uid, d, cal="ya/home": {"id": uid, "uid": uid, "start": (now + timedelta(days=d)).isoformat(),  # noqa: E731
+                                        "end": (now + timedelta(days=d, hours=1)).isoformat(), "title": f"Встреча {d}",
+                                        "people": ["anna"], "calendars": [cal]}
+    old = [ev("A", 1)]
+    new = [ev("B", 1, "ya/work")]
+    assert changes.diff(old, new, now) == []
+    db = api.core.db
+    many_old = [ev(f"o{d}", d) for d in range(1, 14)]
+    for _ in range(3):
+        changes.record(db, changes.diff(many_old, [], now), tz, {})
+    log = db.kv_get(changes.KEY)[0]
+    assert len([c for c in log if c.get("mass")]) == 1 and log[0]["times"] == 3
+    assert log[0]["stats"]["deleted"] == 13 and log[0]["stats"]["calendars"] == {"ya/home": 13}

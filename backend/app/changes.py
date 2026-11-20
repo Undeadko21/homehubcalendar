@@ -120,7 +120,22 @@ def diff(old: list[dict], new: list[dict], now: datetime) -> list[dict]:
             found += [{"kind": "changed", "e": n, "old": o} for o, n in series_changed]
         found += [{"kind": "deleted", "e": ok[s], "one": True} for s in rest_o]
         found += [{"kind": "new", "e": nk[s], "one": True} for s in rest_n]
-    return found
+    return _cancel_uid_flips(found)
+
+
+def _cancel_uid_flips(found: list[dict]) -> list[dict]:
+    """«Удалено» + «Новое» с теми же временем, названием и местом (другой UID — та же встреча из другого календаря
+    или пересоздана при синхронизации) — не изменение для семьи (v0.21: такие пары давали «Много изменений сразу»)."""
+    dels: dict[tuple, list[int]] = {}
+    for i, c in enumerate(found):
+        if c["kind"] == "deleted":
+            dels.setdefault(_key(c["e"]), []).append(i)
+    drop = set()
+    for i, c in enumerate(found):
+        if c["kind"] == "new" and dels.get(_key(c["e"])):
+            drop.add(dels[_key(c["e"])].pop())
+            drop.add(i)
+    return [c for i, c in enumerate(found) if i not in drop]
 
 
 def _shape(o: dict, n: dict) -> tuple:
@@ -169,9 +184,26 @@ def record(db: Database, found: list[dict], tz: ZoneInfo, cal_names: dict[str, s
         return
     now = datetime.now(tz)
     if len(found) > MASS:
+        # Разбивка без названий и имён — чтобы по сводке дозора понять, откуда пачка (v0.21)
+        stats: dict = {"new": 0, "deleted": 0, "changed": 0, "calendars": {}}
+        for c in found:
+            stats[c["kind"]] = stats.get(c["kind"], 0) + 1
+            for k in c["e"].get("calendars") or []:
+                stats["calendars"][k] = stats["calendars"].get(k, 0) + 1
+        with _lock:
+            log = list(db.kv_get(KEY)[0] or [])
+            last = log[0] if log else None
+            # Пачки подряд (в пределах 3 часов) — одной строкой со счётчиком, а не сотней строк в журнале
+            if last and last.get("mass") and now - datetime.fromisoformat(last["at"]) < timedelta(hours=3):
+                last["times"] = int(last.get("times") or 1) + 1
+                last["at"] = now.isoformat(timespec="seconds")
+                last["stats"] = stats
+                last["text"] = f"Много изменений сразу ({len(found)}), повторилось {last['times']} раз — похоже, календарь синхронизируется неровно"
+                db.kv_set(KEY, log[:KEEP])
+                return
         items = [{"id": hashlib.sha1(f"mass{now.isoformat()}".encode()).hexdigest()[:12], "at": now.isoformat(timespec="seconds"),
                   "text": f"Много изменений сразу ({len(found)}) — например, календарь скрыт или переподключён", "people": [],
-                  "origin": "", "mass": True}]
+                  "origin": "", "mass": True, "stats": stats}]
     else:
         items = []
         for c in found:
