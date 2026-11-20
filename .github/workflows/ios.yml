@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: XcodeGen
         run: brew install xcodegen
       - name: Сборка без подписи (AltStore подпишет Apple ID на самом телефоне)
@@ -29,7 +29,7 @@ jobs:
           cp -R build/Build/Products/Release-iphoneos/HomeHubCalendar.app Payload/
           zip -qry HomeHub-Calendar.ipa Payload
           ls -la HomeHub-Calendar.ipa
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: HomeHub-Calendar-ios
           path: ios/HomeHub-Calendar.ipa
