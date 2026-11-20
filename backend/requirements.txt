@@ -3,7 +3,7 @@ uvicorn[standard]>=0.30
 caldav>=1.4
 icalendar>=6.0
 recurring-ical-events>=3.3
-httpx>=0.27
+httpx>=0.28.1
 pyyaml>=6.0
 apscheduler>=3.10,<4
 tzdata
