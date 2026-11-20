@@ -20,6 +20,7 @@ android {
         targetSdk = 35
         versionCode = versionProps.getProperty("versionCode").toInt()
         versionName = versionProps.getProperty("versionName")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"   // проверки на эмуляторе (android-device.yml)
     }
 
     // Постоянный ключ подписи лежит в репозитории, чтобы обновления ставились поверх
@@ -57,4 +58,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:core-ktx:1.6.1")
 }

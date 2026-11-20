@@ -9,6 +9,7 @@
         <button :class="{ on: !dense }" @click="setDense(false)">Просторно</button>
       </div>
     </div>
+    <UnusualWeek v-if="mode === 'week'" :cursor="state.cursor" />
     <FullCalendar ref="fc" :options="options" />
   </div>
 </template>
@@ -17,6 +18,7 @@
 import { titleWithIcon } from '../lib/icons'
 import { computed, ref, watch } from 'vue'
 import FullCalendar from '@fullcalendar/vue3'
+import UnusualWeek from '../components/UnusualWeek.vue'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'

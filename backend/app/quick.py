@@ -77,6 +77,16 @@ def parse(text: str, now: datetime, people: list[dict]) -> dict:
     for pat, freq in REPEATS:
         if take(rf"(?<!\w)(?:{pat})(?!\w)"):
             out["repeat"] = {"freq": freq}
+    # «каждый второй вторник», «каждую последнюю пятницу (месяца)», «каждый 1-й понедельник» — месячный повтор по дню недели
+    m = take(r"(?<!\w)кажд(?:ый|ую|ое|ая)\s+(перв\w*|втор\w*|трет\w*|четв[её]рт\w*|последн\w*|[1-4])(?:-?(?:й|я|е|ю))?\s+("
+             + "|".join(WEEKDAYS) + r")(?:\s+месяца)?(?!\w)")
+    if m:
+        w = m.group(1)
+        nth = int(w) if w.isdigit() else next(n for k, n in (("перв", 1), ("втор", 2), ("трет", 3), ("четв", 4), ("последн", -1))
+                                                if w.startswith(k))
+        wd = WEEKDAYS[m.group(2)]
+        out["repeat"] = {"freq": "monthly", "nth": nth, "byday": [_DAY_CODES[wd]]}
+        out["date"] = _next_nth(today, wd, nth)
     m = take(r"(?<!\w)по\s+(" + "|".join(WD_PL) + r")(?!\w)")
     if m:
         out["repeat"] = {"freq": "weekly"}
@@ -167,6 +177,23 @@ def _mk(today: date, month: int, day: int, year: str | None) -> date | None:
         return d if d >= today else date(today.year + 1, month, day)
     except ValueError:
         return None
+
+
+_DAY_CODES = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+
+
+def _next_nth(today: date, wd: int, nth: int) -> date:
+    """Ближайший (с сегодня) N-й (или последний, -1) такой день недели в месяце."""
+    import calendar
+    y, mo = today.year, today.month
+    for _ in range(14):
+        days = [d for d in range(1, calendar.monthrange(y, mo)[1] + 1) if date(y, mo, d).weekday() == wd]
+        if nth == -1 or nth <= len(days):
+            d = date(y, mo, days[-1] if nth == -1 else days[nth - 1])
+            if d >= today:
+                return d
+        y, mo = (y + 1, 1) if mo == 12 else (y, mo + 1)
+    return today
 
 
 def _next_weekday(today: date, wd: int, now: datetime) -> date:

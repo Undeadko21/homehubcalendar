@@ -132,3 +132,19 @@ self.addEventListener('fetch', (e) => {
   else if (req.mode === 'navigate' && !NOT_SHELL.test(p)) e.respondWith(page(req))
   else if (/^\/(icon[\w-]*\.(svg|png)|apple-touch-icon\.png|manifest\.webmanifest)$/.test(p)) e.respondWith(small(req))
 })
+
+// Уведомления в браузере на компьютере (Web Push, v0.21): сервер шлёт {title, body, tag} — показать; нажатие — открыть календарь.
+self.addEventListener('push', (e) => {
+  let d = {}
+  try { d = e.data ? e.data.json() : {} } catch { d = { body: e.data && e.data.text() } }
+  e.waitUntil(self.registration.showNotification(d.title || 'Календарь', {
+    body: d.body || '', tag: d.tag || undefined, icon: '/icon-192.png', badge: '/icon-192.png', data: { url: '/' },
+  }))
+})
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close()
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    const w = list.find((c) => new URL(c.url).origin === self.location.origin)
+    return w ? w.focus() : self.clients.openWindow('/')
+  }))
+})

@@ -100,7 +100,8 @@ def save_morning(db: Database, enabled: bool | None, time_: str | None, people: 
 
 
 def _morning(events: list[dict], today, now: datetime, tz: ZoneInfo, people: set[str] | None,
-             morning: dict, weather: dict, horizon_days: int, names: dict | None = None) -> list[dict]:
+             morning: dict, weather: dict, horizon_days: int, names: dict | None = None,
+             unusual: dict | None = None) -> list[dict]:
     """Утренняя сводка каждому взрослому: его события, его поездки, погода."""
     out = []
     hh, mm = (int(x) for x in morning["time"].split(":"))
@@ -137,6 +138,9 @@ def _morning(events: list[dict], today, now: datetime, tz: ZoneInfo, people: set
             lines = lines[:7]
             if weather.get(day):
                 lines.append(f"Погода: {weather[day]}")
+            odd = (unusual or {}).get(day) or []   # понедельник: чем неделя необычна (unusual.py, v0.21)
+            if odd:
+                lines.append("Необычно на неделе: " + "; ".join(odd[:3]) + (f" и ещё {len(odd) - 3}" if len(odd) > 3 else ""))
             out.append({"id": f"morning:{pid}:{day.isoformat()}", "kind": "event", "at": at.isoformat(timespec="seconds"),
                         "start": at.isoformat(timespec="seconds"), "people": [pid], "title": title, "text": "\n".join(lines)})
     return out
@@ -166,7 +170,8 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
           allday: dict | None = None, todos: list[dict] | None = None,
           sync_statuses: list[dict] | None = None, names: dict[str, str] | None = None,
           morning: dict | None = None, weather: dict | None = None,
-          event_lists: dict[str, list] | None = None, change_items: list[dict] | None = None) -> list[dict]:
+          event_lists: dict[str, list] | None = None, change_items: list[dict] | None = None,
+          unusual: dict | None = None) -> list[dict]:
     now = now.astimezone(tz)
     today = now.date()
     out: list[dict] = []
@@ -333,7 +338,7 @@ def build(events: list[dict], birthdays_manual: list[dict], now: datetime, tz: Z
         out += change_items   # «Изменено: …» (changes.py) — уже отфильтрованы по людям
 
     if morning and morning.get("enabled") and morning.get("people"):
-        out += _morning(events, today, now, tz, people, morning, weather or {}, horizon_days, names)
+        out += _morning(events, today, now, tz, people, morning, weather or {}, horizon_days, names, unusual)
 
     for b in upcoming(birthdays_manual, events, today, horizon_days):
         day = date_of(b)

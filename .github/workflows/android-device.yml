@@ -1,0 +1,48 @@
+name: Android on emulator
+# Kotlin здесь нигде не запускается, кроме этого прогона (v0.21): сборка + проверки на эмуляторе
+# (android/app/src/androidTest — запуск, уведомление с «Маршрут»/«Всё взял», разбор напоминаний, офлайн-экран).
+# Снимок экрана после запуска — в артефактах прогона.
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '!android/release/**', '.github/workflows/android-device.yml']
+  pull_request:
+    paths: ['android/**', '!android/release/**', '.github/workflows/android-device.yml']
+  schedule:
+    - cron: '17 3 * * 1'   # по понедельникам: новые образы эмулятора и Gradle не сломали ли сборку
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  device:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: KVM для эмулятора
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Сборка и проверки на эмуляторе (Android 14)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          working-directory: android
+          script: |
+            echo "sdk.dir=$ANDROID_HOME" > local.properties
+            ./gradlew --no-daemon connectedDebugAndroidTest
+            ./gradlew --no-daemon -q installDebug && adb shell monkey -p ru.homehub.calendar -c android.intent.category.LAUNCHER 1 && sleep 8 && adb exec-out screencap -p > launch.png || echo "снимок запуска не получился"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-device
+          path: |
+            android/launch.png
+            android/app/build/reports/androidTests/
+          if-no-files-found: ignore

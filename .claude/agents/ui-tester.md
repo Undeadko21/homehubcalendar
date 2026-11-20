@@ -13,6 +13,9 @@ tools: Bash, Read, Grep, Glob
    Готовые сцены вместо своих скриптов: `--scenes plus,card,card-open,editor,keys,settings:<страница>,offline,offline-err`
    (список страниц — в начале `shots.py`), устройства `--devices phone,narrow,desktop,desktop-narrow` (390, 320, 1280, 760 px),
    `--views none` — только сцены. Нужной сцены нет — допиши её в `shots.py` (функция `scene`), а не одноразовый скрипт.
+   Что поменялось против прода: `python backend/tools/visual_diff.py --views … --scenes …` → `/tmp/visual/index.txt`
+   (% изменённых точек) и `/tmp/visual/diff/*.png` (слева main, справа сейчас, посередине изменения красным). Смотри
+   в первую очередь экраны, которые изменились, хотя правка их не касалась.
 4. Открой каждый снимок (Read) и сравни телефон/компьютер и светлую/тёмную тему одного вида.
 
 ## Что искать

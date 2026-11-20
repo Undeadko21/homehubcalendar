@@ -44,3 +44,13 @@ def test_canary_note_and_notification(tmp_path, api):
     finally:
         dw.access.notify = orig
     assert len(sent) == 1 and "не прошло проверку на копии базы и не установлено" in sent[0]
+
+
+def test_health_shows_canary_state(api, tmp_path):
+    d = api.core.settings.data_dir
+    assert "canary" not in api.get("/api/health").json()
+    (d / ".canary_last").write_text("ok abc1234def\n")
+    assert api.get("/api/health").json()["canary"] == {"state": "ok", "commit": "abc1234"}
+    (d / ".canary_last").write_text("rm -rf / x\n")
+    assert "canary" not in api.get("/api/health").json()     # только известные состояния
+    (d / ".canary_last").unlink()

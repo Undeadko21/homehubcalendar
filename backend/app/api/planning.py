@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from .. import __version__
 from ..events import UNASSIGNED
 from ..freetime import find_free
-from .. import absences, birthdays as bd, escorts, recent, school, stats, widget
+from .. import absences, birthdays as bd, escorts, recent, school, stats, unusual, widget
 from fastapi import APIRouter
 
 from .. import core
@@ -403,3 +403,15 @@ def search(q: str = "", people: str | None = None, calendar: str | None = None,
         found.append(e)
     found.sort(key=lambda e: e["start"])
     return found[:300]
+
+
+@router.get("/api/unusual")
+def get_unusual(start: str | None = None):
+    """«Необычная неделя»: чем неделя (с понедельника даты start, по умолчанию текущая) отличается от обычной (unusual.py)."""
+    try:
+        d = date.fromisoformat(start[:10]) if start else datetime.now(core.tz).date()
+    except ValueError as e:
+        raise HTTPException(400, "Дата в формате ГГГГ-ММ-ДД") from e
+    monday = d - timedelta(days=d.weekday())
+    people = [p for p in core.db.list_people() if not p["hidden"]]
+    return {"week": monday.isoformat(), "items": unusual.week(core.events, monday, core.tz, people)}

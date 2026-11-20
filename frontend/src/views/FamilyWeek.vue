@@ -1,5 +1,6 @@
 <template>
   <div class="fw">
+    <UnusualWeek :cursor="state.cursor" />
     <Skeleton v-if="!loaded && !events.length" blocks :rows="3" class="sk" />
     <div class="scroll">
       <table class="grid" :style="{ '--n': cols.length }">
@@ -34,6 +35,7 @@
 </template>
 
 <script setup>
+import UnusualWeek from '../components/UnusualWeek.vue'
 import Skeleton from '../components/Skeleton.vue'
 import { titleWithIcon } from '../lib/icons'
 import { computed } from 'vue'

@@ -498,7 +498,7 @@ class Database:
     # рядом с базой (создаётся при первом запуске, права 0600). Так утекшая копия самой базы секретов не раскрывает.
     # В резервной копии на Диске секреты открыты — она целиком зашифрована ключом облака (см. backup.snapshot_db),
     # а после восстановления при запуске шифруются заново.
-    SECRET_KEYS = ("auth:", "cloud:token", "cloud:key", "ics:feeds")
+    SECRET_KEYS = ("auth:", "cloud:token", "cloud:key", "ics:feeds", "push:")
 
     def _is_secret(self, key: str) -> bool:
         return key.startswith(self.SECRET_KEYS)

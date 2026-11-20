@@ -25,6 +25,7 @@ from .perf import SLOW_MS
 from . import core
 from .api import access as access_api
 from .api import apps, cloud_api, files, lists, planning, system, writing
+from .api import push as push_api
 
 
 def poll_cloud() -> None:
@@ -49,6 +50,8 @@ async def lifespan(app: FastAPI):
         # Снимок для телефона вне дома: проверяем раз в 2 минуты, на Диск пишем при изменениях и раз в час.
         core.scheduler.add_job(core.ws.flush, "interval", minutes=2, id="writeq", max_instances=1, coalesce=True)
         core.scheduler.add_job(core.cloud.tick, "interval", minutes=2, id="cloud", max_instances=1, coalesce=True)
+        core.scheduler.add_job(core.push_tick, "interval", minutes=1, id="webpush", max_instances=1, coalesce=True)
+        core.scheduler.add_job(core.trend_day, "cron", hour=23, minute=50, id="trend", max_instances=1, coalesce=True)
         core.scheduler.add_job(poll_cloud, "interval", minutes=1, id="cloud-ops", max_instances=1, coalesce=True)
         core.scheduler.add_job(lambda: access.watch(core.db), "interval", minutes=5, id="access-watch", max_instances=1, coalesce=True)
         core.scheduler.add_job(lambda: versionwatch.check(core.db, BUILD), "interval", minutes=30, id="version-watch",
@@ -258,7 +261,15 @@ def login_qr_use(link: str, request: Request):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": __version__}
+    """Без входа. canary — итог проверки последней выкатки на копии базы (deploy/update.sh): ok / skipped / off / failed + коммит."""
+    out = {"ok": True, "version": __version__}
+    try:
+        state, _, sha = (core.settings.data_dir / ".canary_last").read_text(encoding="utf-8").strip().partition(" ")
+        if state in ("ok", "skipped", "off", "failed"):
+            out["canary"] = {"state": state, "commit": sha[:7]}
+    except OSError:
+        pass
+    return out
 
 
 @app.get("/api/ready")
@@ -275,7 +286,7 @@ def ready():
 # ---------- веб-интерфейс ----------
 
 # Маршруты по темам (app/api/*.py). Страница-заглушка SPA ниже должна идти последней.
-for _r in (system, apps, cloud_api, files, lists, planning, writing, access_api):
+for _r in (system, apps, cloud_api, files, lists, planning, writing, access_api, push_api):
     app.include_router(_r.router)
 
 

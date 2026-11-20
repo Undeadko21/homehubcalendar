@@ -34,11 +34,49 @@ def _rrule(repeat: dict | None) -> dict | None:
     byday = [d for d in (repeat.get("byday") or []) if d in _DAYS]
     if byday and freq == "WEEKLY":
         r["BYDAY"] = byday
+    nth = repeat.get("nth")
+    if nth and freq == "MONTHLY":   # «каждый 2-й вторник», «последняя пятница» (-1) — v0.21
+        nth = int(nth)
+        if nth not in (1, 2, 3, 4, 5, -1) or len(byday) != 1:
+            raise WriteError("Повтор по дню недели: номер 1–5 или «последний» и один день недели")
+        r["BYDAY"] = [f"{nth}{byday[0]}"]
     if repeat.get("count"):
         r["COUNT"] = [int(repeat["count"])]
     elif repeat.get("until"):
         r["UNTIL"] = [date.fromisoformat(str(repeat["until"])[:10])]
     return r
+
+
+def _shift_byday(ev, old_start, new_start, tz) -> None:
+    """Вся серия перенесена на другой день недели: «по вторникам» → «по средам», «2-й вторник» → «N-я среда».
+    Правила с несколькими днями или BYSETPOS (из Яндекса) не трогаем — их не пересчитать однозначно."""
+    od = old_start.astimezone(tz).date() if isinstance(old_start, datetime) and old_start.tzinfo else \
+        (old_start.date() if isinstance(old_start, datetime) else old_start)
+    nd = new_start.astimezone(tz).date() if isinstance(new_start, datetime) and new_start.tzinfo else \
+        (new_start.date() if isinstance(new_start, datetime) else new_start)
+    rr = dict(ev["RRULE"])
+    by = [str(x) for x in rr.get("BYDAY") or []]
+    if od == nd or len(by) != 1 or rr.get("BYSETPOS"):
+        return
+    if rr.get("FREQ") == ["WEEKLY"] and by[0] in _DAYS:
+        rr["BYDAY"] = [_DAYS[nd.weekday()]]
+    elif rr.get("FREQ") == ["MONTHLY"] and by[0][-2:] in _DAYS and by[0][:-2]:
+        rr["BYDAY"] = [nth_of(nd, last=by[0].startswith("-"))]
+    else:
+        return
+    del ev["RRULE"]
+    ev.add("RRULE", rr)
+
+
+def nth_of(d: date, last: bool = False) -> str:
+    """BYDAY для «такого же дня недели в месяце», что у даты d: «2TU» (второй вторник) или «-1FR» (последняя пятница)."""
+    return f"{-1 if last else (d.day - 1) // 7 + 1}{_DAYS[d.weekday()]}"
+
+
+def _nth_byday(start, old: str) -> str:
+    """Перенос «это и следующие» у месячного повтора по дню недели: тот же вид (N-й или последний), но от нового начала."""
+    d = start.date() if hasattr(start, "date") else start
+    return nth_of(d, last=old.startswith("-"))
 
 
 def _until_utc(rr: dict | None, all_day: bool, tz: ZoneInfo) -> None:
@@ -122,6 +160,7 @@ def apply_edit(ics: str, fields: dict, tz: ZoneInfo) -> str:
     if "start" in fields:
         start, end = fields["start"], fields.get("end")
         occ = fields.get("occurrence")
+        old_start = ev.decoded("DTSTART") if "DTSTART" in ev else None
         if occ is not None and ("RRULE" in ev or "RDATE" in ev) and "DTSTART" in ev:
             # правим вхождение, а сдвигать надо начало всей серии на ту же разницу
             m0 = ev.decoded("DTSTART")
@@ -137,6 +176,8 @@ def apply_edit(ics: str, fields: dict, tz: ZoneInfo) -> str:
                 ns = datetime.combine(m0 + d, datetime.min.time())
                 start, end = ns, ns + dur
         _apply_times(ev, start, end, bool(fields.get("all_day")), tz)
+        if "repeat" not in fields and "RRULE" in ev and old_start is not None:
+            _shift_byday(ev, old_start, start, tz)   # серию перенесли на другой день — день в правиле тоже
     for key, prop in (("location", "LOCATION"), ("description", "DESCRIPTION")):
         if key in fields:
             if prop in ev:
@@ -259,6 +300,9 @@ def split_following(ics: str, occurrence: datetime, fields: dict, tz: ZoneInfo) 
             rr["BYDAY"] = [_DAYS[(_DAYS.index(d) + delta) % 7] for d in rr["BYDAY"]]
         except ValueError:
             pass
+    if rr.get("FREQ") == ["MONTHLY"] and len(rr.get("BYDAY") or []) == 1 and not rr.get("BYSETPOS") and delta \
+            and str(rr["BYDAY"][0])[:-2]:
+        rr["BYDAY"] = [_nth_byday(start, str(rr["BYDAY"][0]))]
     del nev["RRULE"]
     nev.add("RRULE", rr)
     nev.add("SEQUENCE", 0)

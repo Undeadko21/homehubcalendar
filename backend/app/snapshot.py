@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from . import changes, countdown, birthdays as bd, eventlists, ops, reminders, weather, widget
+from . import changes, countdown, birthdays as bd, eventlists, ops, reminders, unusual, weather, widget
 from .db import Database
 from .events import EventService
 
@@ -44,7 +44,8 @@ def build(events: EventService, db: Database, tz: ZoneInfo, now: datetime | None
                                     [i for l in db.lists() for i in l["items"]], db.sync_status(),
                                     names={pid: p["name"] for pid, p in people.items()},
                                     morning=reminders.load_morning(db), weather=weather.cached(weather_cfg or {}),
-                                    event_lists=eventlists.todo_texts(db, evs, now), change_items=changes.reminders(db, now, None)),
+                                    event_lists=eventlists.todo_texts(db, evs, now), change_items=changes.reminders(db, now, None),
+                                    unusual=unusual.mondays(events, now.date(), HORIZON_DAYS, tz, list(people.values()))),
         # --- для офлайн-экрана и команд с телефона (этап 2) ---
         "people": [{k: p.get(k) for k in ("id", "name", "color", "emoji", "needs_escort", "keywords")} for p in people.values()],
         "events": [_compact(e) for e in shown],

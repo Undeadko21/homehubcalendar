@@ -77,7 +77,10 @@
               <option value="">Не повторять</option>
               <option value="daily">Каждый день</option>
               <option value="weekly">Каждую неделю</option>
-              <option value="monthly">Каждый месяц</option>
+              <option value="biweekly">Каждые 2 недели</option>
+              <option value="monthly">Каждый месяц, {{ startDay }}-го</option>
+              <option value="monthly_nth">Каждый месяц, {{ nthText }}</option>
+              <option v-if="isLastWd" value="monthly_last">Каждый месяц, {{ lastText }}</option>
               <option value="yearly">Каждый год</option>
             </select>
           </div>
@@ -279,13 +282,35 @@ async function fillQuick() {
     f.allDay = r.all_day
     f.startDate = r.date; f.endDate = r.date
     if (!r.all_day) { f.startTime = r.start; f.endTime = r.end }
-    f.repeat = r.repeat?.freq || ''
+    f.repeat = r.repeat?.nth === -1 ? 'monthly_last' : r.repeat?.nth ? 'monthly_nth' : r.repeat?.freq || ''
     if (r.location || r.repeat) more.value = true
     if (r.people.length) f.people = r.people
     quickNote.value = 'Проверьте поля ниже и нажмите «Сохранить»' + (r.notes.length ? ' · ' + r.notes.join(', ') : '')
   } catch (err) {
     quickNote.value = 'Не удалось разобрать: ' + err.message
   }
+}
+
+// Повтор по дате начала: «каждые 2 недели», «каждый месяц, 3-й четверг», «… последний четверг» (v0.21)
+const WD = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
+const WD_ACC = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
+const WD_LAST = ['последний понедельник', 'последний вторник', 'последнюю среду', 'последний четверг', 'последнюю пятницу',
+  'последнюю субботу', 'последнее воскресенье']
+const startD = computed(() => new Date(`${f.startDate || isoDate(new Date())}T12:00`))
+const wdIdx = computed(() => (startD.value.getDay() + 6) % 7)
+const startDay = computed(() => startD.value.getDate())
+const nthNum = computed(() => Math.floor((startDay.value - 1) / 7) + 1)
+const nthText = computed(() => `${nthNum.value}-й ${WD_ACC[wdIdx.value]}`.replace(/^(\d)-й (среду|пятницу|субботу)$/, '$1-ю $2')
+  .replace(/^(\d)-й воскресенье$/, '$1-е воскресенье'))
+const isLastWd = computed(() => { const d = new Date(startD.value); d.setDate(d.getDate() + 7); return d.getMonth() !== startD.value.getMonth() })
+const lastText = computed(() => WD_LAST[wdIdx.value])
+// «Последний четверг» есть, только пока дата — в последней неделе месяца; иначе — «N-й четверг»
+watch(isLastWd, (v) => { if (!v && f.repeat === 'monthly_last') f.repeat = 'monthly_nth' })
+function repeatRule(v) {
+  if (v === 'biweekly') return { freq: 'weekly', interval: 2 }
+  if (v === 'monthly_nth') return { freq: 'monthly', nth: nthNum.value, byday: [WD[wdIdx.value]] }
+  if (v === 'monthly_last') return { freq: 'monthly', nth: -1, byday: [WD[wdIdx.value]] }
+  return { freq: v }
 }
 
 function payload() {
@@ -303,7 +328,7 @@ async function save() {
   if (f.allDay && f.endDate < f.startDate) { error.value = 'Конец раньше начала'; return }
   busy.value = true
   try {
-    const repeat = f.repeat && f.repeat !== 'keep' ? { freq: f.repeat, until: f.until || null } : null
+    const repeat = f.repeat && f.repeat !== 'keep' ? { ...repeatRule(f.repeat), until: f.until || null } : null
     if (isNew.value) {
       await api.createEvent({ calendar: f.calendar, title: f.title.trim(), ...p, location: f.location,
         description: f.description, repeat, people: f.people.length ? f.people : null })
@@ -360,6 +385,7 @@ async function remove(onlyThis) {
 .in { width: 100%; border: 0; background: transparent; font: inherit; color: var(--ink); padding: 4px 0; outline: none; resize: vertical; }
 .dt { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .dt input, select { font: inherit; color: var(--ink); background: var(--fill, rgba(120,120,128,.12)); border: 0; border-radius: 8px; padding: 5px 8px; }
+select { min-width: 0; max-width: 62%; text-overflow: ellipsis; }   /* «Каждый месяц, последнюю пятницу» не раздвигает строку */
 .chk { width: 22px; height: 22px; accent-color: var(--red, #ff3b30); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .danger { color: var(--red, #ff3b30); }

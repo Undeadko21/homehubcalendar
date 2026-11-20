@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import sessions as sessions_mod
 from .. import __version__
@@ -145,9 +145,12 @@ def get_watch(request: Request):
              "app": sessions_mod.app_version(e.get("ua") or "") or sessions_mod.platform(e.get("ua") or "")}
             for e in core.CLIENT_LOG[-20:]]
     noise = _noise()
+    from .. import feedback as fb
+    noise["problems"] = noise["problems"] + fb.problems(core.db) + _trend_problems()
     return {
         "version": sysinfo["version"], "started": sysinfo["started"], "now": sysinfo["now"],
-        "problems": [_scrub(p) for p in sysinfo["problems"]] + noise.pop("problems"), "sources": srcs, "noise": noise, "syncing": sysinfo["syncing"],
+        "problems": [_scrub(p) for p in sysinfo["problems"]] + noise.pop("problems"), "sources": srcs, "noise": noise,
+        "trend": _trend_summary(), "syncing": sysinfo["syncing"],
         "backup": {k: sysinfo["backup"].get(k) for k in ("last_ok", "last_error")}, "selftest": sysinfo["selftest"],
         "db_size": sysinfo["db_size"], "counts": {k: sysinfo["counts"][k] for k in ("calendars", "objects")},
         "slow_requests": sysinfo["slow_requests"], "perf": _perf_for_watch(), "client_errors": errs,
@@ -196,6 +199,22 @@ _URL_RE = re.compile(r"(?:https?|webcal)://\S+|[\w.+-]+@[\w-]+\.[\w.-]+")
 def _scrub(text: str) -> str:
     """Адреса и e-mail из текстов ошибок (в них бывает логин Яндекса или секретная ссылка подписки) дозору не нужны."""
     return _URL_RE.sub("…", text)
+
+
+def _trend_summary() -> list[dict]:
+    from .. import trends
+    try:
+        return trends.summary(core.db)
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _trend_problems() -> list[str]:
+    from .. import trends
+    try:
+        return trends.problems(core.db)
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _perf_for_watch() -> dict:
@@ -328,4 +347,35 @@ def delete_feed(feed_id: str):
     core.db.kv_set("ics:feeds", [f for f in feeds if f["id"] != feed_id])
     core.db.remove_source(feed_id)
     core.events.invalidate()
+    return {"ok": True}
+
+
+class FeedbackIn(BaseModel):
+    text: str = Field(max_length=4000)
+    screen: str = Field("", max_length=200)
+    version: str = Field("", max_length=100)
+    device: str = Field("", max_length=200)
+    errors: list[str] = Field(default_factory=list, max_length=20)
+
+
+@router.post("/api/feedback")
+def post_feedback(body: FeedbackIn):
+    """«Сообщить о проблеме»: сообщение остаётся дома, его видит утренний дозор (feedback.py)."""
+    from .. import feedback as fb
+    try:
+        return fb.add(core.db, body.text, body.screen, body.version, body.device, body.errors)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.get("/api/feedback")
+def get_feedback():
+    from .. import feedback as fb
+    return {"items": list(reversed(fb.items(core.db)))[:20]}
+
+
+@router.delete("/api/feedback/{fid}")
+def delete_feedback(fid: str):
+    from .. import feedback as fb
+    fb.delete(core.db, fid)
     return {"ok": True}

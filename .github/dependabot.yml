@@ -1,0 +1,32 @@
+# Автообновления зависимостей (v0.21): Dependabot открывает pull request, в нём проходят тесты (backend.yml, Android на
+# эмуляторе, Swift), в воскресенье ревизор оставляет ревью. Сливает человек или Claude в сессии — после check.sh в ветке PR.
+# Мелкие обновления — одной пачкой на экосистему, крупные (major) — отдельно, чтобы их было видно.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule: { interval: weekly, day: friday, time: "06:00", timezone: Asia/Yekaterinburg }
+    open-pull-requests-limit: 3
+    groups:
+      backend-minor: { update-types: [minor, patch] }
+    labels: [dependencies]
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly, day: friday, time: "06:00", timezone: Asia/Yekaterinburg }
+    open-pull-requests-limit: 3
+    groups:
+      frontend-minor: { update-types: [minor, patch] }
+    labels: [dependencies]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+    groups:
+      actions: { patterns: ["*"] }
+    labels: [dependencies]
+  - package-ecosystem: gradle
+    directory: /android
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 2
+    groups:
+      android-minor: { update-types: [minor, patch] }
+    labels: [dependencies]

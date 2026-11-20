@@ -161,7 +161,8 @@ class RepeatIn(BaseModel):
     interval: int = 1
     count: int | None = None
     until: str | None = None
-    byday: list[str] | None = None   # для weekly: MO, TU, … — несколько дней недели
+    byday: list[str] | None = None   # для weekly: MO, TU, … — несколько дней недели; для monthly c nth — один день
+    nth: int | None = None           # monthly: 1–5 — «N-й такой день недели в месяце», -1 — последний (v0.21)
 
 
 class EventIn(BaseModel):

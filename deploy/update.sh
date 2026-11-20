@@ -41,15 +41,17 @@ deploy_tail() {
   # (секреты из копии удаляются) и прогоняются основные запросы. Ошибка — версия не ставится, работает прежняя.
   # Отключить: файл data/.no_canary. Отчёт — только коды и время, без содержимого календаря.
   canary() {
-    [ -e "$APP_DIR/data/.no_canary" ] && { echo "проверка на копии базы выключена (data/.no_canary)"; return 0; }
+    # Итог проверки — в data/.canary_last («ok|skipped|off|failed коммит»): /api/health показывает его без входа (v0.21)
+    last() { echo "$1 ${REMOTE:0:7}" > "$APP_DIR/data/.canary_last"; }
+    [ -e "$APP_DIR/data/.no_canary" ] && { echo "проверка на копии базы выключена (data/.no_canary)"; last off; return 0; }
     local note="$APP_DIR/data/.canary_note"   # пропуск проверки виден в «Состоянии» (deploywatch), снимается после проверки
     if ! docker inspect homehub-calendar >/dev/null 2>&1; then
-      echo "проверка на копии базы: нет работающего сервера — пропуск"; echo "нет работающего сервера, чтобы снять копию базы" > "$note"; return 0
+      echo "проверка на копии базы: нет работающего сервера — пропуск"; echo "нет работающего сервера, чтобы снять копию базы" > "$note"; last skipped; return 0
     fi
     local dir="$APP_DIR/data/.canary"
     rm -rf "$dir" && mkdir -p "$dir" && chmod 700 "$dir"
     if ! docker exec homehub-calendar python -c "import sqlite3; s=sqlite3.connect('/data/homecal.sqlite3'); d=sqlite3.connect('/data/.canary/copy.sqlite3'); s.backup(d); d.close(); s.close()"; then
-      rm -rf "$dir"; echo "проверка на копии базы: копию сделать не вышло — пропуск"; echo "копию базы сделать не вышло" > "$note"; return 0
+      rm -rf "$dir"; echo "проверка на копии базы: копию сделать не вышло — пропуск"; echo "копию базы сделать не вышло" > "$note"; last skipped; return 0
     fi
     local rc=0
     # --init: python в контейнере не процесс 1 и останавливается по сигналу; имя — чтобы добить контейнер после таймаута
@@ -62,7 +64,7 @@ deploy_tail() {
     grep -E "ОШИБКА|упал|ПРОБЛЕМ|Error|не поднялся" "$dir/report.txt" | head -5 | cut -c1-160 > "$APP_DIR/data/.canary_report" || true
     [ "$rc" = 124 ] || [ "$rc" = 137 ] && echo "проверка не уложилась в 10 минут" >> "$APP_DIR/data/.canary_report"
     rm -rf "$dir"
-    [ "$rc" = 0 ] && rm -f "$note"
+    if [ "$rc" = 0 ]; then rm -f "$note"; last ok; else last failed; fi
     return $rc
   }
 

@@ -63,12 +63,14 @@
       Чтобы уведомления приходили на телефон или Mac, в приложении отметьте, чьи напоминания показывать
       (Настройки → Напоминания).
     </p>
+    <BrowserPush />
   </div>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
 import { api } from '../lib/api'
+import BrowserPush from './BrowserPush.vue'
 import { state } from '../lib/store'
 
 const rules = ref({})

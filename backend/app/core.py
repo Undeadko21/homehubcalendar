@@ -169,6 +169,38 @@ def routes_refresh() -> int:
         return 0
 
 
+def trend_day() -> None:
+    """В 23:50: итог дня для трендов дозора (trends.py)."""
+    from . import trends
+    try:
+        trends.record(db, perf.summary()["routes"], CLIENT_LOG, datetime.now(tz).date())
+    except Exception:  # noqa: BLE001
+        log.exception("тренды")
+
+
+def push_tick() -> int:
+    """Раз в минуту: подошедшие напоминания — в браузеры на компьютерах (webpush.py). Нет подписок — снимок не строим."""
+    from . import webpush
+    if not webpush.subs(db):
+        return 0
+    now = datetime.now(tz)
+    try:
+        items = snapshot.build(events, db, tz, now=now, weather_cfg=settings.weather)["reminders"]
+    except Exception:  # noqa: BLE001
+        log.exception("web push: снимок")
+        return 0
+    # Поездки («Отвезти/Забрать», duty) в снимке без времени напоминания — приложения ставят его сами (по умолчанию за 30 мин);
+    # для браузера — так же: за 30 минут до начала.
+    for r in items:
+        if not r.get("at") and r.get("start") and str(r.get("id", "")).startswith("duty:"):
+            try:
+                r["at"] = (datetime.fromisoformat(r["start"]) - timedelta(minutes=30)).isoformat()
+            except ValueError:
+                pass
+    alive = (lambda s: s in sessions._data()) if settings.pin else (lambda s: True)   # без PIN сессий нет — нечего отзывать
+    return webpush.tick(db, items, now, alive)
+
+
 def run_checks() -> list[dict]:
     """Ежедневная проверка данных (checks.py); результат — в kv, видно в «Состоянии»."""
     from . import checks

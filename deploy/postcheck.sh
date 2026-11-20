@@ -17,10 +17,21 @@ while :; do
   prod="${ver##*+}"
   git fetch -q origin main 2>/dev/null || true   # на проде может быть коммит новее нашего (сборки приложений)
   if [ -n "$ver" ] && { [ -z "$WANT" ] || [[ "$ver" == *"+$WANT"* ]] || git merge-base --is-ancestor "$WANT" "$prod" 2>/dev/null; }; then break; fi
-  [ "$(date +%s)" -ge "$deadline" ] && { echo "ПРОВАЛ: за ${WAIT_MIN} мин на проде версия «${ver:-нет ответа}», ждали коммит $WANT"; exit 1; }
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    can=$(get "$BASE/api/health" | python3 -c 'import sys,json; c=json.load(sys.stdin).get("canary") or {}; print(c.get("state",""), c.get("commit",""))' 2>/dev/null || true)
+    [ "${can%% *}" = "failed" ] && [ "${can##* }" = "$WANT" ] && { echo "ПРОВАЛ: $WANT не прошёл проверку на копии базы дома — работает прежняя версия; причина — в «Состоянии»"; exit 1; }
+    echo "ПРОВАЛ: за ${WAIT_MIN} мин на проде версия «${ver:-нет ответа}», ждали коммит $WANT"; exit 1
+  fi
   sleep 30
 done
 echo "версия на проде: $ver"
+can=$(get "$BASE/api/health" | python3 -c 'import sys,json; c=json.load(sys.stdin).get("canary") or {}; print(c.get("state","—"), c.get("commit",""))' 2>/dev/null || true)
+case "${can%% *}" in
+  ok) echo "проверка на копии базы: пройдена (${can##* })" ;;
+  skipped) echo "заметка: выкатка поставлена БЕЗ проверки на копии базы (${can##* }) — причина в «Состоянии»" ;;
+  off) echo "заметка: проверка на копии базы выключена (data/.no_canary)" ;;
+  *) echo "проверка на копии базы: нет данных (${can:-—})" ;;
+esac
 
 bad=0
 for p in /api/app /api/app-ios /api/app-mac; do
@@ -34,18 +45,32 @@ done
 if [ -n "${WATCH_TOKEN:-}" ]; then
   w=$(get -H "X-Watch-Token: $WATCH_TOKEN" "$BASE/api/watch") || { echo "ПРОБЛЕМА: /api/watch не отвечает"; exit 2; }
   python3 - "$w" <<'PY' || bad=1
-import json, sys
+import json, os, sys
 w = json.loads(sys.argv[1]); bad = 0
+# В GitHub Actions (HH_QUIET=1) журнал публичный — только счётчики, без текстов (в них бывают имена и названия событий),
+# и провал — только по выкатке («Обновление …») и скорости; прочие проблемы «Состояния» разберёт дозор.
+quiet = os.environ.get("HH_QUIET") == "1"
+NOTE = ("Шум:", "Тренд:", "Сообщение:")   # зависят от дня семьи, не от выкатки — сообщаем, но не откатываем
+other = 0
 for p in w.get("problems", []):
-    if p.startswith("Шум:"):   # шум уведомлений зависит от дня семьи, не от выкатки — сообщаем, но не откатываем
-        print("заметка:", p)
+    if p.startswith(NOTE):
+        print("заметка:", p.split(":")[0] if quiet else p)
         continue
-    print("ПРОБЛЕМА (Состояние):", p); bad = 1
-for e in w.get("client_errors", [])[-5:]:
-    print("ошибка экрана:", e.get("at"), e.get("where"), (e.get("message") or "")[:120])
+    if quiet and not p.startswith("Обновление"):
+        other += 1
+        continue
+    print("ПРОБЛЕМА (Состояние):", "обновление не встало (подробности — в «Состоянии»)" if quiet else p); bad = 1
+if other:
+    print(f"заметка: в «Состоянии» ещё {other} проблем(ы) не про выкатку — утренний дозор разберёт")
+errs = w.get("client_errors", [])
+if quiet:
+    print("ошибок экранов за сутки:", len(errs))
+else:
+    for e in errs[-5:]:
+        print("ошибка экрана:", e.get("at"), e.get("where"), (e.get("message") or "")[:120])
 slow = [r for r in w.get("perf", {}).get("routes", []) if (r.get("p95") or 0) > 1500 and (r.get("n") or 0) >= 5]
 for r in slow:
-    print("медленно:", r); bad = 1
+    print("медленно:", {k: r.get(k) for k in ("route", "p95", "n")} if quiet else r); bad = 1
 print("watch: проблем %d, медленных маршрутов %d" % (len(w.get("problems", [])), len(slow)))
 sys.exit(bad)
 PY
