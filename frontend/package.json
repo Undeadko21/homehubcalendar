@@ -17,7 +17,7 @@
     "@fullcalendar/timegrid": "^6.1.15",
     "@fullcalendar/vue3": "^6.1.15",
     "qrcode": "^1.5.4",
-    "vue": "^3.5.0"
+    "vue": "^3.5.45"
   },
   "devDependencies": {
     "@vitejs/plugin-legacy": "^6.1.1",
