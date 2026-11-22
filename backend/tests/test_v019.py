@@ -243,3 +243,52 @@ def test_event_write_status_follows_queue_result(api, monkeypatch):
     monkeypatch.setattr(api.fake, "update", update)
     assert api.post("/api/changes/flush").json()["done"] == 1
     assert api.get(url, params={"calendar": calendar}).json() == {"status": "sent"}
+
+
+def test_concurrent_flush_and_edit_keep_queue_consistent(api, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from app import writer
+
+    core = api.core
+    calendar = "ya/home"
+    start = core._today_start() + timedelta(days=1, hours=16)
+    uid, original = writer.build_ics("Первый вариант", start, start + timedelta(hours=1), False, core.tz)
+    assert core.ws.create(calendar, original)
+    _, href, _ = core.db.find_object(uid, calendar)
+    queued = writer.apply_edit(original, {"title": "Из очереди"}, core.tz)
+    latest = writer.apply_edit(queued, {"title": "Последний вариант"}, core.tz)
+    sending = Event()
+    release = Event()
+    sent = []
+    unavailable = True
+    update = api.fake.update
+
+    def slow_update(rid, path, ics):
+        if unavailable:
+            raise TimeoutError("timeout")
+        if ics == queued:
+            sending.set()
+            assert release.wait(5)
+        sent.append(ics)
+        update(rid, path, ics)
+
+    monkeypatch.setattr(api.fake, "update", slow_update)
+    assert not core.ws.update(calendar, href, original, queued)
+    unavailable = False
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        first = pool.submit(core.ws.flush)
+        try:
+            assert sending.wait(5)
+            second = pool.submit(core.ws.flush)
+            edit = pool.submit(core.ws.update, calendar, href, queued, latest)
+        finally:
+            release.set()
+        assert first.result(timeout=5)["done"] == 1
+        assert second.result(timeout=5)["done"] == 0
+        assert edit.result(timeout=5)
+    assert sent == [queued, latest]
+    assert api.fake.store[href] == latest
+    assert core.ws.queue() == []
+    assert core.ws.event_status(calendar, uid) == "sent"

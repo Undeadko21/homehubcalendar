@@ -5,7 +5,7 @@ name: Post-deploy check
 on:
   push:
     branches: [main]
-    paths: ['backend/**', 'frontend/**', 'deploy/**', 'Dockerfile', 'docker-compose.yml']
+    paths: ['backend/**', 'frontend/**', 'deploy/**', 'Dockerfile', 'docker-compose.yml', 'ios/release/**', 'macos/release/**']
   workflow_dispatch:
 permissions:
   contents: read

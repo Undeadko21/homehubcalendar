@@ -69,19 +69,24 @@ deploy_tail() {
   }
 
   OLD_IMG=$(docker image inspect -f '{{.Id}}' homehub-calendar:local 2>/dev/null || true)
-  if docker compose build; then
-    if ! canary; then
-      echo "$(date -Is) ОШИБКА: $REMOTE не прошёл проверку на копии базы — остаётся $LOCAL" >&2
-      echo "не прошло проверку на копии базы" > "$APP_DIR/data/.bad_reason"   # причина — раньше метки: сервер читает их раз в 10 мин
-      mkdir -p "$(dirname "$BAD_FILE")" && echo "$REMOTE" > "$BAD_FILE"
-      git reset -q --hard "$LOCAL"
-      [ -n "$OLD_IMG" ] && docker tag "$OLD_IMG" homehub-calendar:local   # образ — снова прежний; контейнер и не менялся
-      exit 1
-    fi
+  reject() {
+    echo "$1" > "$APP_DIR/data/.bad_reason"
+    echo "$REMOTE" > "$BAD_FILE"
+    git reset -q --hard "$LOCAL"
+    if [ -n "$OLD_IMG" ]; then docker tag "$OLD_IMG" homehub-calendar:local; fi
+    exit 1
+  }
+
+  if ! docker compose build; then
+    rm -f "$APP_DIR/data/.canary_report"
+    reject "не удалось собрать образ"
+  fi
+  if ! canary; then
+    reject "не прошло проверку на копии базы"
   fi
   rm -f "$APP_DIR/data/.bad_reason" "$APP_DIR/data/.canary_report"
 
-  if docker compose up -d --build --remove-orphans && healthy; then
+  if docker compose up -d --no-build --remove-orphans && healthy; then
     rm -f "$BAD_FILE"
     docker image prune -f >/dev/null
     echo "$(date -Is) версия: $(git log -1 --format='%h %s')"
@@ -94,7 +99,12 @@ deploy_tail() {
   mkdir -p "$(dirname "$BAD_FILE")" && echo "$REMOTE" > "$BAD_FILE"
   git reset -q --hard "$LOCAL"
   export GIT_SHA="$(git rev-parse --short HEAD)"
-  docker compose up -d --build --remove-orphans
+  if [ -n "$OLD_IMG" ]; then
+    docker tag "$OLD_IMG" homehub-calendar:local
+    docker compose up -d --no-build --remove-orphans
+  else
+    docker compose up -d --build --remove-orphans
+  fi
   healthy && echo "$(date -Is) откат выполнен, работает $(git log -1 --format='%h %s')" || echo "$(date -Is) откат не помог, нужна ручная проверка" >&2
   exit 1
 }

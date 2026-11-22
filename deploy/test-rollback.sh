@@ -15,6 +15,7 @@ echo "docker \$*" >> "$T/docker.log"
 if [ "\$1" = "compose" ] && [ "\$2" = "up" ]; then
   if [ -e "$T/app/BROKEN" ]; then rm -f "$T/healthy"; else touch "$T/healthy"; fi
 fi
+if [ "\$1" = "compose" ] && [ "\$2" = "build" ] && [ -e "$T/app/BUILD_BAD" ]; then exit 1; fi
 # проверка на копии базы: «docker run» падает, если в новой версии есть файл CANARY_BAD
 if [ "\$1" = "run" ] && [ -e "$T/app/CANARY_BAD" ]; then echo "events неделя  500  ← ОШИБКА"; echo "ПРОБЛЕМ: 1"; exit 1; fi
 if [ "\$1" = "image" ]; then echo "sha256:old"; fi
@@ -86,4 +87,12 @@ cd "$T/seed"; touch CANARY_BAD; echo v6 > VERSION; git add -A; git commit -qm no
 NC=$(git rev-parse HEAD)
 cd "$T/app"; touch data/.no_canary; : > "$T/docker.log"; APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1
 check "с data/.no_canary проверка не запускается" "[ \"\$(git rev-parse HEAD)\" = \"$NC\" ] && ! grep -q ' run ' \"$T/docker.log\""
+check "успешная версия запускается без пересборки" "grep -q 'compose up -d --no-build' \"$T/docker.log\" && [ \"$(grep -c 'compose build' "$T/docker.log")\" -eq 1 ]"
+
+# 7. ошибка сборки не подменяет рабочий контейнер
+cd "$T/seed"; touch BUILD_BAD; git add -A; git commit -qm build-bad; git push -q origin main
+cd "$T/app"; : > "$T/docker.log"
+if APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1; then exit 1; fi
+check "ошибка сборки оставляет прошлый коммит" "[ \"$(git rev-parse HEAD)\" = \"$NC\" ]"
+check "после ошибки сборки контейнер не перезапускается" "! grep -q 'compose up' \"$T/docker.log\""
 echo "Откат деплоя работает."

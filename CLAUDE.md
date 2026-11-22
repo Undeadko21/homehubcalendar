@@ -17,7 +17,7 @@
 3. `deploy/update.sh`: байтовая длина текста ДО строки `git reset` не должна меняться (bash читает скрипт по смещению). Подробно — `docs/dev/changelog.md`, v0.11.2.
 4. `.dockerignore` должен пропускать `android/release` и `android/version.properties` (без них образ не собирается; CI `docker` это ловит).
 5. Android: подписной ключ `android/keystore/homehub-release.jks` не менять; выпуск — `versionCode` в `android/version.properties` + `./android/build-release.sh` + коммит `android/release`.
-6. Swift (iPhone/Mac) здесь не собирается — только GitHub Actions (`ios.yml`, `macos.yml`), они же коммитят сборки с `[skip ci]`.
+6. Swift (iPhone/Mac) здесь не собирается — только GitHub Actions (`ios.yml`, `macos.yml`), они же готовят ветку `release/<платформа>-<run>-<attempt>` со сборкой. Ссылка для открытия PR есть в Summary задачи `publish`; выпускай свежую сборку через PR после зелёного CI.
    Правки `ios/`, `macos/` — только через ветку и pull request: сборки идут в PR; перед `gh pr merge` — `check.sh` в ветке PR
    (слияние = прод без проверки); `check.sh` в main такие правки не пустит. Версии — `ios/version.txt`, `macos/version.txt`. Логи CI: `gh api repos/Undeadko21/homehubcalendar/actions/jobs/<id>/logs`.
 7. Секреты (код подключения `hhc1.` с полем `t` — токен записи Диска, токены VPS/виджетов/дозора, пароль) не печатать в ответах, коммитах и логах. Пароли пользователя не вводить.

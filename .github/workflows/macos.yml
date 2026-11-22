@@ -3,12 +3,12 @@ on:
   push:
     branches: [main]
     paths: ['macos/**', '!macos/release/**', '.github/workflows/macos.yml']
-  # Pull request: собрать до слияния (правки Swift идут в main только через PR — deploy/check.sh); в репозиторий кладёт только main.
+  # Pull request: собрать до слияния (правки Swift идут в main только через PR — deploy/check.sh); публикация из main готовит отдельную ветку сборки.
   pull_request:
     paths: ['macos/**', '!macos/release/**', '.github/workflows/macos.yml']
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 jobs:
   build:
     runs-on: macos-15
@@ -24,18 +24,29 @@ jobs:
         with:
           name: HomeHub-Calendar-mac
           path: macos/build/HomeHub-Calendar.zip
-      - name: Положить сборку в репозиторий (её раздаёт сервер)
-        if: github.ref == 'refs/heads/main'
+
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: HomeHub-Calendar-mac
+          path: macos/release
+      - name: Подготовить ветку сборки для pull request
         run: |
-          mkdir -p macos/release
-          cp macos/build/HomeHub-Calendar.zip macos/release/HomeHub-Calendar.zip
-          echo "{\"version\": \"$(cat macos/version.txt)\", \"build\": ${GITHUB_RUN_NUMBER}}" > macos/release/version.json
+          branch="release/macos-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          printf '{"version": "%s", "build": %s}\n' "$(cat macos/version.txt)" "$GITHUB_RUN_NUMBER" > macos/release/version.json
           git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"
-          git add macos/release
-          git commit -m "macOS: сборка ${GITHUB_RUN_NUMBER} [skip ci]" || exit 0
-          git pull --rebase origin main
-          git push origin HEAD:main
+          git add macos/release/HomeHub-Calendar.zip macos/release/version.json
+          git commit -m "macos: сборка ${GITHUB_RUN_NUMBER}"
+          git push origin "HEAD:refs/heads/$branch"
+          printf '[Открыть pull request со сборкой](%s/%s/compare/main...%s?expand=1)\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$branch" >> "$GITHUB_STEP_SUMMARY"
 
   # Снимки экрана виджета (светлая/тёмная тема, все размеры) — смотреть в артефакте «widget-snapshots».
   # Отдельная задача: сбой здесь не мешает выпуску приложения.
