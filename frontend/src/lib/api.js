@@ -17,7 +17,7 @@ function markDown(server) {
   net.server = !!server
 }
 
-async function request(method, url, body) {
+async function request(method, url, body, signal) {
   const headers = {}
   if (body) headers['Content-Type'] = 'application/json'
   if (method !== 'GET') headers['X-Client-Id'] = CLIENT_ID
@@ -27,9 +27,11 @@ async function request(method, url, body) {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
+      signal,
       credentials: 'same-origin',
     })
   } catch (e) {
+    if (signal?.aborted) throw e
     markDown(false)
     const err = new Error('Нет связи с сервером')
     err.offline = true
@@ -75,6 +77,7 @@ export const api = {
   saveFeed: (b) => request('PUT', '/api/feeds', b),
   deleteFeed: (id) => request('DELETE', `/api/feeds/${encodeURIComponent(id)}`),
   createEvent: (b) => request('POST', '/api/event', b),
+  eventWriteStatus: (uid, calendar, signal) => request('GET', `/api/event/${encodeURIComponent(uid)}/write-status?${q({ calendar })}`, undefined, signal),
   updateEvent: (uid, b) => request('PUT', `/api/event/${encodeURIComponent(uid)}`, b),
   deleteEvent: (uid, calendar, occurrence) =>
     request('DELETE', `/api/event/${encodeURIComponent(uid)}?${q(occurrence ? { calendar, occurrence } : { calendar })}`),

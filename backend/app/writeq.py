@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime
+from functools import wraps
+from threading import RLock
 from typing import Callable
 
 from . import writer
@@ -32,8 +34,17 @@ def is_transient(e: Exception) -> bool:
     return not any(p in s for p in PERMANENT)
 
 
+def _serialized(method):
+    @wraps(method)
+    def run(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return run
+
+
 class WriteService:
     def __init__(self, db: Database, get_target: Callable[[str], object], on_change: Callable[[], None]):
+        self._lock = RLock()
         self.db = db
         self.get_target = get_target   # key календаря -> цель записи (можно подменять в тестах)
         self.on_change = on_change
@@ -51,6 +62,7 @@ class WriteService:
     def last_error(self) -> str | None:
         return self.db.kv_get(ERR_KEY)[0] or None
 
+    @_serialized
     def reapply(self) -> None:
         """После синхронизации возвращаем локально то, что ещё не дошло до Яндекса."""
         for op in self.queue():
@@ -87,8 +99,16 @@ class WriteService:
 
     def flush(self) -> dict:
         """Повторяет очередь по порядку; на первой временной ошибке останавливается."""
+        result = self._flush()
+        if result["done"] or result["failed"]:
+            self.on_change()
+        return result
+
+    @_serialized
+    def _flush(self) -> dict:
         done = failed = 0
         q = self.queue()
+        settled = {}
         for op in list(q):
             try:
                 real = self._run(op)
@@ -99,10 +119,12 @@ class WriteService:
                 log.warning("Очередь записи: операция отклонена: %s", e)
                 q.remove(op)
                 failed += 1
+                settled[op["id"]] = "failed"
                 self.db.kv_set(ERR_KEY, f"{op['kind']}: {writer.friendly(e)}")
                 continue
             q.remove(op)
             done += 1
+            settled[op["id"]] = "sent"
             if real and op["kind"] == "create":
                 self.db.delete_object(op["cal"], op["href"])
                 self.db.put_object(op["cal"], real, op["ics"])
@@ -110,19 +132,37 @@ class WriteService:
                     if o["href"] == op["href"]:
                         o["href"] = real
         self._save_queue(q)
-        if done or failed:
-            self.on_change()
+        if settled:
+            items = self.journal()
+            for item in items:
+                if item.get("queue_id") in settled:
+                    item["status"] = settled[item.pop("queue_id")]
+            self.db.kv_set(LOG_KEY, items)
         return {"done": done, "failed": failed, "left": len(q)}
 
     # ---------- журнал ----------
     def journal(self) -> list[dict]:
         return self.db.kv_get(LOG_KEY)[0] or []
 
-    def _log(self, action: str, cal: str, uid: str, title: str, before: str | None, after: str | None) -> None:
+    @_serialized
+    def event_status(self, cal: str, uid: str) -> str | None:
+        # Старые записи журнала не содержат результата отправки. Уже ожидающую
+        # операцию определяем по локальному объекту даже для старых данных.
+        found = self.db.find_object(uid, cal)
+        if found and any(op["cal"] == cal and op["href"] == found[1] for op in self.queue()):
+            return "pending"
+        latest = next((item for item in reversed(self.journal())
+                       if item["calendar"] == cal and item["uid"] == uid), None)
+        return latest.get("status") if latest and latest.get("status") != "pending" else None
+
+    def _log(self, action: str, cal: str, uid: str, title: str, before: str | None,
+             after: str | None, href: str, sent: bool) -> None:
         items = self.journal()
+        op = next((op for op in self.queue() if op["cal"] == cal and op["href"] == href), None) if not sent else None
         items.append({"id": uuid.uuid4().hex[:10], "t": datetime.now().astimezone().isoformat(timespec="seconds"),
                       "action": action, "calendar": cal, "uid": uid, "title": title,
-                      "before": before, "after": after})
+                      "before": before, "after": after,
+                      "status": "sent" if sent else "pending", "queue_id": op["id"] if op else None})
         self.db.kv_set(LOG_KEY, items[-LOG_LIMIT:])
 
     # ---------- операции (локально сразу, на сервер сразу или через очередь) ----------
@@ -143,12 +183,13 @@ class WriteService:
             self._enqueue(kind, cal, href, ics)
             return href, False
 
+    @_serialized
     def create(self, cal: str, ics: str, action: str = "create", log_it: bool = True) -> bool:
         uid, title = writer.uid_of(ics), writer.title_of(ics)
         href, sent = self._create(cal, ics)
         self.db.put_object(cal, href, ics)
         if log_it:
-            self._log(action, cal, uid, title, None, ics)
+            self._log(action, cal, uid, title, None, ics, href, sent)
         return sent
 
     def _create(self, cal: str, ics: str) -> tuple[str, bool]:
@@ -162,19 +203,22 @@ class WriteService:
             self._enqueue("create", cal, href, ics)
             return href, False
 
+    @_serialized
     def update(self, cal: str, href: str, old_ics: str, new_ics: str, action: str = "update") -> bool:
         _, sent = self._send("update", cal, href, new_ics)
         self.db.put_object(cal, href, new_ics)
-        self._log(action, cal, writer.uid_of(new_ics), writer.title_of(new_ics), old_ics, new_ics)
+        self._log(action, cal, writer.uid_of(new_ics), writer.title_of(new_ics), old_ics, new_ics, href, sent)
         return sent
 
+    @_serialized
     def delete(self, cal: str, href: str, old_ics: str, action: str = "delete") -> bool:
         _, sent = self._send("delete", cal, href, "")
         self.db.delete_object(cal, href)
-        self._log(action, cal, writer.uid_of(old_ics), writer.title_of(old_ics), old_ics, None)
+        self._log(action, cal, writer.uid_of(old_ics), writer.title_of(old_ics), old_ics, None, href, sent)
         return sent
 
     # ---------- отмена ----------
+    @_serialized
     def undo(self, entry_id: str) -> str:
         entry = next((e for e in self.journal() if e["id"] == entry_id), None)
         if not entry:

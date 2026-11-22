@@ -113,6 +113,9 @@ def test_create_event_warns_about_conflict_and_writes_to_caldav(page, stack):
     page.click("button:has-text('Сохранить')")
     page.wait_for_selector("input[placeholder='Название']", state="detached", timeout=10000)
     assert "Врач" in _titles(stack["cal"])
+    page.click("text=Список")
+    page.get_by_text("Врач", exact=True).first.click()
+    page.get_by_text("Последняя правка отправлена в Яндекс.", exact=True).wait_for()
 
 
 def test_section_wizard_creates_series(page, stack):

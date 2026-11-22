@@ -308,6 +308,11 @@ def create_section(body: SectionIn):
     return {"ok": True, "created": created, "pending": pending}
 
 
+@router.get("/api/event/{uid}/write-status")
+def event_write_status(uid: str, calendar: str):
+    return {"status": core.ws.event_status(calendar, uid)}
+
+
 @router.put("/api/event/{uid}")
 def update_event(uid: str, body: EventEdit):
     found = core.db.find_object(uid, body.calendar)
@@ -430,7 +435,7 @@ def quick_parse(body: QuickIn):
 @router.get("/api/changes")
 def get_changes():
     """Журнал правок (последние первыми) и число ещё не отправленных в Яндекс."""
-    items = [{k: v for k, v in e.items() if k not in ("before", "after")} for e in reversed(core.ws.journal())]
+    items = [{k: v for k, v in e.items() if k not in ("before", "after", "queue_id", "status")} for e in reversed(core.ws.journal())]
     return {"items": items, "pending": core.ws.pending_count(), "error": core.ws.last_error()}
 
 

@@ -186,3 +186,60 @@ def test_uid_flip_is_not_a_change_and_mass_collapses(api):
     log = db.kv_get(changes.KEY)[0]
     assert len([c for c in log if c.get("mass")]) == 1 and log[0]["times"] == 3
     assert log[0]["stats"]["deleted"] == 13 and log[0]["stats"]["calendars"] == {"ya/home": 13}
+
+
+def test_sync_uid_flip_is_silent_but_next_move_is_recorded(api):
+    from app import writer
+
+    core = api.core
+    start = core._today_start() + timedelta(days=2, hours=16)
+    uid, ics = writer.build_ics("Английский", start, start + timedelta(hours=1), False, core.tz)
+    core.db.replace_objects("ya/home", {"/old.ics": ics})
+    core.events.warm()
+
+    replacement = ics.replace(uid, "replacement-uid")
+    core.db.replace_objects("ya/home", {"/new.ics": replacement})
+    core.events.invalidate()
+    core.events.warm()
+    assert changes.recent(core.db) == []
+
+    moved = writer.apply_edit(replacement, {"start": start + timedelta(hours=1),
+                                           "end": start + timedelta(hours=2)}, core.tz)
+    core.db.replace_objects("ya/home", {"/new.ics": moved})
+    core.events.invalidate()
+    core.events.warm()
+    entries = changes.recent(core.db)
+    assert len(entries) == 1
+    assert entries[0]["text"].startswith("Изменено: Английский")
+
+
+def test_event_write_status_follows_queue_result(api, monkeypatch):
+    calendar = "ya/home"
+    start = _iso(api.core._today_start(), 1, 16)
+    created = api.post("/api/event", json={"calendar": calendar, "start": start, "title": "Английский"}).json()
+    uid = created["uid"]
+    url = f"/api/event/{uid}/write-status"
+    assert api.get(url, params={"calendar": calendar}).json() == {"status": "sent"}
+    assert api.get(url, params={"calendar": "ya/other"}).json() == {"status": None}
+
+    update = api.fake.update
+    error = TimeoutError("timeout")
+
+    def unavailable(*args):
+        raise error
+
+    monkeypatch.setattr(api.fake, "update", unavailable)
+    edit = {"calendar": calendar, "title": "Новое название"}
+    assert api.put(f"/api/event/{uid}", json=edit).json()["pending"]
+    assert api.get(url, params={"calendar": calendar}).json() == {"status": "pending"}
+    assert api.post("/api/changes/flush").json()["left"] == 1
+
+    error = RuntimeError("403 Forbidden")
+    assert api.post("/api/changes/flush").json()["failed"] == 1
+    assert api.get(url, params={"calendar": calendar}).json() == {"status": "failed"}
+
+    error = TimeoutError("timeout")
+    assert api.put(f"/api/event/{uid}", json=edit).json()["pending"]
+    monkeypatch.setattr(api.fake, "update", update)
+    assert api.post("/api/changes/flush").json()["done"] == 1
+    assert api.get(url, params={"calendar": calendar}).json() == {"status": "sent"}
