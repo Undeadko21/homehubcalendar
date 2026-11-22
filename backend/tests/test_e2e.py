@@ -10,8 +10,9 @@ import subprocess
 import sys
 import time
 import urllib.request
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -49,8 +50,9 @@ def stack(tmp_path_factory):
     _wait(rp)
     client = caldav.DAVClient(url=f"http://127.0.0.1:{rp}", username="u", password="p")
     cal = client.principal().make_calendar(name="Дом", supported_calendar_component_set=["VEVENT"])
-    tomorrow = date.today() + timedelta(days=1)
-    t = tomorrow.strftime("%Y%m%d")
+    today = datetime.now(ZoneInfo("Asia/Yekaterinburg")).date()
+    monday = today + timedelta(days=7 - today.weekday())
+    t = monday.strftime("%Y%m%d")
     cal.save_event(f"BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:x\nBEGIN:VEVENT\nUID:yoga@e2e\nDTSTAMP:20261029T000000Z\n"
                    f"DTSTART;TZID=Asia/Yekaterinburg:{t}T100000\nDTEND;TZID=Asia/Yekaterinburg:{t}T110000\nSUMMARY:Йога\nEND:VEVENT\nEND:VCALENDAR\n")
     (tmp / "c.yaml").write_text(
@@ -68,7 +70,7 @@ def stack(tmp_path_factory):
         if any(c.get("writable") for c in cfg.get("calendars", [])):
             break
         time.sleep(0.2)
-    yield {"url": f"http://127.0.0.1:{ap}", "cal": cal, "tomorrow": tomorrow.isoformat()}
+    yield {"url": f"http://127.0.0.1:{ap}", "cal": cal, "event_day": monday.isoformat()}
     app.terminate(); rad.terminate()
     app.wait(10); rad.wait(10)
 
@@ -85,6 +87,7 @@ def page(stack):
         # знакомство для нового устройства в тестах не нужно
         ctx.add_init_script("try { localStorage.setItem('homecal.prefs', JSON.stringify({ onboarded: true })) } catch (e) {}")
         pg = ctx.new_page()
+        pg.clock.set_fixed_time(datetime.fromisoformat(stack["event_day"] + "T08:00:00+05:00"))
         pg.goto(stack["url"])
         pg.wait_for_selector("text=Сегодня")
         # «+» рисуется только после загрузки настроек (есть пишущий календарь) — ждём именно его, а не первую надпись
@@ -105,7 +108,7 @@ def _titles(cal):
 
 def test_create_event_warns_about_conflict_and_writes_to_caldav(page, stack):
     _open_new(page)
-    page.fill("#ee-sd", stack["tomorrow"]); page.fill("#ee-ed", stack["tomorrow"])
+    page.fill("#ee-sd", stack["event_day"]); page.fill("#ee-ed", stack["event_day"])
     page.locator("input[type=time]").nth(0).fill("10:30"); page.locator("input[type=time]").nth(1).fill("11:30")
     page.fill("input[placeholder='Название']", "Врач")
     page.wait_for_selector(".warns", timeout=5000)
@@ -113,6 +116,9 @@ def test_create_event_warns_about_conflict_and_writes_to_caldav(page, stack):
     page.click("button:has-text('Сохранить')")
     page.wait_for_selector("input[placeholder='Название']", state="detached", timeout=10000)
     assert "Врач" in _titles(stack["cal"])
+    page.click("text=Список")
+    page.locator("button.item").filter(has_text="Врач").click()
+    page.get_by_text("Последняя правка отправлена в Яндекс.", exact=True).wait_for()
 
 
 def test_section_wizard_creates_series(page, stack):
@@ -129,7 +135,7 @@ def test_section_wizard_creates_series(page, stack):
 def test_live_update_between_two_pages(page, stack):
     """Событие, созданное через API, появляется на открытой странице без перезагрузки."""
     page.click("text=Список")
-    t = stack["tomorrow"]
+    t = stack["event_day"]
     body = json.dumps({"calendar": next(c["key"] for c in json.load(urllib.request.urlopen(stack["url"] + "/api/config"))["calendars"]),
                        "title": "Живое событие", "start": f"{t}T15:00:00", "end": f"{t}T16:00:00"}).encode()
     time.sleep(1.5)

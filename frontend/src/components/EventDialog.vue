@@ -13,6 +13,16 @@
         <template v-if="e.location"><br /><a :href="mapUrl" target="_blank" rel="noopener" class="where-top"><Ico name="pin" /> {{ e.location }}</a></template>
       </p>
 
+      <p v-if="writeStatus" class="hint" :class="{ warn: writeStatus !== 'sent' }" role="status">
+        <template v-if="writeStatus === 'sent'">Последняя правка отправлена в Яндекс.</template>
+        <template v-else-if="writeStatus === 'pending'">
+          Правка сохранена дома и ждёт отправки в Яндекс.
+          <button class="btn link inline" :disabled="retryingWrite" @click="retryWrite">Повторить отправку</button>
+        </template>
+        <template v-else>Яндекс отклонил правку. Откройте «Изменить» и попробуйте сохранить снова.</template>
+      </p>
+      <p v-if="writeRetryError" class="hint warn" role="alert">{{ writeRetryError }}</p>
+
       <!-- Главные действия — сразу под названием -->
       <div v-if="!e.private" class="acts" role="toolbar" aria-label="Действия с событием">
         <button v-if="canEdit" class="act" @click="edit"><span class="ai"><Ico name="edit" /></span>Изменить</button>
@@ -218,7 +228,7 @@
 <script setup>
 import Ico from './Ico.vue'
 import { computed, ref, watch } from 'vue'
-import { state, personById, eventColor, reload, refreshSelected, editEvent, writableCalendars, toast, undoOf, driverFixes } from '../lib/store'
+import { state, personById, eventColor, reload, refreshSelected, editEvent, toast, undoOf, driverFixes } from '../lib/store'
 import { canMove, moveEvent, writableCal } from '../lib/moveEvent'
 import { haptic } from '../lib/haptic'
 import { eventRange, formatEventTime, formatTime, relativeDayName } from '../lib/dates'
@@ -419,8 +429,39 @@ function resetMode() {
   return run(() => api.setEscort(e.value.uid, sc === 'once' ? e.value.start : null, 'mode', null))
 }
 
-const canEdit = computed(() => !!e.value && !e.value.private && !e.value.duty && !e.value.birthday &&
-  (e.value.calendars || []).some((k) => writableCalendars().some((c) => c.key === k)))
+const canEdit = computed(() => !!e.value && !e.value.private && !e.value.duty && !e.value.birthday && !!writableCal(e.value))
+const writeStatus = ref(null)
+const retryingWrite = ref(false)
+const writeRetryError = ref('')
+const writeUid = computed(() => canEdit.value ? e.value.uid : null)
+const writeCalendar = computed(() => canEdit.value ? writableCal(e.value) : null)
+
+watch([writeUid, writeCalendar], () => { writeRetryError.value = '' })
+watch([writeUid, writeCalendar, () => state.revision], async ([uid, calendar], _, onCleanup) => {
+  writeStatus.value = null
+  if (!uid || !calendar) return
+  const controller = new AbortController()
+  onCleanup(() => controller.abort())
+  try {
+    const { status } = await api.eventWriteStatus(uid, calendar, controller.signal)
+    if (!controller.signal.aborted) writeStatus.value = status
+  } catch { /* Статус отправки неизвестен. */ }
+}, { immediate: true })
+
+async function retryWrite() {
+  const uid = writeUid.value
+  const calendar = writeCalendar.value
+  retryingWrite.value = true
+  writeRetryError.value = ''
+  try {
+    await api.flushChanges()
+    await reload()
+  } catch (err) {
+    if (uid === writeUid.value && calendar === writeCalendar.value) writeRetryError.value = err.message
+  } finally {
+    retryingWrite.value = false
+  }
+}
 function edit() { const ev = e.value; state.selected = null; editEvent(ev) }
 
 function close() { state.selected = null }
