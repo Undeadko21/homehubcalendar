@@ -158,26 +158,41 @@ class Database:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._migrate()
-        self.encrypt_secrets()
+        try:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._migrate()
+            self.encrypt_secrets()
+        except BaseException:
+            self._conn.close()
+            raise
 
     def _migrate(self) -> None:
         with self._lock:
             version = self._conn.execute("PRAGMA user_version").fetchone()[0]
             for i, script in enumerate(MIGRATIONS[version:], start=version + 1):
-                self._conn.executescript(script)
-                self._conn.execute(f"PRAGMA user_version = {i}")
-            self._conn.commit()
+                try:
+                    self._conn.executescript(f"BEGIN IMMEDIATE;\n{script}\nPRAGMA user_version = {i};\nCOMMIT;")
+                except BaseException:
+                    self._conn.rollback()
+                    raise
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
         with self._lock:
+            nested = self._conn.in_transaction
+            self._conn.execute("SAVEPOINT homehub_tx" if nested else "BEGIN IMMEDIATE")
             try:
                 yield self._conn
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
+                if nested:
+                    self._conn.execute("RELEASE homehub_tx")
+                else:
+                    self._conn.commit()
+            except BaseException:
+                if nested:
+                    self._conn.execute("ROLLBACK TO homehub_tx")
+                    self._conn.execute("RELEASE homehub_tx")
+                else:
+                    self._conn.rollback()
                 raise
 
     def query(self, sql: str, params: tuple | dict = ()) -> list[dict]:

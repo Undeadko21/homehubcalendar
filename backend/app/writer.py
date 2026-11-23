@@ -22,6 +22,22 @@ class WriteError(Exception):
     """Понятная пользователю ошибка записи."""
 
 
+class WriteConflict(WriteError):
+    def __init__(self, message: str, remote: str | None, href: str | None = None):
+        super().__init__(message)
+        self.remote = remote
+        self.href = href
+
+
+def _comparable(ics: str) -> bytes:
+    """Сравнение содержимого без служебных меток, которые меняет сервер."""
+    cal = Calendar.from_ical(ics)
+    for event in cal.walk("VEVENT"):
+        for key in ("DTSTAMP", "LAST-MODIFIED", "SEQUENCE"):
+            event.pop(key, None)
+    return cal.to_ical()
+
+
 def _rrule(repeat: dict | None) -> dict | None:
     if not repeat or not repeat.get("freq"):
         return None
@@ -367,6 +383,81 @@ class CalDavTarget:
         with self._client() as client:
             ev = self._calendar(client, remote_id).save_event(ics)
             return str(ev.url)
+
+    def create_queued(self, remote_id: str, ics: str, *, after: str | None = None) -> str:
+        """Повтор после потери ответа использует UID, записанный в очередь."""
+        from caldav.lib.error import ConsistencyError, NotFoundError
+
+        with self._client() as client:
+            cal = self._calendar(client, remote_id)
+            uid = uid_of(ics)
+            try:
+                event = cal.event_by_uid(uid)
+            except NotFoundError:
+                try:
+                    event = cal.save_event(ics, no_overwrite=True)
+                except ConsistencyError:
+                    event = cal.event_by_uid(uid)
+            if event.data:
+                actual = _comparable(event.data)
+                if actual != _comparable(ics) and (not after or actual != _comparable(after)):
+                    raise WriteConflict("Конфликт: событие с таким ID уже есть в Яндексе и отличается.", event.data, str(event.url))
+            return str(event.url)
+
+    def change_queued(self, remote_id: str, href: str, before: str | None, after: str | None) -> None:
+        """Запись или удаление только той версии, которая была при локальной правке."""
+        with self._client() as client:
+            cal = self._calendar(client, remote_id)
+            url = str(caldav.Event(url=href, parent=cal).url)
+            current, etag = self._read_version(client, url)
+            if current is None and after is None:
+                return   # Удаление уже произошло, но ответ мог потеряться.
+            if current and after and _comparable(current) == _comparable(after):
+                return
+            message = "Конфликт: событие в Яндексе изменилось. Локальная правка сохранена в журнале."
+            if not current or not before or _comparable(current) != _comparable(before):
+                raise WriteConflict(message, current, url)
+            if not etag or etag.startswith("W/"):
+                raise WriteConflict("Не удалось проверить версию события в Яндексе. Правка сохранена в журнале.", current, url)
+            headers = {"If-Match": etag}
+            if after is None:
+                response = client.delete(url, headers=headers)
+            else:
+                response = client.put(url, after, headers={**headers, "Content-Type": "text/calendar; charset=utf-8"})
+            if response.status in (404, 409, 412):
+                latest, _ = self._read_version(client, url)
+                if after is None and latest is None:
+                    return
+                raise WriteConflict(message, latest, url)
+            if not 200 <= response.status < 300:
+                raise self._write_response_error(response.status)
+
+    def cancel_queued_create(self, remote_id: str, ics: str) -> None:
+        """Отменить создание после неопределённого ответа, сохранив чужие изменения."""
+        from caldav.lib.error import NotFoundError
+
+        with self._client() as client:
+            try:
+                event = self._calendar(client, remote_id).event_by_uid(uid_of(ics))
+            except NotFoundError:
+                return
+            href = str(event.url)
+        self.change_queued(remote_id, href, ics, None)
+
+    @staticmethod
+    def _write_response_error(status: int) -> RuntimeError:
+        return RuntimeError(f"CalDAV HTTP {status}")
+
+    @staticmethod
+    def _read_version(client, url: str) -> tuple[str | None, str | None]:
+        response = client.request(url)
+        if response.status == 404:
+            return None, None
+        if not 200 <= response.status < 300:
+            raise CalDavTarget._write_response_error(response.status)
+        raw = response.raw
+        etag = next((v for k, v in response.headers.items() if k.lower() == "etag"), None)
+        return (raw.decode("utf-8") if isinstance(raw, bytes) else raw), etag
 
     def read(self, remote_id: str, href: str) -> str | None:
         """Текст объекта на сервере (None — объекта нет)."""

@@ -92,6 +92,47 @@ def test_write_roundtrip_against_radicale(server):
     assert list(cal.events()) == []
 
 
+def test_queued_caldav_writes_are_conditional_and_retryable(server, monkeypatch):
+    from app.writer import CalDavTarget, WriteConflict
+
+    client = caldav.DAVClient(url=server, username="u", password="p")
+    cal = client.principal().make_calendar(name="Очередь", supported_calendar_component_set=["VEVENT"])
+    rid = str(cal.url).rstrip("/").rsplit("/", 1)[-1]
+    target = CalDavTarget(server, "u", "p")
+    original = _ics("queued", "Исходное")
+    wanted = _ics("queued", "Правка в приложении")
+    external = _ics("queued", "Правка в Яндексе")
+    href = target.create_queued(rid, original)
+    assert target.create_queued(rid, original) == href
+    assert len(list(cal.events())) == 1
+
+    target.change_queued(rid, href, original, wanted)
+    target.change_queued(rid, href, original, wanted)
+    read_version = target._read_version
+
+    def change_before_put(client, url):
+        value = read_version(client, url)
+        monkeypatch.setattr(target, "_read_version", read_version)
+        target.update(rid, href, external)
+        return value
+
+    monkeypatch.setattr(target, "_read_version", change_before_put)
+    with pytest.raises(WriteConflict) as raced:
+        target.change_queued(rid, href, wanted, original)
+    assert "Правка в Яндексе" in raced.value.remote
+    for proposed in (wanted, None):
+        with pytest.raises(WriteConflict) as conflict:
+            target.change_queued(rid, href, original, proposed)
+        assert "Правка в Яндексе" in conflict.value.remote
+    assert "Правка в Яндексе" in target.read(rid, href)
+    target.change_queued(rid, href, external, None)
+    target.change_queued(rid, href, external, None)
+    target.create_queued(rid, original)
+    target.cancel_queued_create(rid, original)
+    target.cancel_queued_create(rid, original)
+    assert list(cal.events()) == []
+
+
 def test_selftest_endpoint_on_real_caldav(server, api, monkeypatch):
     from app import writer
     client = caldav.DAVClient(url=server, username="u", password="p")

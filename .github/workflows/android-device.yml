@@ -35,9 +35,14 @@ jobs:
           disable-animations: true
           working-directory: android
           script: |
+            set -e
             echo "sdk.dir=$ANDROID_HOME" > local.properties
             ./gradlew --no-daemon connectedDebugAndroidTest
-            ./gradlew --no-daemon -q installDebug && adb shell monkey -p ru.homehub.calendar -c android.intent.category.LAUNCHER 1 && sleep 8 && adb exec-out screencap -p > launch.png || echo "снимок запуска не получился"
+            ./gradlew --no-daemon -q installDebug
+            adb shell monkey -p ru.homehub.calendar -c android.intent.category.LAUNCHER 1
+            sleep 8
+            adb exec-out screencap -p > launch.png
+            test -s launch.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:

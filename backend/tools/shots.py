@@ -2,7 +2,7 @@
 
     python backend/tools/shots.py                       # все виды: телефон и компьютер, светлая и тёмная тема
     python backend/tools/shots.py --views today,week    # только эти виды
-    python backend/tools/shots.py --out /tmp/shots --ask   # + открыть «+» и карточку события
+    python backend/tools/shots.py --ask   # + открыть «+» и карточку события
     python backend/tools/shots.py --views none --scenes card-open,keys,settings:reminders,offline --devices phone,narrow,desktop
 
 Сцены (--scenes, через запятую) — готовые состояния, чтобы не писать одноразовые скрипты:
@@ -186,8 +186,24 @@ def _wait(url: str, sec: float = 40) -> None:
 def start_demo(tmp: Path) -> tuple[subprocess.Popen, str]:
     demo = tmp / "demo"
     subprocess.run([sys.executable, str(ROOT / "backend/tools/make_demo.py"), str(demo)], check=True, capture_output=True)
-    conf = next((p for p in (ROOT / "demo/config.yaml", TOOL_ROOT / "demo/config.yaml") if p.exists()), ROOT / "demo/config.yaml")
-    cfg = conf.read_text(encoding="utf-8").replace("url: demo/", f"url: {demo}/")   # demo/ не в git — берём, где есть
+    conf = next((p for p in (ROOT / "demo/config.yaml", TOOL_ROOT / "demo/config.yaml") if p.exists()), None)
+    if conf:
+        cfg = conf.read_text(encoding="utf-8").replace("url: demo/", f"url: {demo}/")
+    else:
+        import yaml
+
+        people = [
+            {"id": "papa", "name": "Папа", "color": "#4f7cff"},
+            {"id": "mama", "name": "Мама", "color": "#ad438c"},
+            {"id": "masha", "name": "Маша", "color": "#248355", "needs_escort": True},
+        ]
+        owners = {person["id"]: [person["id"]] for person in people}
+        owners["family"] = ["papa", "mama", "masha"]
+        sources = [
+            {"id": path.stem, "type": "ics", "url": str(path), "people": owners.get(path.stem, [])}
+            for path in sorted(demo.glob("*.ics"))
+        ]
+        cfg = yaml.safe_dump({"timezone": "Asia/Yekaterinburg", "people": people, "sources": sources}, allow_unicode=True)
     (tmp / "config.yaml").write_text(cfg, encoding="utf-8")
     port = _port()
     env = {**os.environ, "HOMECAL_CONFIG": str(tmp / "config.yaml"), "HOMECAL_DATA_DIR": str(tmp / "data"), "HOMECAL_STATIC": str(DIST)}
@@ -206,7 +222,7 @@ def start_demo(tmp: Path) -> tuple[subprocess.Popen, str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default="/tmp/shots")
+    ap.add_argument("--out", type=Path, help="каталог снимков (по умолчанию новый временный каталог)")
     ap.add_argument("--views", default=",".join(VIEWS))
     ap.add_argument("--devices", default="phone,desktop")
     ap.add_argument("--themes", default="light,dark")
@@ -229,7 +245,7 @@ def main() -> None:
     q = f"&size={a.size}" if a.size else ""
     scenes = [s for s in a.scenes.split(",") if s] + (["plus", "card"] if a.ask else [])
     views = [] if a.views in ("", "none") else a.views.split(",")
-    out = Path(a.out)
+    out = a.out if a.out is not None else Path(tempfile.mkdtemp(prefix="hh-shots-"))
     out.mkdir(parents=True, exist_ok=True)
     index: list[str] = []
     with tempfile.TemporaryDirectory() as t:

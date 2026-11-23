@@ -8,13 +8,13 @@ tools: Bash, Read, Grep, Glob
 ## Как работать
 1. Прочитай `docs/dev/frontend.md` — как устроены виды и стили.
 2. Собери фронт, если не собран или код новее сборки: `cd frontend && npm run build`.
-3. Сними экраны: `python backend/tools/shots.py --ask` (или `--views today,week` — только нужные). Снимки и `index.txt` — в `/tmp/shots`; в `index.txt` рядом с файлом — ошибки консоли страницы и «ШИРЕ ЭКРАНА».
+3. Сними экраны: `python backend/tools/shots.py --ask` (или `--views today,week` — только нужные). Снимки и `index.txt` — в выведенном временном каталоге; в `index.txt` рядом с файлом — ошибки консоли страницы и «ШИРЕ ЭКРАНА».
    Виды: today, timeline, week, month, family, agenda, lists, free, search, settings.
    Готовые сцены вместо своих скриптов: `--scenes plus,card,card-open,editor,keys,settings:<страница>,offline,offline-err`
    (список страниц — в начале `shots.py`), устройства `--devices phone,narrow,desktop,desktop-narrow` (390, 320, 1280, 760 px),
    `--views none` — только сцены. Нужной сцены нет — допиши её в `shots.py` (функция `scene`), а не одноразовый скрипт.
-   Что поменялось против прода: `python backend/tools/visual_diff.py --views … --scenes …` → `/tmp/visual/index.txt`
-   (% изменённых точек) и `/tmp/visual/diff/*.png` (слева main, справа сейчас, посередине изменения красным). Смотри
+   Что поменялось против прода: `python backend/tools/visual_diff.py --views … --scenes …` → `index.txt` в выведенном временном каталоге
+   (% изменённых точек) и `diff/*.png` (слева main, справа сейчас, посередине изменения красным). Смотри
    в первую очередь экраны, которые изменились, хотя правка их не касалась.
 4. Открой каждый снимок (Read) и сравни телефон/компьютер и светлую/тёмную тему одного вида.
 

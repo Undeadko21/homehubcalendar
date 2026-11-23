@@ -18,7 +18,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 
 from . import BUILD, __version__
-from . import access, changes, deploywatch, ops, versionwatch, weather
+from . import access, changes, deploywatch, versionwatch, weather
 from . import sessions as sessions_mod
 from . import live
 from .perf import SLOW_MS
@@ -30,58 +30,60 @@ from .api import push as push_api
 
 def poll_cloud() -> None:
     """Команды, которые телефоны оставили в облаке, применяем и сразу обновляем снимок."""
-    def via_cloud(fn):   # журнал «что изменилось»: правка события пришла командой через облако
-        def run(op):
-            changes.note_write("", via_cloud=True)
-            return fn(op)
-        return run
-    handlers = {"event_add": via_cloud(core._ops_event), "event_quick": via_cloud(core._ops_event), "event_move": via_cloud(core._ops_move)}
-    if core.cloud.poll_ops(lambda items: ops.apply(core.db, items, handlers)):
+    if core.cloud.poll_ops(core.apply_cloud_ops):
         core.events.invalidate()
         core.cloud.tick(force=True)
+
+
+def register_background_jobs() -> None:
+    """Регистрация отдельно от запуска: тест может проверить состав задач без потоков."""
+    core.scheduler.add_job(core.engine.run, "interval", minutes=core.settings.sync.interval_minutes,
+                      next_run_time=datetime.now(core.tz), id="sync", max_instances=1, coalesce=True)
+    # Снимок для телефона вне дома: проверяем раз в 2 минуты, на Диск пишем при изменениях и раз в час.
+    core.scheduler.add_job(core.ws.flush, "interval", minutes=2, id="writeq", max_instances=1, coalesce=True)
+    core.scheduler.add_job(core.cloud.tick, "interval", minutes=2, id="cloud", max_instances=1, coalesce=True)
+    core.scheduler.add_job(core.push_tick, "interval", minutes=1, id="webpush", max_instances=1, coalesce=True)
+    core.scheduler.add_job(core.trend_day, "cron", hour=23, minute=50, id="trend", max_instances=1, coalesce=True)
+    core.scheduler.add_job(poll_cloud, "interval", minutes=1, id="cloud-ops", max_instances=1, coalesce=True)
+    core.scheduler.add_job(lambda: access.watch(core.db), "interval", minutes=5, id="access-watch", max_instances=1, coalesce=True)
+    core.scheduler.add_job(lambda: versionwatch.check(core.db, BUILD), "interval", minutes=30, id="version-watch",
+                           max_instances=1, coalesce=True, next_run_time=datetime.now() + timedelta(minutes=20))
+    core.scheduler.add_job(core.routes_refresh, "interval", minutes=30, id="routes", max_instances=1, coalesce=True)
+    # погода для утренней сводки — заранее, снимок берёт её из кэша
+    core.scheduler.add_job(lambda: weather.daily(core.settings.weather), "interval", minutes=30, id="weather", max_instances=1,
+                           coalesce=True, next_run_time=datetime.now(core.tz) + timedelta(seconds=20))
+    core.scheduler.add_job(core.run_checks, "cron", hour=4, minute=10, id="checks", max_instances=1, coalesce=True,
+                      misfire_grace_time=6 * 3600)
+    core.scheduler.add_job(core.backup_drill, "cron", day=1, hour=4, minute=40, id="backup-drill", max_instances=1, coalesce=True,
+                           misfire_grace_time=6 * 3600)
+    core.scheduler.add_job(lambda: deploywatch.check(core.db, core.settings.data_dir, __version__), "interval", minutes=10,
+                           id="deploy-watch", max_instances=1, coalesce=True, next_run_time=datetime.now() + timedelta(seconds=30))
+    core.scheduler.add_job(core.selftest_weekly, "cron", day_of_week="sun", hour=5, minute=20, id="selftest", max_instances=1,
+                           coalesce=True, misfire_grace_time=3600)
+    last = core.db.kv_get("selftest:last")[0] or {}
+    if last.get("ok") is False and (last.get("failed") or {}).get("name") == "Создать событие" \
+            and "не разрешил запись" in ((last.get("failed") or {}).get("error") or ""):
+        # Прошлая проверка упёрлась в календарь без права записи (до v0.15.2 это считалось сбоем) — перепроверить с выбором календаря.
+        core.scheduler.add_job(core.selftest_weekly, "date", run_date=datetime.now(core.tz) + timedelta(minutes=3), id="selftest-retry")
+    core.scheduler.add_job(core.backup.run, "cron", hour=3, minute=30, id="backup", max_instances=1, coalesce=True,
+                      misfire_grace_time=6 * 3600)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     threading.Thread(target=core._warm, daemon=True).start()
     if os.environ.get("HOMECAL_NO_SCHEDULER") != "1":
-        core.scheduler.add_job(core.engine.run, "interval", minutes=core.settings.sync.interval_minutes,
-                          next_run_time=datetime.now(core.tz), id="sync", max_instances=1, coalesce=True)
-        # Снимок для телефона вне дома: проверяем раз в 2 минуты, на Диск пишем при изменениях и раз в час.
-        core.scheduler.add_job(core.ws.flush, "interval", minutes=2, id="writeq", max_instances=1, coalesce=True)
-        core.scheduler.add_job(core.cloud.tick, "interval", minutes=2, id="cloud", max_instances=1, coalesce=True)
-        core.scheduler.add_job(core.push_tick, "interval", minutes=1, id="webpush", max_instances=1, coalesce=True)
-        core.scheduler.add_job(core.trend_day, "cron", hour=23, minute=50, id="trend", max_instances=1, coalesce=True)
-        core.scheduler.add_job(poll_cloud, "interval", minutes=1, id="cloud-ops", max_instances=1, coalesce=True)
-        core.scheduler.add_job(lambda: access.watch(core.db), "interval", minutes=5, id="access-watch", max_instances=1, coalesce=True)
-        core.scheduler.add_job(lambda: versionwatch.check(core.db, BUILD), "interval", minutes=30, id="version-watch",
-                               max_instances=1, coalesce=True, next_run_time=datetime.now() + timedelta(minutes=20))
-        core.scheduler.add_job(core.routes_refresh, "interval", minutes=30, id="routes", max_instances=1, coalesce=True)
-        # погода для утренней сводки — заранее, снимок берёт её из кэша
-        core.scheduler.add_job(lambda: weather.daily(core.settings.weather), "interval", minutes=30, id="weather", max_instances=1,
-                               coalesce=True, next_run_time=datetime.now(core.tz) + timedelta(seconds=20))
-        core.scheduler.add_job(core.run_checks, "cron", hour=4, minute=10, id="checks", max_instances=1, coalesce=True,
-                          misfire_grace_time=6 * 3600)
-        core.scheduler.add_job(core.backup_drill, "cron", day=1, hour=4, minute=40, id="backup-drill", max_instances=1, coalesce=True,
-                               misfire_grace_time=6 * 3600)
-        core.scheduler.add_job(lambda: deploywatch.check(core.db, core.settings.data_dir, __version__), "interval", minutes=10,
-                               id="deploy-watch", max_instances=1, coalesce=True, next_run_time=datetime.now() + timedelta(seconds=30))
-        core.scheduler.add_job(core.selftest_weekly, "cron", day_of_week="sun", hour=5, minute=20, id="selftest", max_instances=1,
-                               coalesce=True, misfire_grace_time=3600)
-        last = core.db.kv_get("selftest:last")[0] or {}
-        if last.get("ok") is False and (last.get("failed") or {}).get("name") == "Создать событие" \
-                and "не разрешил запись" in ((last.get("failed") or {}).get("error") or ""):
-            # Прошлая проверка упёрлась в календарь без права записи (до v0.15.2 это считалось сбоем) — перепроверить с выбором календаря.
-            core.scheduler.add_job(core.selftest_weekly, "date", run_date=datetime.now(core.tz) + timedelta(minutes=3), id="selftest-retry")
-        core.scheduler.add_job(core.backup.run, "cron", hour=3, minute=30, id="backup", max_instances=1, coalesce=True,
-                          misfire_grace_time=6 * 3600)
+        register_background_jobs()
         core.scheduler.start()
-    yield
-    if core.scheduler.running:
-        core.scheduler.shutdown(wait=False)
+    try:
+        yield
+    finally:
+        if core.scheduler.running:
+            core.scheduler.shutdown(wait=False)
 
 
 # Описание API наружу не отдаём: календарь может быть открыт в интернет.
+core.initialize()
 app = FastAPI(title="HomeHub Calendar", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(GZipMiddleware, minimum_size=1200, compresslevel=4)
 

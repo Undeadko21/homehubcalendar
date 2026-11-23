@@ -36,14 +36,16 @@ fi
 
 echo "== тесты бэкенда"
 (cd backend && python -m pytest -q)
+logs=$(mktemp -d "${TMPDIR:-/tmp}/homehub-check.XXXXXXXX")
+echo "Журналы проверки: $logs"
 echo "== проверка кода интерфейса (eslint)"
-(cd frontend && npx eslint . >/tmp/homehub-eslint.log 2>&1 || { tail -40 /tmp/homehub-eslint.log; exit 1; })
+(cd frontend && npx eslint . >"$logs/eslint.log" 2>&1 || { tail -40 "$logs/eslint.log"; exit 1; })
 echo "== тесты интерфейса"
-(cd frontend && npm test --silent >/tmp/homehub-vitest.log 2>&1 || { tail -40 /tmp/homehub-vitest.log; exit 1; })
+(cd frontend && npm test --silent >"$logs/vitest.log" 2>&1 || { tail -40 "$logs/vitest.log"; exit 1; })
 echo "== сборка фронтенда"
-(cd frontend && npm run build >/tmp/homehub-build.log 2>&1 || { tail -30 /tmp/homehub-build.log; exit 1; })
+(cd frontend && npm run build >"$logs/build.log" 2>&1 || { tail -30 "$logs/build.log"; exit 1; })
 echo "== откат автообновления (update.sh без настоящего Docker)"
-bash deploy/test-rollback.sh >/tmp/homehub-rollback.log 2>&1 || { cat /tmp/homehub-rollback.log; exit 1; }
+bash deploy/test-rollback.sh >"$logs/rollback.log" 2>&1 || { cat "$logs/rollback.log"; exit 1; }
 echo "== тесты навыка Алисы"
 python -m pytest -q alice/test_handler.py
 echo "OK: можно пушить"
