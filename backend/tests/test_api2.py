@@ -48,19 +48,19 @@ def test_allday_reminders(api):
 def test_ops_event_quick_and_add(api):
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
-    from app import ops
     c, m = api, api.core
-    h = {"event_add": m._ops_event, "event_quick": m._ops_event}
     day = (datetime.now(ZoneInfo("Asia/Yekaterinburg")) + timedelta(days=1)).date()
-    done = ops.apply(m.db, [
+    done = m.apply_cloud_ops([
         {"id": "a1", "t": 1, "type": "event_quick", "text": "Врач завтра в 18:00 Анне"},
         {"id": "a2", "t": 2, "type": "event_add", "title": "Футбол", "date": day.isoformat(), "start": "10:00", "end": "11:30"},
         {"id": "a3", "t": 3, "type": "event_quick", "text": "что-то без даты"},
-    ], h)
+    ])
     assert done == ["a1", "a2", "a3"]
+    assert not c.fake.store
+    assert m.ws.flush()["done"] == 2
     titles = sorted(e["title"] for e in c.fake.store.values() for e in [{"title": [l for l in e.splitlines() if l.startswith("SUMMARY")][0][8:]}])
     assert titles == ["Врач", "Футбол"]
-    assert ops.apply(m.db, [{"id": "a1", "t": 1, "type": "event_quick", "text": "Врач завтра в 18:00"}], h) == []  # повтор не применяется
+    assert m.apply_cloud_ops([{"id": "a1", "t": 1, "type": "event_quick", "text": "Врач завтра в 18:00"}]) == []  # повтор не применяется
     rej = m.db.kv_get("ops:rejected")[0]["items"]
     assert len(rej) == 1 and "без даты" in rej[0]["text"]
     assert any("не выполнена" in p for p in c.get("/api/system").json()["problems"])
@@ -598,19 +598,18 @@ def test_backup_drill_compares_with_live_db(api, monkeypatch):
 def test_ops_event_move_by_voice(api):
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
-    from app import ops
     c, m = api, api.core
     tz = ZoneInfo("Asia/Yekaterinburg")
     d1 = (datetime.now(tz) + timedelta(days=2)).date()
     c.post("/api/event", json={"calendar": "ya/home", "title": "Йога", "start": f"{d1}T10:00:00", "end": f"{d1}T11:30:00"})
     w = c.post("/api/event", json={"calendar": "ya/home", "title": "Бассейн", "start": f"{d1}T17:00:00", "end": f"{d1}T18:00:00",
                                    "repeat": {"freq": "weekly"}}).json()["uid"]
-    h = {"event_move": m._ops_move}
     target = (datetime.now(tz) + timedelta(days=3)).date()
     words = {0: "понедельник", 1: "вторник", 2: "среду", 3: "четверг", 4: "пятницу", 5: "субботу", 6: "воскресенье"}
-    ops.apply(m.db, [{"id": "m1", "t": 1, "type": "event_move", "text": f"йогу на {words[target.weekday()]}"},
+    m.apply_cloud_ops([{"id": "m1", "t": 1, "type": "event_move", "text": f"йогу на {words[target.weekday()]}"},
                      {"id": "m2", "t": 2, "type": "event_move", "text": f"бассейн на {words[target.weekday()]} в 19:00"},
-                     {"id": "m3", "t": 3, "type": "event_move", "text": "танцы на завтра"}], h)
+                     {"id": "m3", "t": 3, "type": "event_move", "text": "танцы на завтра"}])
+    assert m.ws.flush()["done"] == 3
     evs = _events(c, f"{d1}T00:00:00", f"{target + timedelta(days=8)}T00:00:00")
     yoga = [e for e in evs if e["title"] == "Йога"]
     assert [e["start"][:16] for e in yoga] == [f"{target}T10:00"] and yoga[0]["end"][:16] == f"{target}T11:30"   # время и длительность сохранены

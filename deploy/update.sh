@@ -45,21 +45,48 @@ deploy_tail() {
     last() { echo "$1 ${REMOTE:0:7}" > "$APP_DIR/data/.canary_last"; }
     [ -e "$APP_DIR/data/.no_canary" ] && { echo "проверка на копии базы выключена (data/.no_canary)"; last off; return 0; }
     local note="$APP_DIR/data/.canary_note"   # пропуск проверки виден в «Состоянии» (deploywatch), снимается после проверки
-    if ! docker inspect homehub-calendar >/dev/null 2>&1; then
-      echo "проверка на копии базы: нет работающего сервера — пропуск"; echo "нет работающего сервера, чтобы снять копию базы" > "$note"; last skipped; return 0
+    local running
+    running=$(docker inspect -f '{{.State.Running}}' homehub-calendar 2>/dev/null || true)
+    if [ "$running" != true ] && [ ! -f "$APP_DIR/data/homecal.sqlite3" ]; then
+      echo "проверка на копии базы: базы ещё нет — пропуск"; echo "нет базы для проверки" > "$note"; last skipped; return 0
     fi
     local dir="$APP_DIR/data/.canary"
     rm -rf "$dir" && mkdir -p "$dir" && chmod 700 "$dir"
-    if ! docker exec homehub-calendar python -c "import sqlite3; s=sqlite3.connect('/data/homecal.sqlite3'); d=sqlite3.connect('/data/.canary/copy.sqlite3'); s.backup(d); d.close(); s.close()"; then
-      rm -rf "$dir"; echo "проверка на копии базы: копию сделать не вышло — пропуск"; echo "копию базы сделать не вышло" > "$note"; last skipped; return 0
+    local backup_sqlite="import sqlite3; s=sqlite3.connect('file:/data/homecal.sqlite3?mode=ro', uri=True); d=sqlite3.connect('/data/.canary/copy.sqlite3'); s.backup(d); d.close(); s.close()"
+    local copied=0
+    if [ "$running" = true ]; then
+      docker exec homehub-calendar python -c "$backup_sqlite" && copied=1
+    else
+      docker run --rm --network none --entrypoint python -v "$APP_DIR/data:/data" homehub-calendar:local -c "$backup_sqlite" && copied=1
+    fi
+    if [ "$copied" = 0 ]; then
+      rm -rf "$dir"; echo "ОШИБКА: не удалось снять копию базы"; echo "не удалось снять копию базы" > "$APP_DIR/data/.canary_report"; last failed; return 1
     fi
     local rc=0
     # --init: python в контейнере не процесс 1 и останавливается по сигналу; имя — чтобы добить контейнер после таймаута
     docker rm -f hh-canary >/dev/null 2>&1 || true
     timeout -k 30 600 docker run --rm --init --name hh-canary --network none -e HH_SANDBOX_APP_DIR=/app -e HOMECAL_STATIC=/app/static \
       -v "$APP_DIR/backend/tools:/hh/backend/tools:ro" -v "$dir:/canary" homehub-calendar:local \
-      python /hh/backend/tools/sandbox.py /canary/copy.sqlite3 --canary > "$dir/report.txt" 2>&1 || rc=$?
+      python /hh/backend/tools/sandbox.py /canary/copy.sqlite3 --canary --rollback-db /canary/migrated.sqlite3 > "$dir/report.txt" 2>&1 || rc=$?
     docker rm -f hh-canary >/dev/null 2>&1 || true
+    if [ "$rc" = 0 ] && [ -f "$dir/migrated.sqlite3" ]; then
+      echo "Схема изменилась: проверяем предыдущую версию на обновлённой копии" >> "$dir/report.txt"
+      if [ -n "$OLD_IMG" ]; then
+        timeout -k 30 600 docker run --rm --init --name hh-canary --network none -e HH_SANDBOX_APP_DIR=/app -e HOMECAL_STATIC=/app/static \
+          -v "$APP_DIR/backend/tools:/hh/backend/tools:ro" -v "$dir:/canary" "$OLD_IMG" \
+          python /hh/backend/tools/sandbox.py /canary/migrated.sqlite3 --canary >> "$dir/report.txt" 2>&1 || rc=$?
+        docker rm -f hh-canary >/dev/null 2>&1 || true
+      else
+        echo "ОШИБКА: предыдущий образ недоступен для проверки отката" >> "$dir/report.txt"
+        rc=1
+      fi
+      if [ "$rc" != 0 ]; then
+        echo "ОШИБКА: предыдущая версия не прошла проверку на новой схеме" >> "$dir/report.txt"
+      elif ! { chmod 600 "$dir/copy.sqlite3" && mv -f "$dir/copy.sqlite3" "$APP_DIR/data/.before-migration.sqlite3"; }; then
+        echo "ОШИБКА: не удалось сохранить предрелизную копию базы" >> "$dir/report.txt"
+        rc=1
+      fi
+    fi
     cat "$dir/report.txt"
     grep -E "ОШИБКА|упал|ПРОБЛЕМ|Error|не поднялся" "$dir/report.txt" | head -5 | cut -c1-160 > "$APP_DIR/data/.canary_report" || true
     [ "$rc" = 124 ] || [ "$rc" = 137 ] && echo "проверка не уложилась в 10 минут" >> "$APP_DIR/data/.canary_report"
@@ -68,7 +95,8 @@ deploy_tail() {
     return $rc
   }
 
-  OLD_IMG=$(docker image inspect -f '{{.Id}}' homehub-calendar:local 2>/dev/null || true)
+  OLD_IMG=$(docker inspect -f '{{.Image}}' homehub-calendar 2>/dev/null || true)
+  OLD_IMG="${OLD_IMG:-$(docker image inspect -f '{{.Id}}' homehub-calendar:local 2>/dev/null || true)}"
   reject() {
     echo "$1" > "$APP_DIR/data/.bad_reason"
     echo "$REMOTE" > "$BAD_FILE"

@@ -1,7 +1,7 @@
 <template>
   <div>
     <p v-if="data.pending" class="group-note warn">
-      Не отправлено в Яндекс: {{ data.pending }}. Сервер Яндекса не ответил — повторю сам каждые 2 минуты.
+      Ждут отправки в Яндекс: {{ data.pending }}. Очередь проверяется каждые 2 минуты.
       <button class="btn link" :disabled="busy" @click="flush">Повторить сейчас</button>
     </p>
     <p v-if="data.error" class="group-note err">Яндекс отклонил запись: {{ data.error }}</p>
@@ -9,9 +9,10 @@
       <div v-for="c in data.items" :key="c.id" class="row stack">
         <div class="row-head">
           <span class="label">{{ c.title }}</span>
-          <button v-if="c.action !== 'undo'" class="btn link" :disabled="busy" @click="undo(c)">Отменить</button>
+          <button v-if="c.action !== 'undo' && !['conflict', 'failed', 'cancelled'].includes(c.status)" class="btn link" :disabled="busy" @click="undo(c)">Отменить</button>
         </div>
         <span class="faint small">{{ ACTION[c.action] }} · {{ when(c.t) }}</span>
+        <span v-if="c.status === 'conflict'" class="warn small">Конфликт с версией Яндекса. Правка не отправлена.</span>
       </div>
     </div>
     <p v-else class="group-note">Пока правок не было. Здесь появятся создание, изменение и удаление событий из календаря.</p>

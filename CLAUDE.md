@@ -51,9 +51,9 @@
 ```bash
 set -o pipefail; ./deploy/check.sh          # всё сразу; падает при любой ошибке
 python backend/tools/sandbox.py <база|копия --key k> [--ui]   # песочница прода: копия базы без секретов и сети (docs/dev/outside.md)
-python backend/tools/shots.py               # снимки экранов на демо-данных → /tmp/shots (телефон, компьютер, тёмная тема)
+python backend/tools/shots.py               # снимки экранов на демо-данных → новый временный каталог (телефон, компьютер, тёмная тема)
 python backend/tools/shots.py --views none --scenes card-open,keys,settings:reminders,offline --devices narrow,desktop   # готовые сцены
-python backend/tools/visual_diff.py         # что изменилось на экранах против main (эталон снимается тут же) → /tmp/visual
+python backend/tools/visual_diff.py         # что изменилось на экранах против main (эталон снимается тут же) → новый временный каталог
 ```
 Прод: `curl https://homehubcalendar.ru/api/health` (версия `0.x.y+<коммит>`; `canary` — проверка последней выкатки на копии базы:
 ok / skipped / off / failed), `/api/app`, `/api/app-ios`, `/api/app-mac` — без входа.

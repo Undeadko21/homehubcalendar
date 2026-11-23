@@ -8,9 +8,9 @@
     python backend/tools/visual_diff.py --views week,today --scenes card-open --devices narrow --themes dark
     python backend/tools/visual_diff.py --base origin/main~3  # эталон — другая версия
 
-Итог: /tmp/visual/index.txt — список «экран — % изменённых точек», и для каждого изменившегося
-/tmp/visual/diff/<имя>.png: слева эталон, справа сейчас, посередине — что изменилось (красным).
-Код выхода всегда 0 (изменения вида — обычно цель правки); ошибки консоли и «шире экрана» — видно в index.txt.
+Итог в новом временном каталоге: index.txt — список «экран — % изменённых точек», и для каждого изменившегося
+diff/<имя>.png: слева эталон, справа сейчас, посередине — что изменилось (красным).
+Изменения вида не влияют на код выхода; ошибки консоли и «шире экрана» — видно в index.txt.
 """
 from __future__ import annotations
 
@@ -89,11 +89,16 @@ def main() -> int:
     ap.add_argument("--devices", default="phone,desktop")
     ap.add_argument("--themes", default="light")
     ap.add_argument("--freeze", default="10:00")
-    ap.add_argument("--out", default="/tmp/visual")
+    ap.add_argument("--out", type=Path, help="пустой каталог результатов (по умолчанию новый временный каталог)")
     a = ap.parse_args()
-    out = Path(a.out)
-    shutil.rmtree(out, ignore_errors=True)
-    out.mkdir(parents=True)
+    out = a.out if a.out is not None else Path(tempfile.mkdtemp(prefix="hh-visual-result-"))
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()):
+        ap.error(f"в {out} уже есть файлы; укажи новый --out")
+    try:
+        (out / "base").mkdir()
+    except FileExistsError:
+        ap.error(f"в {out} уже есть каталог base; укажи новый --out")
     tmp = Path(tempfile.mkdtemp(prefix="hh-visual-"))
     try:
         print(f"эталон: {a.base} …")

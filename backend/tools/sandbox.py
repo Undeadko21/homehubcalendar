@@ -127,12 +127,15 @@ def main() -> int:
     ap.add_argument("--ui", action="store_true")
     ap.add_argument("--keep-data", action="store_true")
     ap.add_argument("--canary", action="store_true", help="проверка перед подменой версии дома: провал — только ошибки и падение")
+    ap.add_argument("--rollback-db", type=Path, help="сохранить обезличенную по секретам копию после смены схемы для проверки отката")
     a = ap.parse_args()
     tmp = Path(tempfile.mkdtemp(prefix="hh-sandbox-"))
     proc = None
     bad = 0
     try:
-        prepare(Path(a.src), a.key, tmp / "data")
+        db = prepare(Path(a.src), a.key, tmp / "data")
+        with sqlite3.connect(db) as conn:
+            old_schema = conn.execute("PRAGMA user_version").fetchone()[0]
         proc, url = start(tmp)
         get(url + "/api/events?start=2000-01-01T00:00:00&end=2000-01-02T00:00:00")   # прогрев кэша, чтобы холодный старт не дал «медленно»
         time.sleep(1.5)
@@ -157,6 +160,11 @@ def main() -> int:
         if proc.poll() is not None:
             print("сервер упал (последние строки журнала могут содержать данные — смотрите только в --keep-data):", proc.returncode)
             bad += 1
+        if not bad and a.rollback_db:
+            with sqlite3.connect(db) as src:
+                if src.execute("PRAGMA user_version").fetchone()[0] != old_schema:
+                    with sqlite3.connect(a.rollback_db) as dst:
+                        src.backup(dst)
     finally:
         if proc and proc.poll() is None:
             proc.terminate()

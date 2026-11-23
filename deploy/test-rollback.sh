@@ -18,6 +18,17 @@ fi
 if [ "\$1" = "compose" ] && [ "\$2" = "build" ] && [ -e "$T/app/BUILD_BAD" ]; then exit 1; fi
 # проверка на копии базы: «docker run» падает, если в новой версии есть файл CANARY_BAD
 if [ "\$1" = "run" ] && [ -e "$T/app/CANARY_BAD" ]; then echo "events неделя  500  ← ОШИБКА"; echo "ПРОБЛЕМ: 1"; exit 1; fi
+if [ "\$1" = "exec" ]; then echo original > "$T/app/data/.canary/copy.sqlite3"; fi
+if [ "\$1" = "inspect" ] && [ "\$3" = '{{.State.Running}}' ]; then
+  if [ -e "$T/stopped" ]; then echo false; else echo true; fi
+fi
+if [ "\$1" = "run" ] && [ "\$5" = "--entrypoint" ]; then echo original > "$T/app/data/.canary/copy.sqlite3"; fi
+if [ "\$1" = "run" ] && [ -e "$T/app/MIGRATE" ]; then
+  case "\$*" in
+    *"/canary/copy.sqlite3"*) echo changed > "$T/app/data/.canary/migrated.sqlite3" ;;
+    *"/canary/migrated.sqlite3"*) [ ! -e "$T/app/OLD_INCOMPATIBLE" ] || exit 1 ;;
+  esac
+fi
 if [ "\$1" = "image" ]; then echo "sha256:old"; fi
 exit 0
 EOF
@@ -95,4 +106,23 @@ cd "$T/app"; : > "$T/docker.log"
 if APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1; then exit 1; fi
 check "ошибка сборки оставляет прошлый коммит" "[ \"$(git rev-parse HEAD)\" = \"$NC\" ]"
 check "после ошибки сборки контейнер не перезапускается" "! grep -q 'compose up' \"$T/docker.log\""
+
+# 8. Новая схема несовместима с предыдущим образом.
+cd "$T/seed"; git rm -q BUILD_BAD CANARY_BAD; touch MIGRATE OLD_INCOMPATIBLE; git add -A; git commit -qm old-incompatible; git push -q origin main
+cd "$T/app"; rm -f data/.no_canary; : > "$T/docker.log"
+if APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1; then exit 1; fi
+check "проверка отката использует старый образ" "grep -q 'sha256:old .* /canary/migrated.sqlite3' \"$T/docker.log\" || { cat \"$T/docker.log\"; false; }"
+check "несовместимая схема не попала в живую базу" "! grep -q 'compose up' \"$T/docker.log\""
+
+# 9. Совместимая миграция оставляет исходную резервную копию.
+cd "$T/seed"; git rm -q OLD_INCOMPATIBLE; git commit -qm compatible; git push -q origin main
+cd "$T/app"; APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1
+check "предрелизная копия содержит исходную схему" "grep -qx original data/.before-migration.sqlite3"
+
+# 10. Остановленный сервер с существующей базой можно обновить.
+cd "$T/seed"; git rm -q MIGRATE; echo v10 > VERSION; git commit -qam recover-stopped; git push -q origin main
+cd "$T/app"; touch "$T/stopped" data/homecal.sqlite3; : > "$T/docker.log"
+APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1
+check "копия остановленного сервера снимается через временный контейнер" "grep -q 'run --rm --network none --entrypoint python' \"$T/docker.log\" && ! grep -q '^docker exec' \"$T/docker.log\""
+check "после обновления остановленный сервер запущен" "[ -e \"$T/healthy\" ]"
 echo "Откат деплоя работает."

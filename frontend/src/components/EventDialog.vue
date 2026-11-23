@@ -19,6 +19,7 @@
           Правка сохранена дома и ждёт отправки в Яндекс.
           <button class="btn link inline" :disabled="retryingWrite" @click="retryWrite">Повторить отправку</button>
         </template>
+        <template v-else-if="writeStatus === 'conflict'">Конфликт с версией Яндекса. Откройте «Изменить», чтобы внести правку в актуальное событие.</template>
         <template v-else>Яндекс отклонил правку. Откройте «Изменить» и попробуйте сохранить снова.</template>
       </p>
       <p v-if="writeRetryError" class="hint warn" role="alert">{{ writeRetryError }}</p>

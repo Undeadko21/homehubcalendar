@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 import os
 import threading
 from datetime import date, datetime, time, timedelta
@@ -14,10 +15,10 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import HTTPException
 
-from .config import load_settings
+from .config import Settings, load_settings
 from .db import Database
 from .events import EventService
-from . import quick
+from . import ops, quick
 from . import snapshot, writer, writeq
 from .backup import BackupService
 from .sessions import Sessions
@@ -27,19 +28,26 @@ from .holidays import HolidayService
 from .sync import SyncEngine
 log = logging.getLogger("homecal")
 
-settings = load_settings()
-tz = ZoneInfo(settings.timezone)
-db = Database(settings.db_path)
-events = EventService(db, tz, fuzzy_dedup=bool(settings.dedup.get("fuzzy", True)),
-                      respect_event_class=bool(settings.privacy.get("respect_event_class", False)))
-holidays = HolidayService(db, settings.holidays)
-engine = SyncEngine(db, settings.sources, on_change=events.invalidate)
-engine.seed_people(settings.people)
-scheduler = BackgroundScheduler(timezone=tz)
-cloud = CloudSync(db, lambda: snapshot.build(events, db, tz, weather_cfg=settings.weather))
-backup = BackupService(db, cloud, tz)
-sessions = Sessions(db)
-STARTED = datetime.now(tz)
+def initialize(config: Settings | None = None) -> None:
+    """Собрать сервисы при создании приложения. Импорт модуля не открывает базу."""
+    global settings, tz, db, events, holidays, engine, scheduler, cloud, backup, sessions, STARTED, perf, ws
+    settings = config if config is not None else load_settings()
+    tz = ZoneInfo(settings.timezone)
+    db = Database(settings.db_path)
+    events = EventService(db, tz, fuzzy_dedup=bool(settings.dedup.get("fuzzy", True)),
+                          respect_event_class=bool(settings.privacy.get("respect_event_class", False)))
+    holidays = HolidayService(db, settings.holidays)
+    engine = SyncEngine(db, settings.sources, on_change=_synced)
+    engine.seed_people(settings.people)
+    scheduler = BackgroundScheduler(timezone=tz)
+    cloud = CloudSync(db, lambda: snapshot.build(events, db, tz, weather_cfg=settings.weather))
+    backup = BackupService(db, cloud, tz)
+    sessions = Sessions(db)
+    STARTED = datetime.now(tz)
+    perf = PerfLog()
+    # Право записи проверяет сам сервер: отложенные операции должны получить его ответ.
+    ws = writeq.WriteService(db, lambda k: make_target(k, allow_denied=True), _ws_changed)
+
 
 # Приложение для Android: собранный APK и его версия (android/release в репозитории).
 APP_DIR = Path(os.environ.get("HOMECAL_APP_DIR", Path(__file__).resolve().parents[2] / "android" / "release"))
@@ -51,7 +59,6 @@ IOS_DIR = Path(os.environ.get("HOMECAL_IOS_DIR", Path(__file__).resolve().parent
 STATIC_DIR = Path(os.environ.get("HOMECAL_STATIC", Path(__file__).resolve().parents[2] / "frontend" / "dist"))
 
 
-perf = PerfLog()
 
 
 # ---------- API ----------
@@ -130,7 +137,8 @@ def _remote_id(cal_key: str) -> str:
 
 
 def _after_write() -> None:
-    _ws_changed()
+    if not ws.is_deferred:
+        _ws_changed()
 
 
 def _ws_changed() -> None:
@@ -141,8 +149,6 @@ def _ws_changed() -> None:
         log.exception("Облако после записи")
 
 
-# Очередь записи не смотрит на пометку «только чтение»: пусть решает сервер, иначе отложенные правки пропали бы.
-ws = writeq.WriteService(db, lambda k: make_target(k, allow_denied=True), _ws_changed)
 def _warm() -> None:
     """Прогрев: разобрать события заранее, чтобы первое открытие календаря не ждало."""
     try:
@@ -218,13 +224,11 @@ def _synced() -> None:
     events.refresh()     # экраны берут прежнюю ленту, пока новая собирается в фоне
 
 
-engine.on_change = _synced
-
 
 def _run_write(fn):
     try:
         return fn()
-    except HTTPException:
+    except (HTTPException, sqlite3.Error):
         raise
     except Exception as e:  # noqa: BLE001
         log.exception("Запись в Яндекс")
@@ -308,10 +312,10 @@ def _stem(w: str) -> str:
     return w[:max(3, len(w) - 2)] if len(w) > 4 else w[:3] if len(w) >= 3 else w
 
 
-def _ops_move(op: dict) -> None:
+def _prepare_ops_move(op: dict) -> dict:
     """Команда Алисы «перенеси йогу на завтра [в 19:00]»: ищем ближайшее подходящее событие на 3 недели вперёд
     и переносим только его (у серии — только это вхождение), сохраняя время и длительность, если новое не сказано."""
-    from .api.writing import EventEdit, update_event
+    from .api.writing import EventEdit
     now = datetime.now(tz)
     text = str(op.get("text", ""))[:300]
     q = quick.parse(text, now.replace(tzinfo=None), db.list_people())
@@ -344,8 +348,30 @@ def _ops_move(op: dict) -> None:
         ns = datetime.combine(d, t, old_s.tzinfo or tz)
         ne = ns + (old_e - old_s)
     cal = next(c for c in e["calendars"] if _writable(c))
-    update_event(e["uid"], EventEdit(calendar=cal, start=ns.isoformat(), end=ne.isoformat(), all_day=bool(e.get("all_day")),
-                                     occurrence=e["start"] if e.get("recurring") else None, scope="once" if e.get("recurring") else None))
+    edit = EventEdit(calendar=cal, start=ns.isoformat(), end=ne.isoformat(), all_day=bool(e.get("all_day")),
+                     occurrence=e["start"] if e.get("recurring") else None, scope="once" if e.get("recurring") else None)
+    return {**op, "_move": (e["uid"], edit)}
+
+
+def _ops_move(op: dict) -> None:
+    from .api.writing import update_event
+
+    uid, edit = op["_move"]
+    update_event(uid, edit)
+
+
+def apply_cloud_ops(items: list[dict]) -> list[str]:
+    from . import changes
+
+    def via_cloud(fn):
+        def run(op):
+            changes.note_write("", via_cloud=True)
+            fn(op)
+        return run
+
+    handlers = {"event_add": via_cloud(_ops_event), "event_quick": via_cloud(_ops_event), "event_move": via_cloud(_ops_move)}
+    with ws.defer():
+        return ops.apply(db, items, handlers, prepare={"event_move": _prepare_ops_move}, on_commit=events.invalidate)
 
 
 def _forbidden(e: Exception) -> bool:

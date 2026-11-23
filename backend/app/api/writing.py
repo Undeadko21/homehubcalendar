@@ -346,15 +346,14 @@ def update_event(uid: str, body: EventEdit):
             if res is None:   # первое вхождение — это вся серия
                 return None
             old_ics, new_uid, new_ics = res
-            ok1 = core.ws.update(cal_key, href, ics, old_ics)
-            ok2 = core.ws.create(cal_key, new_ics)
+            sent = core.ws.split(cal_key, href, ics, old_ics, new_ics)
             ppl = body.people if body.people_set else core.db.event_people().get(uid)
             if ppl is not None:
                 core.db.set_event_people(new_uid, ppl)
             for (u, occ_, role), person in core.db.escorts().items():   # назначения «на всю серию» переходят в новую серию
                 if u == uid and occ_ == "*":
                     core.db.set_escort(new_uid, "*", role, person)
-            return ok1 and ok2
+            return sent
         sent = core._run_write(split_following)
         if sent is not None:
             core._after_write()
@@ -371,12 +370,11 @@ def update_event(uid: str, body: EventEdit):
                 body.all_day, core.tz)
             if "title" in fields or "location" in fields or "description" in fields:
                 new_ics = writer.apply_edit(new_ics, {k: v for k, v in fields.items() if k in ("title", "location", "description")}, core.tz)
-            ok1 = core.ws.update(cal_key, href, ics, series)
-            ok2 = core.ws.create(cal_key, new_ics)
+            sent = core.ws.split(cal_key, href, ics, series, new_ics)
             ppl = core.db.event_people().get(uid)
             if ppl is not None:
                 core.db.set_event_people(new_uid, ppl)
-            return ok1 and ok2
+            return sent
         sent = core._run_write(split)
         core._after_write()
         return {"ok": True, "pending": not sent, "changes": _new_changes(seen)}
@@ -435,7 +433,7 @@ def quick_parse(body: QuickIn):
 @router.get("/api/changes")
 def get_changes():
     """Журнал правок (последние первыми) и число ещё не отправленных в Яндекс."""
-    items = [{k: v for k, v in e.items() if k not in ("before", "after", "queue_id", "status")} for e in reversed(core.ws.journal())]
+    items = [{k: v for k, v in e.items() if k not in ("before", "after", "queue_id")} for e in reversed(core.ws.journal())]
     return {"items": items, "pending": core.ws.pending_count(), "error": core.ws.last_error()}
 
 

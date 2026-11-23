@@ -588,6 +588,125 @@ def test_cloud_snapshot_roundtrip_and_throttle(db):
     assert "истёк" in bad.tick()["last_error"] and bad.status()["code"]
 
 
+def test_cloud_command_retry_after_interrupted_batch(db):
+    from app import ops
+
+    shopping = db.add_list("Демо")
+    items = [
+        {"id": "shopping", "t": 1, "type": "item_add", "list_id": shopping, "text": "Яблоки"},
+        {"id": "interrupt", "t": 2, "type": "event_add"},
+    ]
+
+    def interrupt(_):
+        raise SystemExit
+
+    with pytest.raises(SystemExit):
+        ops.apply(db, items, {"event_add": interrupt})
+    assert ops.applied_ids(db) == ["shopping"]
+    assert ops.apply(db, items, {"event_add": lambda _: None}) == ["interrupt"]
+    assert db.query("SELECT text FROM list_items WHERE list_id=?", (shopping,)) == [{"text": "Яблоки"}]
+
+
+def test_bad_cloud_purchase_does_not_block_batch(db):
+    from app import ops
+
+    lid = db.add_list("Демо")
+    purchase = {"type": "item_add", "list_id": lid, "text": "Яблоки"}
+    assert ops.apply(db, [
+        {**purchase, "id": "bad", "t": 1, "person_id": ["bad"]},
+        {**purchase, "id": "good", "t": 2},
+    ]) == ["bad", "good"]
+    assert db.query("SELECT text FROM list_items WHERE list_id=?", (lid,)) == [{"text": "Яблоки"}]
+
+
+def test_write_conflict_cancels_all_pending_splits(api, monkeypatch):
+    from app import writer
+
+    core, target = api.core, api.fake
+    calendar, href = "ya/home", "/root.ics"
+    start = datetime(2026, 11, 12, 9, tzinfo=core.tz)
+    _, original = writer.build_ics("Исходное", start, None, False, core.tz)
+    child_uid, child = writer.build_ics("Перенос", start, None, False, core.tz)
+    grandchild_uid, grandchild = writer.build_ics("Ещё перенос", start, None, False, core.tz)
+    core.db.put_object(calendar, href, original)
+    with core.ws.defer():
+        core.ws.split(calendar, href, original, original, child)
+        pending = core.db.find_object(child_uid, calendar)[1]
+        core.ws.split(calendar, pending, child, child, grandchild)
+
+    def reject(*_):
+        raise writer.WriteConflict("Конфликт", original)
+
+    monkeypatch.setattr(target, "change_queued", reject, raising=False)
+    assert core.ws.flush() == {"done": 0, "failed": 3, "left": 0}
+    assert not target.store
+    assert not core.db.find_object(child_uid, calendar)
+    assert not core.db.find_object(grandchild_uid, calendar)
+
+
+def test_write_queue_imports_legacy_entries_but_parks_them_on_rollback(api):
+    core = api.core
+    legacy = {"id": "legacy", "kind": "delete", "cal": "ya/home", "href": "/old.ics", "ics": ""}
+    core.db.kv_set("writeq", [legacy])
+    assert core.ws.queue() == [legacy]
+    assert core.db.kv_get("writeq")[0] == []
+    assert core.ws.queue() == [legacy]
+
+
+def test_cancel_create_after_response_was_lost(api, monkeypatch):
+    from app import writer
+
+    core, target = api.core, api.fake
+    calendar = "ya/home"
+    start = datetime(2026, 11, 12, 9, tzinfo=core.tz)
+    uid, ics = writer.build_ics("Встреча", start, None, False, core.tz)
+    create = target.create
+
+    def lost_response(remote_id, payload):
+        create(remote_id, payload)
+        raise TimeoutError
+
+    def cancel(remote_id, payload):
+        href = next(href for href, data in target.store.items() if writer.uid_of(data) == writer.uid_of(payload))
+        target.delete(remote_id, href)
+
+    monkeypatch.setattr(target, "create", lost_response)
+    monkeypatch.setattr(target, "cancel_queued_create", cancel, raising=False)
+    assert not core.ws.create(calendar, ics)
+    _, href, _ = core.db.find_object(uid, calendar)
+    assert not core.ws.delete(calendar, href, ics)
+    assert core.ws.queue()[0]["kind"] == "cancel_create"
+    core.ws.reapply()
+    assert not core.db.find_object(uid, calendar)
+    assert core.ws.flush() == {"done": 1, "failed": 0, "left": 0}
+    assert not target.store
+
+
+def test_failed_sqlite_migration_rolls_back_schema_and_version(tmp_path, monkeypatch):
+    import sqlite3
+    from app import db as storage
+
+    path = tmp_path / "migration.db"
+    monkeypatch.setattr(storage, "MIGRATIONS", [
+        "CREATE TABLE original (id INTEGER);",
+        "CREATE TABLE incomplete (id INTEGER); CREATE INDEX invalid ON missing(id);",
+    ])
+    with pytest.raises(sqlite3.OperationalError, match="missing"):
+        storage.Database(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == [("original",)]
+
+
+def test_importing_core_leaves_storage_untouched(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+
+    monkeypatch.setenv("HOMECAL_DATA_DIR", str(tmp_path))
+    subprocess.run([sys.executable, "-c", "from app import core"], check=True)
+    assert not (tmp_path / "homecal.sqlite3").exists()
+
+
 def test_ops_from_phone_are_applied_once(db):
     import json
     import httpx
