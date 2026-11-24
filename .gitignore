@@ -2,6 +2,7 @@ config/
 data/
 demo/
 .env
+homehubcalendar-connect.txt
 node_modules/
 frontend/dist/
 __pycache__/
