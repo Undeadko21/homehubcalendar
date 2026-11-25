@@ -1,7 +1,8 @@
 <template>
-  <Sheet :open="state.quickAdd" title="Добавить" label="Добавить" @close="close">
+  <Sheet :open="state.quickAdd" title="Добавить фразой" label="Добавить фразой" :dismissible="!busy" @close="close">
+    <label for="qa-text" class="qa-label">Событие, дело или покупка</label>
     <form class="qa" @submit.prevent="go">
-      <input ref="input" v-model="text" class="field" placeholder="Событие, дело или покупка — одной фразой"
+      <input id="qa-text" ref="input" v-model="text" class="field"
              aria-label="Быстро добавить" autocomplete="off" enterkeyhint="go" />
       <MicButton :disabled="busy" @text="heard" @error="(m) => (error = m)" />
       <button class="btn filled" :disabled="busy || !text.trim()">{{ busy ? '…' : 'Добавить' }}</button>
@@ -16,33 +17,21 @@
         </button>
       </div>
     </div>
-    <div class="group ex">
-      <button v-for="x in EXAMPLES" :key="x.t" type="button" class="row exr" @click="text = x.t; input?.focus()">
-        <span class="kind" :class="x.k">{{ x.label }}</span><span class="ph">{{ x.t }}</span>
-      </button>
-    </div>
-    <p class="faint small note">Событие откроется в форме для проверки, дело и покупки добавятся сразу. Можно сказать голосом — кнопка с микрофоном.</p>
     <div class="group">
-      <button v-if="canWrite" type="button" class="row link" @click="form">Событие — заполнить форму</button>
-      <button v-if="canWrite" type="button" class="row link" @click="wizard">Секция или кружок по дням недели</button>
-      <button type="button" class="row link" @click="lists">Открыть списки дел и покупок</button>
+      <button v-if="canWrite && !state.editor" type="button" class="row link" :disabled="busy" @click="form">Новое событие вручную</button>
+      <button type="button" class="row link" :disabled="busy" @click="lists">Списки дел и покупок</button>
     </div>
   </Sheet>
 </template>
 
 <script setup>
-// Единое «+»: одно поле для события, дела и покупки; тип определяет сервер по фразе.
+// Тип записи определяет сервер по фразе.
 import { computed, nextTick, ref, watch } from 'vue'
 import { state, quickAdd, newEvent, setView, writableCalendars, personById } from '../lib/store'
 import { api } from '../lib/api'
 import Sheet from './Sheet.vue'
 import MicButton from './MicButton.vue'
 
-const EXAMPLES = [
-  { k: 'ev', label: 'Событие', t: 'Йога завтра в 18:30 у Оли' },
-  { k: 'todo', label: 'Дело', t: 'Дело: оплатить кружок до пятницы' },
-  { k: 'shop', label: 'Покупки', t: 'Купить молоко, хлеб и сыр' },
-]
 const text = ref('')
 const busy = ref(false)
 const error = ref('')
@@ -57,7 +46,7 @@ function recentSub(r) {
   const who = (r.people || []).map((id) => personById.value[id]?.name).filter(Boolean).join(', ')
   return who ? `${dur} · ${who}` : dur
 }
-function useRecent(r) { close(); newEvent(undefined, r) }
+function useRecent(r) { if (!busy.value) { close(); newEvent(state.editor?.date, r) } }
 
 watch(() => state.quickAdd, async (v) => {
   if (!v) return
@@ -74,7 +63,8 @@ async function go() {
   busy.value = true
   error.value = ''
   try {
-    await quickAdd(text.value.trim())
+    const draft = state.editor
+    await quickAdd(text.value.trim(), draft?.date, draft)
     close()
   } catch (e) {
     error.value = e.message
@@ -83,21 +73,17 @@ async function go() {
 // Сказали голосом: фразу видно в поле, и она сразу добавляется (событие откроется в форме для проверки).
 function heard(t) { text.value = t; go() }
 function form() { close(); newEvent() }
-function wizard() { close(); state.wizard = true }
-function lists() { close(); setView('lists') }
+function lists() { close(); state.editor = null; setView('lists') }
 </script>
 
 <style scoped>
 .qa { display: flex; gap: 8px; margin: 4px 0 12px; }
+.qa-label { display: block; margin: 8px 0 6px; font-size: 13px; color: var(--ink-2); }
 .field { flex: 1; min-width: 0; font: inherit; font-size: 17px; padding: 11px 14px; border: 0; border-radius: 12px; background: var(--fill); color: var(--ink); }
 .err { color: var(--red); font-size: 14px; margin: 0 4px 10px; }
 .group { background: var(--surface-2); margin-bottom: 12px; }
 .row { width: 100%; border: 0; background: none; text-align: left; color: inherit; font: inherit; }
 .row.link { color: var(--tint); }
-.exr { gap: 10px; align-items: center; }
-.kind { font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 7px; color: #fff; flex: none; width: 66px; text-align: center; }
-.kind.ev { background: #007aff; } .kind.todo { background: #ff9500; } .kind.shop { background: #34c759; }
-.ph { color: var(--ink-2); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent { margin: 0 0 12px; }
 .rl { display: block; margin: 0 4px 6px; }
 .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
@@ -106,6 +92,5 @@ function lists() { close(); setView('lists') }
   padding: 8px 12px; text-align: left; display: flex; flex-direction: column; gap: 1px; cursor: pointer; }
 .rt { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rs { font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.note { margin: -4px 4px 14px; }
 .small { font-size: 13px; }
 </style>

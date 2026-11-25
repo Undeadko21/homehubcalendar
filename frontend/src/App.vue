@@ -43,7 +43,7 @@
               <button v-for="v in VIEWS" :key="v.id" role="tab" :aria-selected="state.view === v.id"
                       :class="{ on: state.view === v.id }" @click="setView(v.id)">{{ v.label }}</button>
             </div>
-            <button class="btn icon add-btn" aria-label="Добавить событие, дело или покупку" @click="state.quickAdd = true">+</button>
+            <button class="btn icon add-btn" :aria-label="canCreateEvent ? 'Новое событие' : 'Добавить фразой'" @click="addFromToolbar">+</button>
             <button class="btn icon search-btn" aria-label="Поиск" @click="setView('search')"><IconSearch /></button>
             <span class="m-sync" :title="syncTitle"><span :class="['sync-dot', syncState]"></span></span>
           </div>
@@ -156,7 +156,7 @@
 <script setup>
 import Ico from './components/Ico.vue'
 import { computed, defineAsyncComponent, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen, animate, toast, newEvent } from './lib/store'
+import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen, animate, toast, newEvent, writableCalendars } from './lib/store'
 import { api, net } from './lib/api'
 import { haptic } from './lib/haptic'
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
@@ -240,6 +240,11 @@ watch(toolbarEl, (el) => {
 
 const syncing = ref(false)
 const night = ref(false)
+const canCreateEvent = computed(() => writableCalendars().length > 0)
+function addFromToolbar() {
+  if (canCreateEvent.value) newEvent()
+  else state.quickAdd = true
+}
 
 function shift(dir) {
   animate(dir, () => shiftNow(dir))

@@ -97,8 +97,7 @@ def page(stack):
 
 
 def _open_new(pg):
-    pg.click("button.add-btn")                       # единое «+» → форма события
-    pg.click("text=Событие — заполнить форму")
+    pg.locator('header .add-btn[aria-label="Новое событие"]').click()
     pg.wait_for_selector("input[placeholder='Название']")
 
 
@@ -163,17 +162,34 @@ def test_quick_event_opens_compact_form_with_one_parse(page, stack):
                             "end": "19:45", "all_day": False, "people": [], "notes": [], "repeat": {"freq": "weekly"}})
 
     page.route("**/api/quick", parsed)
-    page.click("button.add-btn")
-    quick = page.get_by_role("dialog", name="Добавить", exact=True)
+    _open_new(page)
+    page.get_by_role("textbox", name="Место").fill("Спортзал")
+    page.get_by_role("button", name="Добавить фразой", exact=True).click()
+    quick = page.get_by_role("dialog", name="Добавить фразой", exact=True)
     quick.get_by_role("textbox", name="Быстро добавить", exact=True).fill("Танцы в 18:15–19:45 каждую неделю")
     quick.get_by_role("button", name="Добавить", exact=True).click()
+    quick.wait_for(state="detached")
     page.get_by_role("dialog", name="Новое событие").wait_for()
     assert page.get_by_role("textbox", name="Название").input_value() == "Танцы"
+    assert page.get_by_role("textbox", name="Место").input_value() == "Спортзал"
     assert page.locator("input[type=time]").evaluate_all("inputs => inputs.map(input => input.value)") == ["18:15", "19:45"]
     assert not page.locator("#ee-rep").is_visible()
     page.get_by_role("button", name="Подробнее").click()
     assert page.locator("#ee-rep").input_value() == "weekly"
     assert requests == ["Танцы в 18:15–19:45 каждую неделю"]
+
+
+def test_toolbar_plus_opens_event_directly_on_phone_and_keeps_draft(page):
+    page.set_viewport_size({"width": 320, "height": 640})
+    page.locator("button.add-btn").click()
+    event = page.get_by_role("dialog", name="Новое событие", exact=True)
+    event.wait_for()
+    quick = page.get_by_role("dialog", name="Добавить фразой", exact=True)
+    assert not quick.is_visible()
+    event.get_by_role("textbox", name="Название").fill("День рождения")
+    event.get_by_role("button", name="Добавить фразой", exact=True).click()
+    quick.get_by_role("button", name="Готово", exact=True).click()
+    assert event.get_by_role("textbox", name="Название").input_value() == "День рождения"
 
 
 def test_live_update_between_two_pages(page, stack):
