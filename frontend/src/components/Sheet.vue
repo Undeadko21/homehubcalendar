@@ -1,13 +1,13 @@
 <template>
   <Teleport to="body">
     <Transition name="sh">
-    <div v-if="open" class="backdrop" @click.self="$emit('close')" @keydown.esc="$emit('close')">
+    <div v-if="open" class="backdrop" @click.self="close" @keydown.esc="close">
       <section ref="box" class="sheet" role="dialog" aria-modal="true" :aria-label="label" tabindex="-1" :style="origin">
         <div class="grabber" aria-hidden="true" @touchstart.passive="dragStart" @touchmove.passive="dragMove" @touchend="dragEnd" @touchcancel="dragCancel"></div>
         <header v-if="title" class="sh" @touchstart.passive="dragStart" @touchmove.passive="dragMove" @touchend="dragEnd" @touchcancel="dragCancel">
           <h2>{{ title }}</h2>
           <slot name="actions">
-            <button class="btn" @click="$emit('close')">Готово</button>
+            <button class="btn" :disabled="!dismissible" @click="close">Готово</button>
           </slot>
         </header>
         <div class="body"><slot /></div>
@@ -21,13 +21,15 @@
 // Лист снизу на телефоне и всплывающая карточка на компьютере, как в iOS/macOS.
 import { nextTick, ref, watch } from 'vue'
 
-const props = defineProps({ open: Boolean, title: { type: String, default: '' }, label: { type: String, default: '' } })
+const props = defineProps({ open: Boolean, title: { type: String, default: '' }, label: { type: String, default: '' },
+  dismissible: { type: Boolean, default: true } })
 const emit = defineEmits(['close'])
 const box = ref(null)
+function close() { if (props.dismissible) emit('close') }
 
 // Телефон: потянуть лист вниз за «ручку» или заголовок — закрыть (как в iOS). Лист едет за пальцем.
 let y0 = null, dy = 0
-function dragStart(e) { if (innerWidth >= 900 || (box.value && box.value.scrollTop > 0)) return; y0 = e.touches[0].clientY; dy = 0 }
+function dragStart(e) { if (!props.dismissible || innerWidth >= 900 || box.value?.scrollTop > 0) return; y0 = e.touches[0].clientY; dy = 0 }
 function dragMove(e) {
   if (y0 == null || !box.value) return
   dy = Math.max(0, e.touches[0].clientY - y0)
@@ -40,7 +42,7 @@ function dragEnd() {
   y0 = null
   el.style.transition = 'transform .22s cubic-bezier(.2, .9, .3, 1)'
   // дотянули — уезжает вниз и закрывается (лист под v-if, при новом открытии создаётся заново — сбрасывать сдвиг не нужно)
-  if (dy > Math.min(140, el.offsetHeight * 0.3)) { el.style.transform = 'translateY(100%)'; emit('close') }
+  if (props.dismissible && dy > Math.min(140, el.offsetHeight * 0.3)) { el.style.transform = 'translateY(100%)'; close() }
   else { el.style.transform = ''; setTimeout(() => { el.style.transition = '' }, 230) }
 }
 function dragCancel() { if (y0 == null || !box.value) return; y0 = null; box.value.style.transition = ''; box.value.style.transform = '' }

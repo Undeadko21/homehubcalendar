@@ -127,8 +127,8 @@ export function setWeekDays(n) {
 
 export const writableCalendars = () => (state.config?.calendars || []).filter((c) => c.writable && !c.hidden)
 
-export function newEvent(date, quick, template) {
-  state.editor = { date: date || state.cursor, ...(quick ? { quick } : {}), ...(template ? { template } : {}) }
+export function newEvent(date, template) {
+  state.editor = { date: date || state.cursor, ...(template ? { template } : {}) }
 }
 // Новое событие на отрезок, протянутый пальцем/мышью по пустому месту сетки (+ чья колонка).
 export function newEventAt(start, end, people, allDay = false) {
@@ -169,7 +169,7 @@ export async function quickAdd(text, date) {
   if (r.kind !== 'event') import('./haptic').then((m) => m.haptic('success'))
   if (r.kind === 'event') {
     if (!writableCalendars().length) throw new Error('Нет календаря, в который можно записать событие')
-    state.editor = { date: date || state.cursor, quick: text }
+    state.editor = { date: date || state.cursor, parsed: r }
     return 'event'
   }
   if (!r.list_id) throw new Error('Сначала создайте список в разделе «Списки»')
