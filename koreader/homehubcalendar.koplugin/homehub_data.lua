@@ -72,6 +72,29 @@ function Data.dateLabel(date)
     return date:sub(9, 10) .. "." .. date:sub(6, 7) .. "." .. date:sub(1, 4)
 end
 
+local WEEKDAYS = { "Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота" }
+local MONTHS = { "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря" }
+
+function Data.dayHeading(date)
+    local year, month, day = date:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
+    year, month, day = tonumber(year), tonumber(month), tonumber(day)
+    if not year or not MONTHS[month] or day < 1 or day > 31 then
+        return "", Data.dateLabel(date), ""
+    end
+    local instant = os.time { year = year, month = month, day = day, hour = 12 }
+    return tostring(day), MONTHS[month] .. " " .. year, WEEKDAYS[os.date("*t", instant).wday]
+end
+
+function Data.relativeDay(cache, index, today)
+    if cache.days[index].date == today then return "Сегодня" end
+    if index == 2 and cache.days[1].date == today then return "Завтра" end
+end
+
+function Data.isTripNote(note)
+    return note:find("Отвезти:", 1, true) ~= nil or note:find("Забрать:", 1, true) ~= nil
+end
+
 function Data.today(generated, now)
     now = now or os.time()
     if generated:sub(-1) == "Z" then
@@ -90,11 +113,8 @@ function Data.render(cache, index, status, today)
     end
     local day = cache.days[index]
     local date = Data.dateLabel(day.date)
-    if day.date == today then
-        date = "Сегодня · " .. date
-    elseif index == 2 and cache.days[1].date == today then
-        date = "Завтра · " .. date
-    end
+    local relative = Data.relativeDay(cache, index, today)
+    if relative then date = relative .. " · " .. date end
     local rows = { date, "Данные от " .. Data.dateLabel(cache.generated) .. " в " .. cache.generated:sub(12, 16) }
     if status then
         rows[#rows + 1] = status .. " Показано сохранённое расписание."
