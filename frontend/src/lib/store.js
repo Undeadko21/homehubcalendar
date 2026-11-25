@@ -54,7 +54,7 @@ export const state = reactive({
   peopleSheet: false, // лист «Люди» на телефоне
   personSheet: null, // id человека, чей профиль открыт
   toast: null, // { text, undo } — плашка внизу с «Отменить»
-  quickAdd: false, // лист единого «+»
+  quickAdd: false, // лист ввода фразой
   listsRev: 0, // списки изменились не на странице списков — перечитать
   textSize: params.get('size') || prefs.textSize || 'normal', // compact | normal | large
   initials: params.has('initials') ? params.get('initials') !== '0' : !!prefs.initials, // буква человека на плашке (не только цвет)
@@ -164,12 +164,13 @@ export function goToDay(date) {
 
 // Единое «Быстро»: сервер решает, событие это, дело или покупка. Событие открывается в форме для проверки,
 // дело и покупки добавляются сразу (с «Отменить»). Возвращает вид того, что получилось.
-export async function quickAdd(text, date) {
+export async function quickAdd(text, date, draft) {
   const r = await api.quick(text)
   if (r.kind !== 'event') import('./haptic').then((m) => m.haptic('success'))
   if (r.kind === 'event') {
     if (!writableCalendars().length) throw new Error('Нет календаря, в который можно записать событие')
-    state.editor = { date: date || state.cursor, parsed: r }
+    if (draft && state.editor === draft) draft.parsed = r
+    else state.editor = { date: date || state.cursor, parsed: r }
     return 'event'
   }
   if (!r.list_id) throw new Error('Сначала создайте список в разделе «Списки»')

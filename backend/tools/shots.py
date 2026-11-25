@@ -6,7 +6,7 @@
     python backend/tools/shots.py --views none --scenes card-open,keys,settings:reminders,offline --devices phone,narrow,desktop
 
 Сцены (--scenes, через запятую) — готовые состояния, чтобы не писать одноразовые скрипты:
-    plus            лист «+» (единый ввод)
+    plus            быстрый ввод фразой из верхнего «+»
     card            карточка первого события («Список»)
     card-open       карточка с раскрытыми «Цвет события» и «Значок»
     editor          редактор нового события
@@ -74,7 +74,12 @@ def scene(page, name: str, url: str, q: str, desktop: bool) -> str | None:
     """Привести страницу в состояние сцены. Возвращает None, если сцена не подходит устройству или не нашлось что открыть."""
     if name == "plus":
         _open(page, url, "today", q)
-        page.click("button.add-btn")
+        add = page.locator("button.add-btn")
+        opens_event = add.get_attribute("aria-label") == "Новое событие"
+        add.click()
+        if opens_event:
+            editor = page.get_by_role("dialog", name="Новое событие")
+            editor.get_by_role("button", name="Добавить фразой").click()
     elif name in ("card", "card-open"):
         if not _first_card(page, url, q):
             return None
@@ -103,14 +108,12 @@ def scene(page, name: str, url: str, q: str, desktop: bool) -> str | None:
             page.keyboard.press("n")
         else:
             _open(page, url, "today", q)
-            page.click("button.add-btn")
-            page.wait_for_timeout(300)
-            form = page.get_by_text("Событие — заполнить форму")
-            if form.count():
-                form.click()
-            else:   # в демо нет календаря с записью — ссылки на форму нет; клавиша N открывает тот же редактор
+            add = page.locator("button.add-btn")
+            opens_event = add.get_attribute("aria-label") == "Новое событие"
+            add.click()
+            if not opens_event:   # демо без календаря с записью: открываем форму по N
                 page.keyboard.press("Escape")
-                page.wait_for_timeout(600)
+                page.get_by_role("dialog", name="Добавить фразой", exact=True).wait_for(state="detached")
                 page.keyboard.press("n")
         page.locator(".editor").wait_for()
         if name == "editor-repeat":

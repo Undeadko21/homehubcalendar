@@ -1,10 +1,10 @@
 <template>
-  <Sheet :open="!!ed" :label="isNew ? 'Новое событие' : 'Изменить событие'" :dismissible="!busy" @close="close">
+  <Sheet :open="!!ed && !state.quickAdd" :label="isNew ? 'Новое событие' : 'Изменить событие'" :dismissible="!busy" @close="close">
     <form v-if="ed" class="editor" @submit.prevent="save">
       <div class="head">
         <button type="button" class="btn" :disabled="busy" @click="close">Отмена</button>
         <h2>{{ isNew ? 'Новое событие' : 'Событие' }}</h2>
-        <button type="submit" class="btn filled" :disabled="busy || parsing || !f.title.trim()">{{ busy ? '…' : 'Сохранить' }}</button>
+        <button type="submit" class="btn filled" :disabled="busy || !f.title.trim()">{{ busy ? '…' : 'Сохранить' }}</button>
       </div>
 
       <div class="group fields">
@@ -91,15 +91,10 @@
           <div class="row"><textarea v-model="f.description" class="in" rows="3" aria-label="Заметки" placeholder="Заметки"></textarea></div>
         </div>
         <div v-if="isNew" class="group fields">
-          <div class="row between">
-            <input v-model="quick" class="in" aria-label="Ввод фразой" placeholder="Йога завтра в 18:30" autocomplete="off"
-                   @keydown.enter.prevent="fillQuick" />
-            <button type="button" class="btn" :disabled="busy || parsing || !quick.trim()" @click="fillQuick">Разобрать</button>
-          </div>
-          <p v-if="quickError" class="conflict" role="alert">{{ quickError }}</p>
           <div class="row"><button type="button" class="btn" :disabled="busy" @click="openWizard">Секция или кружок по дням недели…</button></div>
         </div>
       </div>
+      <button v-if="isNew" type="button" class="btn phrase-btn" :disabled="busy" @click="state.quickAdd = true">Добавить фразой</button>
       <div v-if="!isNew && ed.event?.recurring" class="group">
         <div class="row between">
           <label for="ee-scope">Изменить</label>
@@ -145,9 +140,6 @@ const hasPeople = computed(() => (state.config?.people || []).some((p) => !p.id.
 const busy = ref(false)
 const error = ref('')
 const confirmDel = ref(false)
-const quick = ref('')
-const quickError = ref('')
-const parsing = ref(false)
 const parseNotes = ref([])
 const f = reactive({ title: '', location: '', description: '', allDay: false, startDate: '', startTime: '', endDate: '',
   endTime: '', repeat: '', until: '', calendar: '', people: [], scope: 'series' })
@@ -207,9 +199,6 @@ watch(ed, (v) => {
   nextTick(() => { filling = false })
   error.value = ''
   confirmDel.value = false
-  quick.value = ''
-  quickError.value = ''
-  parsing.value = false
   parseNotes.value = []
   more.value = false
   if (!v) return
@@ -254,9 +243,15 @@ watch(ed, (v) => {
       const end = new Date(new Date(`${f.startDate}T${f.startTime}`).getTime() + (t.minutes || 60) * 60000)
       f.endDate = isoDate(end); f.endTime = hm(end)
     }
-    if (v.parsed) applyParsed(v.parsed)
   }
   origPeople = [...f.people]
+})
+
+watch(() => ed.value?.parsed, (parsed) => {
+  if (!parsed) return
+  filling = true
+  applyParsed(parsed)
+  nextTick(() => { filling = false })
 })
 
 // Сдвигаем конец вместе с началом, чтобы длительность не терялась.
@@ -287,27 +282,6 @@ function applyParsed(r) {
   f.repeat = r.repeat?.nth === -1 ? 'monthly_last' : r.repeat?.nth ? 'monthly_nth' : r.repeat?.freq || ''
   if (r.people.length) f.people = r.people
   parseNotes.value = r.notes
-}
-
-async function fillQuick() {
-  if (!quick.value.trim() || busy.value || parsing.value) return
-  const draft = ed.value
-  parsing.value = true
-  quickError.value = ''
-  try {
-    const r = await api.quick(quick.value)
-    if (ed.value !== draft) return
-    if (r.kind !== 'event') { quickError.value = 'Введите фразу о событии'; return }
-    filling = true
-    applyParsed(r)
-    more.value = false
-    await nextTick()
-    filling = false
-  } catch (err) {
-    if (ed.value === draft) quickError.value = 'Не удалось разобрать: ' + err.message
-  } finally {
-    if (ed.value === draft) parsing.value = false
-  }
 }
 
 // Повтор по дате начала: «каждые 2 недели», «каждый месяц, 3-й четверг», «… последний четверг» (v0.21)
@@ -341,7 +315,7 @@ function payload() {
 }
 
 async function save() {
-  if (busy.value || parsing.value || !f.title.trim()) return
+  if (busy.value || !f.title.trim()) return
   error.value = ''
   const p = payload()
   if (!f.allDay && new Date(p.end) <= new Date(p.start)) {
@@ -410,6 +384,7 @@ async function remove(onlyThis) {
   background: var(--surface-2); color: var(--tint); font: inherit; font-weight: 600; text-align: left;
 }
 .more-btn small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.phrase-btn { min-height: 40px; }
 .chev { margin-left: auto; color: var(--ink-3); transition: transform .2s; font-size: 20px; line-height: 1; }
 .chev.open { transform: rotate(90deg); }
 .between { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
