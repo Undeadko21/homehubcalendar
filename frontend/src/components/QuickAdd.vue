@@ -57,7 +57,7 @@ function recentSub(r) {
   const who = (r.people || []).map((id) => personById.value[id]?.name).filter(Boolean).join(', ')
   return who ? `${dur} · ${who}` : dur
 }
-function useRecent(r) { close(); newEvent(undefined, undefined, r) }
+function useRecent(r) { close(); newEvent(undefined, r) }
 
 watch(() => state.quickAdd, async (v) => {
   if (!v) return

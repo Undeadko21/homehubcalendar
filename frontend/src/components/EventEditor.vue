@@ -1,75 +1,67 @@
 <template>
-  <Sheet :open="!!ed" :label="isNew ? 'Новое событие' : 'Изменить событие'" @close="close">
+  <Sheet :open="!!ed" :label="isNew ? 'Новое событие' : 'Изменить событие'" :dismissible="!busy" @close="close">
     <form v-if="ed" class="editor" @submit.prevent="save">
       <div class="head">
         <button type="button" class="btn" :disabled="busy" @click="close">Отмена</button>
         <h2>{{ isNew ? 'Новое событие' : 'Событие' }}</h2>
-        <button type="submit" class="btn filled" :disabled="busy || !f.title.trim()">{{ busy ? '…' : 'Сохранить' }}</button>
+        <button type="submit" class="btn filled" :disabled="busy || parsing || !f.title.trim()">{{ busy ? '…' : 'Сохранить' }}</button>
       </div>
 
-      <div v-if="isNew" class="group">
+      <div class="group fields">
+        <div class="row"><input v-model="f.title" class="in title-in" aria-label="Название" placeholder="Название" autocomplete="off" required /></div>
+        <div class="row"><input v-model="f.location" class="in" aria-label="Место" placeholder="Место" autocomplete="off" /></div>
+      </div>
+
+      <div class="group fields">
         <div class="row between">
-          <input v-model="quick" class="in" placeholder="Быстро: «Йога завтра в 18:30 у Оли»" autocomplete="off"
-                 @keydown.enter.prevent="fillQuick" />
-          <button type="button" class="btn link" :disabled="busy || !quick.trim()" @click="fillQuick">Разобрать</button>
+          <label for="ee-sd">{{ showEndDate ? 'Дата начала' : 'Дата' }}</label>
+          <input id="ee-sd" v-model="f.startDate" type="date" required />
         </div>
-        <p v-if="quickNote" class="faint small qn">{{ quickNote }}</p>
-        <div class="row"><button type="button" class="btn link" @click="openWizard">Секция или кружок по дням недели…</button></div>
-      </div>
-
-      <div class="group">
-        <div class="row"><input v-model="f.title" class="in title-in" placeholder="Название" autocomplete="off" required /></div>
-      </div>
-
-      <div class="group">
-        <div class="row between">
-          <label for="ee-all">Весь день</label>
+        <div v-if="showEndDate" class="row between">
+          <label for="ee-ed">Дата окончания</label>
+          <input id="ee-ed" v-model="f.endDate" type="date" required />
+        </div>
+        <label class="row between all-day">
+          <span>Весь день</span>
           <input id="ee-all" v-model="f.allDay" type="checkbox" class="chk" />
-        </div>
-        <div class="row between">
-          <label for="ee-sd">Начало</label>
-          <span class="dt">
-            <input id="ee-sd" v-model="f.startDate" type="date" required @change="syncEnd" />
-            <input v-if="!f.allDay" v-model="f.startTime" type="time" required @change="syncEnd" />
-          </span>
-        </div>
-        <div class="row between">
-          <label for="ee-ed">Конец</label>
-          <span class="dt">
-            <input id="ee-ed" v-model="f.endDate" type="date" required />
-            <input v-if="!f.allDay" v-model="f.endTime" type="time" required />
-          </span>
-        </div>
-        <div v-if="!f.allDay" class="row durs" role="group" aria-label="Длительность">
-          <button v-for="m in DURS" :key="m" type="button" class="dur" :class="{ on: duration === m }" @click="setDuration(m)">{{ durLabel(m) }}</button>
+        </label>
+        <div v-if="!f.allDay" class="row times">
+          <label class="time-field">Начало<input v-model="f.startTime" type="time" required /></label>
+          <label class="time-field">Конец<input v-model="f.endTime" type="time" required /></label>
         </div>
       </div>
 
-      <div class="group">
+      <div v-if="hasPeople" class="group fields">
         <div class="row stack">
           <span class="label">Кто участвует</span>
-          <PeoplePicker v-model="f.people" faces label="Кто участвует" :disabled="busy" />
-          <p class="faint small">{{ f.people.length ? "Событие будет показано у выбранных." : "Никого не выбрано — по владельцам календаря и словам в названии." }}</p>
+          <PeoplePicker v-model="f.people" label="Кто участвует" :disabled="busy" />
         </div>
       </div>
 
-      <div v-if="warns.length" class="group warns">
+      <p v-if="parseNotes.length" class="hint" role="status">{{ parseNotes.join(' · ') }}</p>
+      <p v-if="error" class="conflict" role="alert">{{ error }}</p>
+      <div v-if="warns.length" class="group warns" role="status">
         <div v-for="(x, i) in warns" :key="i" class="row wrow" :class="x.level">
           <span class="wdot"></span><span>{{ x.text }}</span>
         </div>
       </div>
 
-      <!-- Остальное — под «Ещё», чтобы форма помещалась на экран телефона -->
-      <button type="button" class="more-btn" :aria-expanded="more" @click="more = !more">
-        <span>{{ more ? 'Скрыть' : 'Ещё' }}</span>
-        <small v-if="!more" class="faint">{{ moreSummary }}</small>
+      <button type="button" class="more-btn" :aria-expanded="more" aria-controls="ee-more" @click="more = !more">
+        <span>Подробнее</span>
+        <small v-if="!more" class="hint">{{ moreSummary }}</small>
         <span class="chev" :class="{ open: more }" aria-hidden="true">›</span>
       </button>
-      <template v-if="more">
-        <div class="group">
-          <div class="row"><input v-model="f.location" class="in" placeholder="Место" autocomplete="off" /></div>
+      <div id="ee-more" v-show="more">
+        <div v-if="!f.allDay" class="group fields">
+          <div class="row stack" role="group" aria-label="Длительность">
+            <span>Длительность</span>
+            <div class="durs">
+              <button v-for="m in DURS" :key="m" type="button" class="dur" :class="{ on: duration === m }"
+                      :aria-pressed="duration === m" @click="setDuration(m)">{{ durLabel(m) }}</button>
+            </div>
+          </div>
         </div>
-        <div class="group">
+        <div class="group fields">
           <div class="row between">
             <label for="ee-rep">Повтор</label>
             <select id="ee-rep" v-model="f.repeat">
@@ -95,10 +87,19 @@
             </select>
           </div>
         </div>
-        <div class="group">
-          <div class="row stack"><textarea v-model="f.description" class="in" rows="3" placeholder="Заметки"></textarea></div>
+        <div class="group fields">
+          <div class="row"><textarea v-model="f.description" class="in" rows="3" aria-label="Заметки" placeholder="Заметки"></textarea></div>
         </div>
-      </template>
+        <div v-if="isNew" class="group fields">
+          <div class="row between">
+            <input v-model="quick" class="in" aria-label="Ввод фразой" placeholder="Йога завтра в 18:30" autocomplete="off"
+                   @keydown.enter.prevent="fillQuick" />
+            <button type="button" class="btn" :disabled="busy || parsing || !quick.trim()" @click="fillQuick">Разобрать</button>
+          </div>
+          <p v-if="quickError" class="conflict" role="alert">{{ quickError }}</p>
+          <div class="row"><button type="button" class="btn" :disabled="busy" @click="openWizard">Секция или кружок по дням недели…</button></div>
+        </div>
+      </div>
       <div v-if="!isNew && ed.event?.recurring" class="group">
         <div class="row between">
           <label for="ee-scope">Изменить</label>
@@ -109,8 +110,6 @@
           </select>
         </div>
       </div>
-
-      <p v-if="error" class="conflict">{{ error }}</p>
 
       <div v-if="!isNew" class="group">
         <div v-if="!confirmDel" class="row">
@@ -135,23 +134,27 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { state, reload, writableCalendars } from '../lib/store'
 import { api } from '../lib/api'
-import { eventRange, isoDate, isoLocal, addDays } from '../lib/dates'
+import { DAY, eventRange, isoDate, addDays } from '../lib/dates'
 import PeoplePicker from './PeoplePicker.vue'
 import Sheet from './Sheet.vue'
 
 const ed = computed(() => state.editor)
 const isNew = computed(() => !ed.value?.event)
 const cals = computed(() => writableCalendars())
+const hasPeople = computed(() => (state.config?.people || []).some((p) => !p.id.startsWith('_')))
 const busy = ref(false)
 const error = ref('')
 const confirmDel = ref(false)
 const quick = ref('')
-const quickNote = ref('')
+const quickError = ref('')
+const parsing = ref(false)
+const parseNotes = ref([])
 const f = reactive({ title: '', location: '', description: '', allDay: false, startDate: '', startTime: '', endDate: '',
   endTime: '', repeat: '', until: '', calendar: '', people: [], scope: 'series' })
 let origPeople = []
 const warns = ref([])
 const more = ref(false)
+const showEndDate = computed(() => !isNew.value || more.value || f.endDate !== f.startDate)
 const DURS = [30, 60, 90, 120]
 const durLabel = (m) => (m < 60 ? `${m} мин` : m % 60 ? `${Math.floor(m / 60)},5 ч` : `${m / 60} ч`)
 const duration = computed(() => {
@@ -164,27 +167,27 @@ function setDuration(m) {
   const e = new Date(a.getTime() + m * 60000)
   f.endDate = isoDate(e); f.endTime = hm(e)
 }
-// Что спрятано под «Ещё» — подсказка на кнопке.
+// Показываем назначение события и явно заполненные настройки даже при свёрнутых подробностях.
 const moreSummary = computed(() => {
   const parts = []
-  parts.push(f.location ? f.location : 'место')
-  parts.push(f.repeat === 'keep' ? 'повтор как есть' : f.repeat ? 'повтор' : 'без повтора')
-  if (cals.value.length > 1) parts.push(cals.value.find((c) => c.key === f.calendar)?.name || 'календарь')
-  if (f.description) parts.push('заметки')
-  return parts.join(' · ')
+  const calendar = cals.value.find((c) => c.key === f.calendar)
+  if (calendar) parts.push(calendar.name)
+  if (f.repeat) parts.push('Повтор')
+  if (f.description) parts.push('Заметки')
+  return parts.join(' · ') || 'Календарь, повтор и заметки'
 })
 
 // Проверка конфликтов по мере ввода (с паузой, чтобы не спрашивать сервер на каждую цифру).
 let wt = 0
 let wseq = 0
-watch(() => [ed.value, f.startDate, f.startTime, f.endDate, f.endTime, f.allDay, f.calendar, f.title, JSON.stringify(f.people)], () => {
+watch(() => [ed.value, f.startDate, f.startTime, f.endDate, f.endTime, f.allDay, f.calendar, f.title, f.location, f.people], () => {
+  const my = ++wseq
   clearTimeout(wt)
   warns.value = []
   if (!ed.value || f.allDay || !f.calendar || !f.startDate || !f.startTime || !f.endTime) return
   wt = setTimeout(async () => {
     const p = payload()
     if (new Date(p.end) <= new Date(p.start)) return
-    const my = ++wseq
     try {
       const r = await api.conflicts({ calendar: f.calendar, title: f.title, start: p.start, end: p.end, all_day: false,
         location: f.location, people: f.people.length ? f.people : null, uid: ed.value.event?.uid || null })
@@ -205,7 +208,10 @@ watch(ed, (v) => {
   error.value = ''
   confirmDel.value = false
   quick.value = ''
-  quickNote.value = ''
+  quickError.value = ''
+  parsing.value = false
+  parseNotes.value = []
+  more.value = false
   if (!v) return
   if (v.event) {
     const e = v.event
@@ -248,16 +254,19 @@ watch(ed, (v) => {
       const end = new Date(new Date(`${f.startDate}T${f.startTime}`).getTime() + (t.minutes || 60) * 60000)
       f.endDate = isoDate(end); f.endTime = hm(end)
     }
+    if (v.parsed) applyParsed(v.parsed)
   }
   origPeople = [...f.people]
-  // у существующего события с заполненными полями «Ещё» сразу открыто
-  more.value = !!(f.location || f.description || (f.repeat && f.repeat !== 'keep'))
 })
 
 // Сдвигаем конец вместе с началом, чтобы длительность не терялась.
-let prev = null
 watch(() => [f.startDate, f.startTime], ([d, t], old) => {
-  if (filling || !old || !old[0]) return
+  if (filling || !old[0] || !d || !f.endDate) return
+  if (f.allDay) {
+    const days = (Date.parse(f.endDate) - Date.parse(old[0])) / DAY
+    f.endDate = isoDate(addDays(new Date(`${d}T12:00`), days))
+    return
+  }
   const a = new Date(`${old[0]}T${old[1] || '00:00'}`)
   const b = new Date(`${f.endDate}T${f.endTime || '00:00'}`)
   const n = new Date(`${d}T${t || '00:00'}`)
@@ -265,29 +274,39 @@ watch(() => [f.startDate, f.startTime], ([d, t], old) => {
   const e = new Date(n.getTime() + (b - a))
   f.endDate = isoDate(e); f.endTime = hm(e)
 })
-function syncEnd() {}
 
-// Фраза пришла с экрана «Сегодня» — сразу разбираем.
-watch(ed, (v) => { if (v?.quick) { quick.value = v.quick; fillQuick() } })
-
-function close() { state.editor = null }
+function close() { if (!busy.value) state.editor = null }
 function openWizard() { state.editor = null; state.wizard = true }
 
+function applyParsed(r) {
+  f.title = r.title || f.title
+  f.allDay = r.all_day
+  f.startDate = r.date; f.endDate = r.date
+  if (!r.all_day) { f.startTime = r.start; f.endTime = r.end }
+  if (r.location) f.location = r.location
+  f.repeat = r.repeat?.nth === -1 ? 'monthly_last' : r.repeat?.nth ? 'monthly_nth' : r.repeat?.freq || ''
+  if (r.people.length) f.people = r.people
+  parseNotes.value = r.notes
+}
+
 async function fillQuick() {
-  if (!quick.value.trim()) return
-  quickNote.value = ''
+  if (!quick.value.trim() || busy.value || parsing.value) return
+  const draft = ed.value
+  parsing.value = true
+  quickError.value = ''
   try {
     const r = await api.quick(quick.value)
-    f.title = r.title || f.title
-    f.allDay = r.all_day
-    f.startDate = r.date; f.endDate = r.date
-    if (!r.all_day) { f.startTime = r.start; f.endTime = r.end }
-    f.repeat = r.repeat?.nth === -1 ? 'monthly_last' : r.repeat?.nth ? 'monthly_nth' : r.repeat?.freq || ''
-    if (r.location || r.repeat) more.value = true
-    if (r.people.length) f.people = r.people
-    quickNote.value = 'Проверьте поля ниже и нажмите «Сохранить»' + (r.notes.length ? ' · ' + r.notes.join(', ') : '')
+    if (ed.value !== draft) return
+    if (r.kind !== 'event') { quickError.value = 'Введите фразу о событии'; return }
+    filling = true
+    applyParsed(r)
+    more.value = false
+    await nextTick()
+    filling = false
   } catch (err) {
-    quickNote.value = 'Не удалось разобрать: ' + err.message
+    if (ed.value === draft) quickError.value = 'Не удалось разобрать: ' + err.message
+  } finally {
+    if (ed.value === draft) parsing.value = false
   }
 }
 
@@ -322,9 +341,14 @@ function payload() {
 }
 
 async function save() {
+  if (busy.value || parsing.value || !f.title.trim()) return
   error.value = ''
   const p = payload()
-  if (!f.allDay && new Date(p.end) <= new Date(p.start)) { error.value = 'Конец должен быть позже начала'; return }
+  if (!f.allDay && new Date(p.end) <= new Date(p.start)) {
+    error.value = 'Конец должен быть позже начала. Для события после полуночи укажите дату окончания.'
+    more.value = true
+    return
+  }
   if (f.allDay && f.endDate < f.startDate) { error.value = 'Конец раньше начала'; return }
   busy.value = true
   try {
@@ -367,32 +391,52 @@ async function remove(onlyThis) {
 </script>
 
 <style scoped>
-.head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 12px; }
+.head {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+  gap: 6px; background: var(--surface); padding: 6px 0 10px; margin-bottom: 4px;
+}
 .head h2 { margin: 0; font-size: 17px; font-weight: 600; }
-.group { margin-bottom: 12px; }
-.title-in { font-size: 19px; font-weight: 600; }
-.durs { gap: 6px; flex-wrap: wrap; }
-.dur { border: 0; border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; background: var(--fill); color: var(--ink-2); }
+.head .btn { min-height: 40px; padding-inline: 10px; }
+.editor :deep(:is(input, button, select, textarea)) { scroll-margin-top: 64px; }
+.group { margin-bottom: 10px; }
+.fields { background: var(--surface-2); }
+.group .row { padding-inline: 12px; }
+.fields .row + .row::before { left: 12px; right: 12px; }
+.durs { display: flex; gap: 6px; flex-wrap: wrap; }
+.dur { border: 0; border-radius: 999px; padding: 7px 12px; font: inherit; font-size: 13px; background: var(--fill); color: var(--ink-2); }
 .dur.on { background: var(--tint); color: #fff; font-weight: 600; }
 .more-btn {
-  width: 100%; display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 12px 16px; border: 0; border-radius: var(--radius-m);
+  width: 100%; min-height: 44px; display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 8px 12px; border: 0; border-radius: var(--radius-m);
   background: var(--surface-2); color: var(--tint); font: inherit; font-weight: 600; text-align: left;
 }
 .more-btn small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
 .chev { margin-left: auto; color: var(--ink-3); transition: transform .2s; font-size: 20px; line-height: 1; }
 .chev.open { transform: rotate(90deg); }
 .between { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.in { width: 100%; border: 0; background: transparent; font: inherit; color: var(--ink); padding: 4px 0; outline: none; resize: vertical; }
-.dt { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.dt input, select { font: inherit; color: var(--ink); background: var(--fill, rgba(120,120,128,.12)); border: 0; border-radius: 8px; padding: 5px 8px; }
+.in { width: 100%; min-width: 0; border: 0; background: transparent; font: inherit; color: var(--ink); padding: 4px 0; resize: vertical; }
+.in.title-in { font-size: 20px; font-weight: 600; }
+.times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.time-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; color: var(--ink-2); font-size: 13px; }
+.fields input[type=date], .fields input[type=time], select {
+  min-width: 0; max-width: 100%; min-height: 34px; font: inherit; color: var(--ink); background: var(--fill);
+  border: 0; border-radius: 8px; padding: 5px 8px;
+}
+.fields input[type=time] { width: 100%; font-size: 16px; }
+.fields input[type=date] { width: min(58%, 160px); }
 select { min-width: 0; max-width: 62%; text-overflow: ellipsis; }   /* «Каждый месяц, последнюю пятницу» не раздвигает строку */
+.all-day { cursor: pointer; }
 .chk { width: 22px; height: 22px; accent-color: var(--red, #ff3b30); }
+.editor :deep(.picker .opt) { min-height: 36px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .danger { color: var(--red, #ff3b30); }
 .warns .wrow { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
 .wdot { width: 8px; height: 8px; border-radius: 50%; flex: none; margin-top: 6px; background: var(--red, #ff3b30); }
 .wrow.info .wdot { background: var(--orange, #ff9500); }
 .wrow.info { color: var(--muted, #8a8a8e); }
-.conflict { color: var(--red, #ff3b30); font-size: 14px; }
-.small { font-size: 13px; }
+.conflict { color: var(--red, #ff3b30); font-size: 14px; margin: 6px 12px 10px; }
+.hint { color: var(--ink-2); font-size: 13px; }
+@media (max-width: 374px) {
+  .head h2 { font-size: 15px; }
+  .head .btn { font-size: 13px; padding-inline: 6px; }
+}
 </style>

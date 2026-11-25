@@ -108,7 +108,9 @@ def _titles(cal):
 
 def test_create_event_warns_about_conflict_and_writes_to_caldav(page, stack):
     _open_new(page)
-    page.fill("#ee-sd", stack["event_day"]); page.fill("#ee-ed", stack["event_day"])
+    assert not page.locator("#ee-ed").is_visible()
+    assert not page.locator("#ee-rep").is_visible()
+    page.fill("#ee-sd", stack["event_day"])
     page.locator("input[type=time]").nth(0).fill("10:30"); page.locator("input[type=time]").nth(1).fill("11:30")
     page.fill("input[placeholder='Название']", "Врач")
     page.wait_for_selector(".warns", timeout=5000)
@@ -123,6 +125,7 @@ def test_create_event_warns_about_conflict_and_writes_to_caldav(page, stack):
 
 def test_section_wizard_creates_series(page, stack):
     _open_new(page)
+    page.get_by_role("button", name="Подробнее").click()
     page.click(".editor >> text=Секция или кружок")
     page.fill(".wiz input[placeholder^='Название']", "Ушу")
     page.click("button.day:has-text('вт')"); page.click("button.day:has-text('чт')")
@@ -130,6 +133,47 @@ def test_section_wizard_creates_series(page, stack):
     page.wait_for_selector(".wiz", state="detached", timeout=10000)
     evs = [e for e in stack["cal"].events() if "Ушу" in e.data]
     assert len(evs) == 1 and "BYDAY=TU,TH" in evs[0].data     # вт+чт с одинаковым временем — одна серия
+
+
+def test_create_multiday_event_with_collapsed_details(page, stack):
+    _open_new(page)
+    day = datetime.fromisoformat(stack["event_day"])
+    last_day = (day + timedelta(days=2)).date().isoformat()
+    page.get_by_role("textbox", name="Название").fill("Семейная поездка на три дня")
+    page.locator("#ee-all").check()
+    page.get_by_role("button", name="Подробнее").click()
+    page.fill("#ee-ed", last_day)
+    page.get_by_role("button", name="Подробнее").click()
+    assert page.locator("#ee-ed").input_value() == last_day
+    assert not page.locator("input[type=time]").count()
+    page.get_by_role("button", name="Сохранить").click()
+    page.locator(".editor").wait_for(state="detached", timeout=10000)
+    event = next(e.icalendar_component for e in stack["cal"].events()
+                 if e.icalendar_component.get("SUMMARY") == "Семейная поездка на три дня")
+    assert event.decoded("DTSTART") == day.date()
+    assert event.decoded("DTEND") == (day + timedelta(days=3)).date()
+
+
+def test_quick_event_opens_compact_form_with_one_parse(page, stack):
+    requests = []
+
+    def parsed(route):
+        requests.append(route.request.post_data_json["text"])
+        route.fulfill(json={"kind": "event", "title": "Танцы", "date": stack["event_day"], "start": "18:15",
+                            "end": "19:45", "all_day": False, "people": [], "notes": [], "repeat": {"freq": "weekly"}})
+
+    page.route("**/api/quick", parsed)
+    page.click("button.add-btn")
+    quick = page.get_by_role("dialog", name="Добавить", exact=True)
+    quick.get_by_role("textbox", name="Быстро добавить", exact=True).fill("Танцы в 18:15–19:45 каждую неделю")
+    quick.get_by_role("button", name="Добавить", exact=True).click()
+    page.get_by_role("dialog", name="Новое событие").wait_for()
+    assert page.get_by_role("textbox", name="Название").input_value() == "Танцы"
+    assert page.locator("input[type=time]").evaluate_all("inputs => inputs.map(input => input.value)") == ["18:15", "19:45"]
+    assert not page.locator("#ee-rep").is_visible()
+    page.get_by_role("button", name="Подробнее").click()
+    assert page.locator("#ee-rep").input_value() == "weekly"
+    assert requests == ["Танцы в 18:15–19:45 каждую неделю"]
 
 
 def test_live_update_between_two_pages(page, stack):

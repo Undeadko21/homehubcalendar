@@ -9,7 +9,7 @@
     plus            лист «+» (единый ввод)
     card            карточка первого события («Список»)
     card-open       карточка с раскрытыми «Цвет события» и «Значок»
-    editor          редактор нового события (клавиша N; только компьютер)
+    editor          редактор нового события
     keys            лист «Горячие клавиши» (Shift+/; только компьютер)
     settings:<id>   страница настроек: people, calendars, trips, birthdays, reminders, sources, outside, app, news, look, wall,
                     changes, stats, system, cloud, address, devices, vps
@@ -82,11 +82,11 @@ def scene(page, name: str, url: str, q: str, desktop: bool) -> str | None:
             for b in page.locator("button.color-row").all():
                 b.click()
                 page.wait_for_timeout(150)
-    elif name in ("editor", "keys"):
+    elif name == "keys":
         if not desktop:
             return None
         _open(page, url, "week", q)
-        page.keyboard.press("n" if name == "editor" else "Shift+Slash")
+        page.keyboard.press("Shift+Slash")
     elif name.startswith("settings:"):
         page.goto(f"{url}/?nointro{q}")
         page.evaluate(f"sessionStorage.setItem('settingsPage', {name.split(':', 1)[1]!r})")
@@ -97,7 +97,7 @@ def scene(page, name: str, url: str, q: str, desktop: bool) -> str | None:
         _open(page, url, name.split(":", 1)[1], q)
         if name.startswith("unusual-open"):
             page.click(".uw .head")
-    elif name == "editor-repeat":
+    elif name in ("editor", "editor-repeat"):
         if desktop:
             _open(page, url, "week", q)
             page.keyboard.press("n")
@@ -112,17 +112,12 @@ def scene(page, name: str, url: str, q: str, desktop: bool) -> str | None:
                 page.keyboard.press("Escape")
                 page.wait_for_timeout(600)
                 page.keyboard.press("n")
-        page.wait_for_timeout(400)
-        page.fill("#ee-sd", "2026-11-27")   # пятница, последняя в месяце (и 4-я)
-        page.dispatch_event("#ee-sd", "change")
-        page.wait_for_timeout(200)
-        if not page.locator("#ee-rep").count():
-            page.click("button.more-btn")   # «Ещё»
-            page.wait_for_timeout(300)
-        opts = page.eval_on_selector_all("#ee-rep option", "o => o.map(x => x.textContent.trim())")
-        print(name, "повтор:", opts)
-        page.select_option("#ee-rep", "monthly_last")
-        page.locator("#ee-rep").scroll_into_view_if_needed()
+        page.locator(".editor").wait_for()
+        if name == "editor-repeat":
+            page.fill("#ee-sd", "2026-11-27")   # пятница, последняя в месяце (и 4-я)
+            page.get_by_role("button", name="Подробнее").click()
+            page.select_option("#ee-rep", "monthly_last")
+            page.locator("#ee-rep").scroll_into_view_if_needed()
     elif name in ("push", "push-dismiss", "push-on"):
         if name == "push-dismiss":   # headless-браузер сразу «запрещено»; здесь — разрешения ещё не спрашивали, окно закрыли
             page.add_init_script("""Object.defineProperty(Notification, 'permission', { get: () => 'default' });
