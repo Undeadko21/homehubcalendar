@@ -1,4 +1,5 @@
 local DataStorage = require("datastorage")
+local Dispatcher = require("dispatcher")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
@@ -19,7 +20,22 @@ local HomeHub = WidgetContainer:extend {
 
 function HomeHub:init()
     self.settings = LuaSettings:open(DataStorage:getSettingsDir() .. "/homehubcalendar.lua")
+    self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
+end
+
+function HomeHub:onDispatcherRegisterActions()
+    Dispatcher:registerAction("homehubcalendar_open", {
+        category = "none",
+        event = "OpenHomeHubCalendar",
+        title = "Календарь",
+        general = true,
+    })
+end
+
+function HomeHub:onOpenHomeHubCalendar()
+    self:showDay()
+    return true
 end
 
 function HomeHub:addToMainMenu(menu_items)
