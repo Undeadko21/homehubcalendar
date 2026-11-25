@@ -119,7 +119,7 @@ function HomeHub:showDay(index, status)
         for day = 1, 2 do
             local selected = day
             buttons[1][day] = {
-                text = Data.dateLabel(cache.days[day].date):sub(1, 5),
+                text = Data.relativeDay(cache, day, today) or Data.dateLabel(cache.days[day].date):sub(1, 5),
                 enabled = day ~= index,
                 callback = function() self:showDay(selected, status) end,
             }
@@ -139,15 +139,32 @@ function HomeHub:showDay(index, status)
         { text = "Закрыть", callback = function() self:closeViewer() end },
     }
     local viewer
-    viewer = TextViewer:new {
-        title = "Домашний календарь",
-        text = Data.render(cache, index, status or (not connected and "Сначала подключите календарь." or nil),
-            today),
-        buttons_table = buttons,
-        close_callback = function()
-            if self.viewer == viewer then self.viewer = nil end
-        end,
-    }
+    local function on_close()
+        if self.viewer == viewer then self.viewer = nil end
+    end
+    if cache then
+        local ok, page = pcall(function()
+            return require("homehub_page"):new {
+                cache = cache, day_index = index, today = today, status = status, buttons = buttons,
+                close_callback = on_close,
+                turn_day = function(delta)
+                    local next_day = index + delta
+                    if next_day < 1 or next_day > #cache.days then return false end
+                    self:showDay(next_day, status)
+                    return true
+                end,
+            }
+        end)
+        if ok then viewer = page end
+    end
+    if not viewer then
+        viewer = TextViewer:new {
+            title = "Домашний календарь",
+            text = Data.render(cache, index, status or (not connected and "Сначала подключите календарь." or nil), today),
+            buttons_table = buttons,
+            close_callback = on_close,
+        }
+    end
     self.viewer = viewer
     UIManager:show(viewer)
 end
