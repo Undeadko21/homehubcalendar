@@ -8,17 +8,29 @@
 
 <script setup>
 // Кнопка микрофона: распознанная фраза уходит в событие `text`, ошибка — в `error`.
-import { ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { voiceSupported, listen, stop } from '../lib/voice'
 
 defineProps({ disabled: Boolean })
 const emit = defineEmits(['text', 'error'])
 const active = ref(false)
+onBeforeUnmount(() => {
+  if (!active.value) return
+  active.value = false
+  stop()
+})
 
 async function toggle() {
   if (active.value) { stop(); return }
   active.value = true
-  try { emit('text', await listen()) } catch (e) { emit('error', e.message) } finally { active.value = false }
+  try {
+    const text = await listen()
+    if (active.value) emit('text', text)
+  } catch (e) {
+    if (active.value) emit('error', e.message)
+  } finally {
+    active.value = false
+  }
 }
 </script>
 

@@ -4,12 +4,24 @@
       <div class="head">
         <button type="button" class="btn" :disabled="busy" @click="close">Отмена</button>
         <h2>{{ isNew ? 'Новое событие' : 'Событие' }}</h2>
-        <button type="submit" class="btn filled" :disabled="busy || !f.title.trim()">{{ busy ? '…' : 'Сохранить' }}</button>
+        <button type="submit" class="btn filled" :disabled="busy || parsing || !f.title.trim()">{{ busy ? '…' : 'Сохранить' }}</button>
       </div>
 
       <div class="group fields">
         <div class="row"><input v-model="f.title" class="in title-in" aria-label="Название" placeholder="Название" autocomplete="off" required /></div>
         <div class="row"><input v-model="f.location" class="in" aria-label="Место" placeholder="Место" autocomplete="off" /></div>
+      </div>
+
+      <div v-if="isNew" class="phrase-group">
+        <div class="phrase-row">
+          <input v-model="phrase" class="phrase-input" aria-label="Добавить фразой" placeholder="Добавить фразой"
+                 autocomplete="off" enterkeyhint="go" :disabled="busy || parsing" @keydown.enter.prevent="parsePhrase" />
+          <MicButton :disabled="busy || parsing" @text="dictate" @error="phraseError = $event" />
+          <button v-if="phrase.trim()" type="button" class="btn gray" :disabled="busy || parsing" @click="parsePhrase">
+            {{ parsing ? '…' : 'Заполнить' }}
+          </button>
+        </div>
+        <p v-if="phraseError" class="conflict" role="alert">{{ phraseError }}</p>
       </div>
 
       <div class="group fields">
@@ -92,9 +104,9 @@
         </div>
         <div v-if="isNew" class="group fields">
           <div class="row"><button type="button" class="btn" :disabled="busy" @click="openWizard">Секция или кружок по дням недели…</button></div>
+          <div class="row"><button type="button" class="btn" :disabled="busy || parsing" @click="state.quickAdd = true">Частые события, дела и покупки</button></div>
         </div>
       </div>
-      <button v-if="isNew" type="button" class="btn phrase-btn" :disabled="busy" @click="state.quickAdd = true">Добавить фразой</button>
       <div v-if="!isNew && ed.event?.recurring" class="group">
         <div class="row between">
           <label for="ee-scope">Изменить</label>
@@ -130,6 +142,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { state, reload, writableCalendars } from '../lib/store'
 import { api } from '../lib/api'
 import { DAY, eventRange, isoDate, addDays } from '../lib/dates'
+import MicButton from './MicButton.vue'
 import PeoplePicker from './PeoplePicker.vue'
 import Sheet from './Sheet.vue'
 
@@ -139,6 +152,9 @@ const cals = computed(() => writableCalendars())
 const hasPeople = computed(() => (state.config?.people || []).some((p) => !p.id.startsWith('_')))
 const busy = ref(false)
 const error = ref('')
+const phrase = ref('')
+const phraseError = ref('')
+const parsing = ref(false)
 const confirmDel = ref(false)
 const parseNotes = ref([])
 const f = reactive({ title: '', location: '', description: '', allDay: false, startDate: '', startTime: '', endDate: '',
@@ -198,6 +214,9 @@ watch(ed, (v) => {
   filling = true
   nextTick(() => { filling = false })
   error.value = ''
+  phrase.value = ''
+  phraseError.value = ''
+  parsing.value = false
   confirmDel.value = false
   parseNotes.value = []
   more.value = false
@@ -247,12 +266,7 @@ watch(ed, (v) => {
   origPeople = [...f.people]
 })
 
-watch(() => ed.value?.parsed, (parsed) => {
-  if (!parsed) return
-  filling = true
-  applyParsed(parsed)
-  nextTick(() => { filling = false })
-})
+watch(() => ed.value?.parsed, (parsed) => { if (parsed) applyParsed(parsed) })
 
 // Сдвигаем конец вместе с началом, чтобы длительность не терялась.
 watch(() => [f.startDate, f.startTime], ([d, t], old) => {
@@ -273,15 +287,52 @@ watch(() => [f.startDate, f.startTime], ([d, t], old) => {
 function close() { if (!busy.value) state.editor = null }
 function openWizard() { state.editor = null; state.wizard = true }
 
-function applyParsed(r) {
+async function parsePhrase() {
+  const text = phrase.value.trim()
+  if (!text || busy.value || parsing.value || !ed.value || !isNew.value) return
+  const draft = ed.value
+  phraseError.value = ''
+  parsing.value = true
+  try {
+    const parsed = await api.quick(text)
+    if (ed.value !== draft) return
+    if (parsed.kind !== 'event') { phraseError.value = 'Введите фразу о событии, например «Встреча завтра в 18:30».'; return }
+    applyParsed(parsed, true)
+    phrase.value = ''
+  } catch (err) {
+    if (ed.value === draft) phraseError.value = err.message
+  } finally {
+    if (ed.value === draft) parsing.value = false
+  }
+}
+
+function dictate(text) {
+  phrase.value = text
+  parsePhrase()
+}
+
+function applyParsed(r, keepUnspecified = false) {
+  filling = true
   f.title = r.title || f.title
-  f.allDay = r.all_day
-  f.startDate = r.date; f.endDate = r.date
-  if (!r.all_day) { f.startTime = r.start; f.endTime = r.end }
+  const defaultDate = 'дата не указана — взято сегодня'
+  const keepDate = keepUnspecified && r.notes.includes(defaultDate) && !!f.startDate
+  const date = keepDate ? f.startDate : r.date
+  if (!keepUnspecified || !r.all_day) {
+    f.allDay = r.all_day
+    f.startDate = date; f.endDate = date
+    if (!r.all_day) { f.startTime = r.start; f.endTime = r.end }
+  } else if (!keepDate) {
+    const days = (Date.parse(f.endDate) - Date.parse(f.startDate)) / DAY
+    f.startDate = date
+    f.endDate = isoDate(addDays(new Date(`${date}T12:00`), Number.isFinite(days) ? days : 0))
+  }
   if (r.location) f.location = r.location
-  f.repeat = r.repeat?.nth === -1 ? 'monthly_last' : r.repeat?.nth ? 'monthly_nth' : r.repeat?.freq || ''
+  if (!keepUnspecified || r.repeat) {
+    f.repeat = r.repeat?.nth === -1 ? 'monthly_last' : r.repeat?.nth ? 'monthly_nth' : r.repeat?.freq || ''
+  }
   if (r.people.length) f.people = r.people
-  parseNotes.value = r.notes
+  parseNotes.value = keepDate ? r.notes.filter((note) => note !== defaultDate) : r.notes
+  nextTick(() => { filling = false })
 }
 
 // Повтор по дате начала: «каждые 2 недели», «каждый месяц, 3-й четверг», «… последний четверг» (v0.21)
@@ -315,7 +366,7 @@ function payload() {
 }
 
 async function save() {
-  if (busy.value || !f.title.trim()) return
+  if (busy.value || parsing.value || !f.title.trim()) return
   error.value = ''
   const p = payload()
   if (!f.allDay && new Date(p.end) <= new Date(p.start)) {
@@ -384,7 +435,13 @@ async function remove(onlyThis) {
   background: var(--surface-2); color: var(--tint); font: inherit; font-weight: 600; text-align: left;
 }
 .more-btn small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
-.phrase-btn { min-height: 40px; }
+.phrase-group { margin-bottom: 10px; }
+.phrase-row { display: flex; align-items: stretch; gap: 6px; }
+.phrase-input {
+  flex: 1; min-width: 0; min-height: 44px; border: 0; border-radius: 10px; padding: 6px 12px;
+  background: var(--surface-2); color: var(--ink); font: inherit; font-size: 16px;
+}
+.phrase-row .btn { padding-inline: 8px; }
 .chev { margin-left: auto; color: var(--ink-3); transition: transform .2s; font-size: 20px; line-height: 1; }
 .chev.open { transform: rotate(90deg); }
 .between { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

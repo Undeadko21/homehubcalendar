@@ -79,7 +79,8 @@ def scene(page, name: str, url: str, q: str, desktop: bool) -> str | None:
         add.click()
         if opens_event:
             editor = page.get_by_role("dialog", name="Новое событие")
-            editor.get_by_role("button", name="Добавить фразой").click()
+            editor.get_by_role("button", name="Подробнее").click()
+            editor.get_by_role("button", name="Частые события, дела и покупки").click()
     elif name in ("card", "card-open"):
         if not _first_card(page, url, q):
             return None
