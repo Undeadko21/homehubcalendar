@@ -153,7 +153,7 @@ def test_create_multiday_event_with_collapsed_details(page, stack):
     assert event.decoded("DTEND") == (day + timedelta(days=3)).date()
 
 
-def test_quick_event_opens_compact_form_with_one_parse(page, stack):
+def test_event_phrase_fills_current_form_with_one_parse(page, stack):
     requests = []
 
     def parsed(route):
@@ -163,15 +163,14 @@ def test_quick_event_opens_compact_form_with_one_parse(page, stack):
 
     page.route("**/api/quick", parsed)
     _open_new(page)
-    page.get_by_role("textbox", name="Место").fill("Спортзал")
-    page.get_by_role("button", name="Добавить фразой", exact=True).click()
-    quick = page.get_by_role("dialog", name="Добавить фразой", exact=True)
-    quick.get_by_role("textbox", name="Быстро добавить", exact=True).fill("Танцы в 18:15–19:45 каждую неделю")
-    quick.get_by_role("button", name="Добавить", exact=True).click()
-    quick.wait_for(state="detached")
-    page.get_by_role("dialog", name="Новое событие").wait_for()
-    assert page.get_by_role("textbox", name="Название").input_value() == "Танцы"
-    assert page.get_by_role("textbox", name="Место").input_value() == "Спортзал"
+    event = page.get_by_role("dialog", name="Новое событие", exact=True)
+    event.get_by_role("textbox", name="Место").fill("Спортзал")
+    phrase = event.get_by_role("textbox", name="Добавить фразой", exact=True)
+    phrase.fill("Танцы в 18:15–19:45 каждую неделю")
+    phrase.press("Enter")
+    sync_api.expect(event.get_by_role("textbox", name="Название")).to_have_value("Танцы")
+    assert not page.get_by_role("dialog", name="Добавить фразой", exact=True).is_visible()
+    assert event.get_by_role("textbox", name="Место").input_value() == "Спортзал"
     assert page.locator("input[type=time]").evaluate_all("inputs => inputs.map(input => input.value)") == ["18:15", "19:45"]
     assert not page.locator("#ee-rep").is_visible()
     page.get_by_role("button", name="Подробнее").click()
@@ -179,17 +178,56 @@ def test_quick_event_opens_compact_form_with_one_parse(page, stack):
     assert requests == ["Танцы в 18:15–19:45 каждую неделю"]
 
 
-def test_toolbar_plus_opens_event_directly_on_phone_and_keeps_draft(page):
+def test_event_microphone_fills_same_dialog_on_phone(page, stack):
     page.set_viewport_size({"width": 320, "height": 640})
-    page.locator("button.add-btn").click()
+    page.add_init_script("""
+        window.HomeHubApp = {
+            canVoice: () => true,
+            startVoice: () => window.__hhVoice('Встреча в 18:00'),
+        }
+    """)
+    def parsed(route):
+        text = route.request.post_data_json["text"]
+        if text == "Купить молоко":
+            route.fulfill(json={"kind": "shopping", "items": ["молоко"]})
+        else:
+            assert text == "Встреча в 18:00"
+            route.fulfill(json={"kind": "event", "title": "Встреча", "date": stack["event_day"],
+                                "start": "18:00", "end": "19:00", "all_day": False, "people": [], "notes": []})
+
+    page.route("**/api/quick", parsed)
+    page.reload()
+    _open_new(page)
     event = page.get_by_role("dialog", name="Новое событие", exact=True)
-    event.wait_for()
-    quick = page.get_by_role("dialog", name="Добавить фразой", exact=True)
-    assert not quick.is_visible()
-    event.get_by_role("textbox", name="Название").fill("День рождения")
-    event.get_by_role("button", name="Добавить фразой", exact=True).click()
-    quick.get_by_role("button", name="Готово", exact=True).click()
-    assert event.get_by_role("textbox", name="Название").input_value() == "День рождения"
+    title = event.get_by_role("textbox", name="Название")
+    title.fill("День рождения")
+    event.get_by_role("textbox", name="Добавить фразой", exact=True).fill("Купить молоко")
+    event.get_by_role("button", name="Заполнить", exact=True).click()
+    sync_api.expect(event.get_by_role("alert")).to_contain_text("Введите фразу о событии")
+    assert title.input_value() == "День рождения"
+    mic = event.get_by_role("button", name="Сказать голосом", exact=True)
+    sync_api.expect(mic).to_be_in_viewport()
+    mic.click()
+    sync_api.expect(title).to_have_value("Встреча")
+    assert event.locator("input[type=time]").first.input_value() == "18:00"
+
+
+def test_event_phrase_keeps_manually_selected_date_time_and_repeat(page, stack):
+    _open_new(page)
+    event = page.get_by_role("dialog", name="Новое событие", exact=True)
+    selected_date = (datetime.fromisoformat(stack["event_day"]) + timedelta(days=2)).date().isoformat()
+    event.locator("#ee-sd").fill(selected_date)
+    event.locator("input[type=time]").first.fill("18:00")
+    event.locator("input[type=time]").last.fill("20:00")
+    event.get_by_role("button", name="Подробнее").click()
+    event.locator("#ee-rep").select_option("weekly")
+    phrase = event.get_by_role("textbox", name="Добавить фразой", exact=True)
+    phrase.fill("Танцы")
+    phrase.press("Enter")
+    sync_api.expect(event.get_by_role("textbox", name="Название")).to_have_value("Танцы")
+    assert event.locator("#ee-sd").input_value() == selected_date
+    assert event.locator("input[type=time]").evaluate_all("inputs => inputs.map(input => input.value)") == ["18:00", "20:00"]
+    assert event.locator("#ee-rep").input_value() == "weekly"
 
 
 def test_live_update_between_two_pages(page, stack):
