@@ -1,8 +1,10 @@
 """Запись событий в Яндекс: создать, изменить, удалить, быстрое создание, мастер секций, конфликты, журнал, самопроверка."""
 from __future__ import annotations
 
+from hashlib import sha256
 from time import perf_counter
 from datetime import date, datetime, time, timedelta
+from uuid import UUID
 
 from fastapi import HTTPException
 from pydantic import BaseModel
@@ -14,6 +16,8 @@ from fastapi import APIRouter
 from .. import core
 
 router = APIRouter()
+_CREATE_RECEIPTS = "event:create:receipts"
+_CREATE_RECEIPTS_LIMIT = 1000
 
 
 def _journal_ids() -> set[str]:
@@ -175,6 +179,7 @@ class EventIn(BaseModel):
     description: str = ""
     repeat: RepeatIn | None = None
     people: list[str] | None = None
+    request_id: UUID | None = None
 
 
 class EventEdit(BaseModel):
@@ -226,12 +231,60 @@ def selftest_write(body: SelfTestIn):
     return core.run_selftest(body.calendar)
 
 
-@router.post("/api/event")
-def create_event(body: EventIn):
-    seen = _journal_ids()
-    uid, sent = core._create_event(body.calendar, body.title, core._parse_dt(body.start), core._parse_dt(body.end) if body.end else None,
+def _create_from_body(body: EventIn) -> tuple[str, bool]:
+    return core._create_event(body.calendar, body.title, core._parse_dt(body.start), core._parse_dt(body.end) if body.end else None,
                               body.all_day, body.location, body.description,
                               body.repeat.model_dump() if body.repeat else None, body.people)
+
+
+def _replay_create(receipt: dict, fingerprint: str, calendar: str) -> dict:
+    if receipt["fingerprint"] != fingerprint:
+        raise HTTPException(409, "Эта попытка сохранения относится к другому событию")
+    response = receipt["response"]
+    entry = next((e for e in core.ws.journal() if e["id"] in response["changes"]), None)
+    status = entry.get("status") if entry else None
+    if status in ("failed", "conflict", "cancelled"):
+        raise HTTPException(409, "Создание события отклонено. Подробности в журнале правок.")
+    if status is None:
+        # Подтверждения живут дольше записей журнала. После ротации
+        # локальный href показывает, осталось ли событие в очереди.
+        found = core.db.find_object(response["uid"], calendar)
+        pending = found is not None and found[1].startswith("pending:")
+    else:
+        pending = status == "pending"
+    return response | {"pending": pending}
+
+
+def _accept_create(body: EventIn) -> dict:
+    request_id = str(body.request_id)
+    fingerprint = sha256(body.model_dump_json(exclude={"request_id"}).encode()).hexdigest()
+    receipts = core.db.kv_get(_CREATE_RECEIPTS)[0] or {}
+    if request_id in receipts:
+        return _replay_create(receipts[request_id], fingerprint, body.calendar)
+
+    # Снимок подтверждения, локальное событие и очередь сохраняются вместе.
+    # При потере HTTP-ответа повторный POST читает подтверждение без повторной записи в Яндекс.
+    with core.ws.defer(), core.db.tx():
+        receipts = core.db.kv_get(_CREATE_RECEIPTS)[0] or {}
+        if request_id in receipts:
+            return _replay_create(receipts[request_id], fingerprint, body.calendar)
+        uid, _ = _create_from_body(body)
+        changes = [e["id"] for e in core.ws.journal() if e["uid"] == uid]
+        response = {"ok": True, "uid": uid, "pending": True, "changes": changes}
+        receipts[request_id] = {"fingerprint": fingerprint, "response": response}
+        core.db.kv_set(_CREATE_RECEIPTS, dict(list(receipts.items())[-_CREATE_RECEIPTS_LIMIT:]))
+
+    core.events.invalidate()
+    core.wake_write_queue()
+    return response
+
+
+@router.post("/api/event")
+def create_event(body: EventIn):
+    if body.request_id is not None:
+        return _accept_create(body)
+    seen = _journal_ids()
+    uid, sent = _create_from_body(body)
     return {"ok": True, "uid": uid, "pending": not sent, "changes": _new_changes(seen)}
 
 

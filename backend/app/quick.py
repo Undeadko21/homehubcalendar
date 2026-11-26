@@ -49,7 +49,7 @@ def parse_todo(text: str, now: datetime, people: list[dict]) -> dict:
         body = text[:m.start()] + " в " + _WD_GEN[m.group(1).lower()] + " " + text[m.end():]
     else:                                             # «до 15 мая», «к завтра» — предлог не нужен
         body = re.sub(r"(?<!\w)(?:до|к)\s+(?=\d|завтра|послезавтра)", " ", text, count=1, flags=re.I)
-    r = parse(body, now, people)
+    r = parse(body, now, people, parse_all_day=False)
     no_date = any("дата не указана" in n for n in r["notes"])
     title = r["title"] or text.strip()
     return {"text": title, "due": None if no_date else r["date"], "person_id": (r["people"] or [None])[0]}
@@ -59,7 +59,7 @@ def _cut(text: str, m: re.Match) -> str:
     return (text[:m.start()] + " " + text[m.end():])
 
 
-def parse(text: str, now: datetime, people: list[dict]) -> dict:
+def parse(text: str, now: datetime, people: list[dict], *, parse_all_day: bool = True) -> dict:
     t = " " + text.strip() + " "
     low = t.lower()
     today = now.date()
@@ -72,6 +72,8 @@ def parse(text: str, now: datetime, people: list[dict]) -> dict:
             t = _cut(t, m)
             low = _cut(low, m)
         return m
+
+    out["all_day_explicit"] = parse_all_day and bool(take(r"(?<!\w)(?:на\s+)?(?:весь|целый)\s+день(?!\w)"))
 
     # повтор
     for pat, freq in REPEATS:
@@ -155,9 +157,12 @@ def parse(text: str, now: datetime, people: list[dict]) -> dict:
     title = re.sub(r"^(?:(?:у|для|с|со|в|на|к)\s+)+|(?:\s+(?:у|для|с|со|в|на|к))+$", "", title, flags=re.I).strip()
     out["title"] = title[:1].upper() + title[1:] if title else ""
 
-    if out["date"] is None:
+    out["date_explicit"] = out["date"] is not None
+    if not out["date_explicit"]:
         out["date"] = today
         out["notes"].append("дата не указана — взято сегодня")
+    if out["all_day_explicit"]:
+        out["start"] = out["end"] = None
     if out["start"] is None:
         out["all_day"] = True
     elif out["end"] is None:

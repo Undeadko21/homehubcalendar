@@ -36,7 +36,7 @@ export function listen() {
       reject(new Error(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Нет доступа к микрофону — разрешите его в браузере'
         : e.error === 'no-speech' ? 'Ничего не расслышал' : 'Не получилось распознать: ' + e.error))
     }
-    r.onend = () => { current = null; if (!got) reject(new Error('Ничего не расслышал')) }
+    r.onend = () => { if (current === r) current = null; if (!got) reject(new Error('Ничего не расслышал')) }
     r.start()
   })
 }

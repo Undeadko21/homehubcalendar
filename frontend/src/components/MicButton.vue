@@ -12,7 +12,7 @@ import { onBeforeUnmount, ref } from 'vue'
 import { voiceSupported, listen, stop } from '../lib/voice'
 
 defineProps({ disabled: Boolean })
-const emit = defineEmits(['text', 'error'])
+const emit = defineEmits(['start', 'text', 'error'])
 const active = ref(false)
 onBeforeUnmount(() => {
   if (!active.value) return
@@ -23,6 +23,7 @@ onBeforeUnmount(() => {
 async function toggle() {
   if (active.value) { stop(); return }
   active.value = true
+  emit('start')
   try {
     const text = await listen()
     if (active.value) emit('text', text)

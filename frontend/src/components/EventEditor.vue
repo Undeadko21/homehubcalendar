@@ -1,145 +1,151 @@
 <template>
   <Sheet :open="!!ed && !state.quickAdd" :label="isNew ? 'Новое событие' : 'Изменить событие'" :dismissible="!busy" @close="close">
-    <form v-if="ed" class="editor" @submit.prevent="save">
-      <div class="head">
-        <button type="button" class="btn" :disabled="busy" @click="close">Отмена</button>
-        <h2>{{ isNew ? 'Новое событие' : 'Событие' }}</h2>
-        <button type="submit" class="btn filled" :disabled="busy || parsing || !f.title.trim()">{{ busy ? '…' : 'Сохранить' }}</button>
-      </div>
-
-      <div class="group fields">
-        <div class="row"><input v-model="f.title" class="in title-in" aria-label="Название" placeholder="Название" autocomplete="off" required /></div>
-        <div class="row"><input v-model="f.location" class="in" aria-label="Место" placeholder="Место" autocomplete="off" /></div>
-      </div>
-
-      <div v-if="isNew" class="phrase-group">
-        <div class="phrase-row">
-          <input v-model="phrase" class="phrase-input" aria-label="Добавить фразой" placeholder="Добавить фразой"
-                 autocomplete="off" enterkeyhint="go" :disabled="busy || parsing" @keydown.enter.prevent="parsePhrase" />
-          <MicButton :disabled="busy || parsing" @text="dictate" @error="phraseError = $event" />
-          <button v-if="phrase.trim()" type="button" class="btn gray" :disabled="busy || parsing" @click="parsePhrase">
-            {{ parsing ? '…' : 'Заполнить' }}
-          </button>
+    <form v-if="ed" class="editor" @submit.prevent="save" @invalid.capture="showInvalid">
+      <div class="editor-top">
+        <div class="head">
+          <button type="button" class="btn" :disabled="busy" @click="close">{{ pendingCreate && !busy ? 'Закрыть' : 'Отмена' }}</button>
+          <h2>{{ isNew ? 'Новое событие' : 'Событие' }}</h2>
+          <button type="submit" class="btn filled" :disabled="busy || parsing || !f.title.trim()"
+                  :aria-busy="busy">{{ pendingCreate && !busy ? 'Повторить' : 'Сохранить' }}</button>
         </div>
-        <p v-if="phraseError" class="conflict" role="alert">{{ phraseError }}</p>
+        <p v-if="busy" class="save-message hint" role="status">{{ confirmDel ? 'Удаляем событие…' : 'Сохраняем событие…' }}</p>
+        <p v-else-if="error" class="save-message conflict" role="alert">{{ error }}</p>
       </div>
+      <fieldset class="editor-fields" :disabled="busy || !!pendingCreate">
 
-      <div class="group fields">
-        <div class="row between">
-          <label for="ee-sd">{{ showEndDate ? 'Дата начала' : 'Дата' }}</label>
-          <input id="ee-sd" v-model="f.startDate" type="date" required />
+        <div class="group fields">
+          <div class="row"><input v-model="f.title" class="in title-in" aria-label="Название" placeholder="Название" autocomplete="off" required /></div>
+          <div class="row"><input v-model="f.location" class="in" aria-label="Место" placeholder="Место" autocomplete="off" /></div>
         </div>
-        <div v-if="showEndDate" class="row between">
-          <label for="ee-ed">Дата окончания</label>
-          <input id="ee-ed" v-model="f.endDate" type="date" required />
-        </div>
-        <label class="row between all-day">
-          <span>Весь день</span>
-          <input id="ee-all" v-model="f.allDay" type="checkbox" class="chk" />
-        </label>
-        <div v-if="!f.allDay" class="row times">
-          <label class="time-field">Начало<input v-model="f.startTime" type="time" required /></label>
-          <label class="time-field">Конец<input v-model="f.endTime" type="time" required /></label>
-        </div>
-      </div>
 
-      <div v-if="hasPeople" class="group fields">
-        <div class="row stack">
-          <span class="label">Кто участвует</span>
-          <PeoplePicker v-model="f.people" label="Кто участвует" :disabled="busy" />
+        <div v-if="isNew" class="phrase-group">
+          <div class="phrase-row">
+            <input v-model="phrase" class="phrase-input" aria-label="Добавить фразой" placeholder="Добавить фразой"
+                   autocomplete="off" enterkeyhint="go" :disabled="busy || parsing" @keydown.enter.prevent="parsePhrase" />
+            <MicButton :disabled="busy || parsing" @start="startDictation" @text="dictate" @error="dictationError" />
+            <button v-if="phrase.trim()" type="button" class="btn gray" :disabled="busy || parsing" @click="parsePhrase">
+              {{ parsing ? '…' : 'Заполнить' }}
+            </button>
+          </div>
+          <p v-if="phraseError" class="conflict" role="alert">{{ phraseError }}</p>
         </div>
-      </div>
 
-      <p v-if="parseNotes.length" class="hint" role="status">{{ parseNotes.join(' · ') }}</p>
-      <p v-if="error" class="conflict" role="alert">{{ error }}</p>
-      <div v-if="warns.length" class="group warns" role="status">
-        <div v-for="(x, i) in warns" :key="i" class="row wrow" :class="x.level">
-          <span class="wdot"></span><span>{{ x.text }}</span>
+        <div class="group fields">
+          <div class="row between">
+            <label for="ee-sd">{{ showEndDate ? 'Дата начала' : 'Дата' }}</label>
+            <input id="ee-sd" v-model="f.startDate" type="date" required />
+          </div>
+          <div v-if="showEndDate" class="row between">
+            <label for="ee-ed">Дата окончания</label>
+            <input id="ee-ed" v-model="f.endDate" type="date" required />
+          </div>
+          <label class="row between all-day">
+            <span>Весь день</span>
+            <input id="ee-all" v-model="f.allDay" type="checkbox" class="chk" />
+          </label>
+          <div v-if="!f.allDay" class="row times">
+            <label class="time-field">Начало<input v-model="f.startTime" type="time" required /></label>
+            <label class="time-field">Конец<input v-model="f.endTime" type="time" required /></label>
+          </div>
         </div>
-      </div>
 
-      <button type="button" class="more-btn" :aria-expanded="more" aria-controls="ee-more" @click="more = !more">
-        <span>Подробнее</span>
-        <small v-if="!more" class="hint">{{ moreSummary }}</small>
-        <span class="chev" :class="{ open: more }" aria-hidden="true">›</span>
-      </button>
-      <div id="ee-more" v-show="more">
-        <div v-if="!f.allDay" class="group fields">
-          <div class="row stack" role="group" aria-label="Длительность">
-            <span>Длительность</span>
-            <div class="durs">
-              <button v-for="m in DURS" :key="m" type="button" class="dur" :class="{ on: duration === m }"
-                      :aria-pressed="duration === m" @click="setDuration(m)">{{ durLabel(m) }}</button>
+        <div v-if="hasPeople" class="group fields">
+          <div class="row stack">
+            <span class="label">Кто участвует</span>
+            <PeoplePicker v-model="f.people" label="Кто участвует" :disabled="busy" />
+          </div>
+        </div>
+
+        <p v-if="parseNotes.length" class="hint" role="status">{{ parseNotes.join(' · ') }}</p>
+        <div v-if="warns.length" class="group warns" role="status">
+          <div v-for="(x, i) in warns" :key="i" class="row wrow" :class="x.level">
+            <span class="wdot"></span><span>{{ x.text }}</span>
+          </div>
+        </div>
+
+        <button type="button" class="more-btn" :aria-expanded="more" aria-controls="ee-more" @click="more = !more">
+          <span>Подробнее</span>
+          <small v-if="!more" class="hint">{{ moreSummary }}</small>
+          <span class="chev" :class="{ open: more }" aria-hidden="true">›</span>
+        </button>
+        <div id="ee-more" v-show="more">
+          <div v-if="!f.allDay" class="group fields">
+            <div class="row stack" role="group" aria-label="Длительность">
+              <span>Длительность</span>
+              <div class="durs">
+                <button v-for="m in DURS" :key="m" type="button" class="dur" :class="{ on: duration === m }"
+                        :aria-pressed="duration === m" @click="setDuration(m)">{{ durLabel(m) }}</button>
+              </div>
+            </div>
+          </div>
+          <div class="group fields">
+            <div class="row between">
+              <label for="ee-rep">Повтор</label>
+              <select id="ee-rep" v-model="f.repeat">
+                <option v-if="!isNew && ed.event?.recurring" value="keep">Как есть</option>
+                <option value="">Не повторять</option>
+                <option value="daily">Каждый день</option>
+                <option value="weekly">Каждую неделю</option>
+                <option value="biweekly">Каждые 2 недели</option>
+                <option value="monthly">Каждый месяц, {{ startDay }}-го</option>
+                <option value="monthly_nth">Каждый месяц, {{ nthText }}</option>
+                <option v-if="isLastWd" value="monthly_last">Каждый месяц, {{ lastText }}</option>
+                <option value="yearly">Каждый год</option>
+              </select>
+            </div>
+            <div v-if="f.repeat && f.repeat !== 'keep'" class="row between">
+              <label for="ee-until">Повторять до</label>
+              <input id="ee-until" v-model="f.until" type="date" />
+            </div>
+            <div class="row between">
+              <label for="ee-cal">Календарь</label>
+              <select id="ee-cal" v-model="f.calendar" :disabled="!isNew">
+                <option v-for="c in cals" :key="c.key" :value="c.key">{{ c.name }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="group fields">
+            <div class="row"><textarea v-model="f.description" class="in" rows="3" aria-label="Заметки" placeholder="Заметки"></textarea></div>
+          </div>
+          <div v-if="isNew" class="group fields">
+            <div class="row"><button type="button" class="btn" :disabled="busy" @click="openWizard">Секция или кружок по дням недели…</button></div>
+            <div class="row"><button type="button" class="btn" :disabled="busy || parsing" @click="openCommonActions">Частые события, дела и покупки</button></div>
+          </div>
+        </div>
+        <div v-if="!isNew && ed.event?.recurring" class="group">
+          <div class="row between">
+            <label for="ee-scope">Изменить</label>
+            <select id="ee-scope" v-model="f.scope">
+              <option value="series">Всю серию</option>
+              <option value="following">Это и следующие</option>
+              <option value="once">Только это</option>
+            </select>
+          </div>
+        </div>
+
+        <div v-if="!isNew" class="group">
+          <div v-if="!confirmDel" class="row">
+            <button type="button" class="btn danger" :disabled="busy" @click="confirmDel = true">Удалить…</button>
+          </div>
+          <div v-else class="row stack">
+            <span class="label">Удалить из Яндекс.Календаря?</span>
+            <div class="actions">
+              <button v-if="ed.event.recurring" type="button" class="btn danger" :disabled="busy" @click="remove(true)">Только это</button>
+              <button type="button" class="btn danger" :disabled="busy" @click="remove(false)">
+                {{ ed.event.recurring ? 'Всю серию' : 'Удалить' }}
+              </button>
+              <button type="button" class="btn gray" :disabled="busy" @click="confirmDel = false">Нет</button>
             </div>
           </div>
         </div>
-        <div class="group fields">
-          <div class="row between">
-            <label for="ee-rep">Повтор</label>
-            <select id="ee-rep" v-model="f.repeat">
-              <option v-if="!isNew && ed.event?.recurring" value="keep">Как есть</option>
-              <option value="">Не повторять</option>
-              <option value="daily">Каждый день</option>
-              <option value="weekly">Каждую неделю</option>
-              <option value="biweekly">Каждые 2 недели</option>
-              <option value="monthly">Каждый месяц, {{ startDay }}-го</option>
-              <option value="monthly_nth">Каждый месяц, {{ nthText }}</option>
-              <option v-if="isLastWd" value="monthly_last">Каждый месяц, {{ lastText }}</option>
-              <option value="yearly">Каждый год</option>
-            </select>
-          </div>
-          <div v-if="f.repeat && f.repeat !== 'keep'" class="row between">
-            <label for="ee-until">Повторять до</label>
-            <input id="ee-until" v-model="f.until" type="date" />
-          </div>
-          <div class="row between">
-            <label for="ee-cal">Календарь</label>
-            <select id="ee-cal" v-model="f.calendar" :disabled="!isNew">
-              <option v-for="c in cals" :key="c.key" :value="c.key">{{ c.name }}</option>
-            </select>
-          </div>
-        </div>
-        <div class="group fields">
-          <div class="row"><textarea v-model="f.description" class="in" rows="3" aria-label="Заметки" placeholder="Заметки"></textarea></div>
-        </div>
-        <div v-if="isNew" class="group fields">
-          <div class="row"><button type="button" class="btn" :disabled="busy" @click="openWizard">Секция или кружок по дням недели…</button></div>
-          <div class="row"><button type="button" class="btn" :disabled="busy || parsing" @click="state.quickAdd = true">Частые события, дела и покупки</button></div>
-        </div>
-      </div>
-      <div v-if="!isNew && ed.event?.recurring" class="group">
-        <div class="row between">
-          <label for="ee-scope">Изменить</label>
-          <select id="ee-scope" v-model="f.scope">
-            <option value="series">Всю серию</option>
-            <option value="following">Это и следующие</option>
-            <option value="once">Только это</option>
-          </select>
-        </div>
-      </div>
-
-      <div v-if="!isNew" class="group">
-        <div v-if="!confirmDel" class="row">
-          <button type="button" class="btn danger" :disabled="busy" @click="confirmDel = true">Удалить…</button>
-        </div>
-        <div v-else class="row stack">
-          <span class="label">Удалить из Яндекс.Календаря?</span>
-          <div class="actions">
-            <button v-if="ed.event.recurring" type="button" class="btn danger" :disabled="busy" @click="remove(true)">Только это</button>
-            <button type="button" class="btn danger" :disabled="busy" @click="remove(false)">
-              {{ ed.event.recurring ? 'Всю серию' : 'Удалить' }}
-            </button>
-            <button type="button" class="btn gray" :disabled="busy" @click="confirmDel = false">Нет</button>
-          </div>
-        </div>
-      </div>
+      </fieldset>
     </form>
   </Sheet>
 </template>
 
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import { state, reload, writableCalendars } from '../lib/store'
+import { state, reload, toast, writableCalendars } from '../lib/store'
 import { api } from '../lib/api'
 import { DAY, eventRange, isoDate, addDays } from '../lib/dates'
 import MicButton from './MicButton.vue'
@@ -152,6 +158,7 @@ const cals = computed(() => writableCalendars())
 const hasPeople = computed(() => (state.config?.people || []).some((p) => !p.id.startsWith('_')))
 const busy = ref(false)
 const error = ref('')
+const pendingCreate = ref(null)
 const phrase = ref('')
 const phraseError = ref('')
 const parsing = ref(false)
@@ -159,6 +166,10 @@ const confirmDel = ref(false)
 const parseNotes = ref([])
 const f = reactive({ title: '', location: '', description: '', allDay: false, startDate: '', startTime: '', endDate: '',
   endTime: '', repeat: '', until: '', calendar: '', people: [], scope: 'series' })
+let phraseRevision = 0
+watch([f, phrase], () => { phraseRevision += 1 }, { deep: true, flush: 'sync' })
+let dictationDraft = null
+let dictationRevision = 0
 let origPeople = []
 const warns = ref([])
 const more = ref(false)
@@ -214,6 +225,7 @@ watch(ed, (v) => {
   filling = true
   nextTick(() => { filling = false })
   error.value = ''
+  pendingCreate.value = null
   phrase.value = ''
   phraseError.value = ''
   parsing.value = false
@@ -266,7 +278,9 @@ watch(ed, (v) => {
   origPeople = [...f.people]
 })
 
-watch(() => ed.value?.parsed, (parsed) => { if (parsed) applyParsed(parsed) })
+watch(() => [ed.value, ed.value?.parsed], ([draft, parsed], [previous]) => {
+  if (parsed) applyParsed(parsed, draft === previous)
+})
 
 // Сдвигаем конец вместе с началом, чтобы длительность не терялась.
 watch(() => [f.startDate, f.startTime], ([d, t], old) => {
@@ -287,15 +301,25 @@ watch(() => [f.startDate, f.startTime], ([d, t], old) => {
 function close() { if (!busy.value) state.editor = null }
 function openWizard() { state.editor = null; state.wizard = true }
 
+function openCommonActions() {
+  ed.value.quickDate = f.startDate ? new Date(`${f.startDate}T12:00`) : null
+  state.quickAdd = true
+}
+
 async function parsePhrase() {
   const text = phrase.value.trim()
   if (!text || busy.value || parsing.value || !ed.value || !isNew.value) return
   const draft = ed.value
+  const revision = phraseRevision
   phraseError.value = ''
   parsing.value = true
   try {
     const parsed = await api.quick(text)
     if (ed.value !== draft) return
+    if (revision !== phraseRevision) {
+      phraseError.value = 'Поля изменились. Нажмите «Заполнить» ещё раз, чтобы применить фразу.'
+      return
+    }
     if (parsed.kind !== 'event') { phraseError.value = 'Введите фразу о событии, например «Встреча завтра в 18:30».'; return }
     applyParsed(parsed, true)
     phrase.value = ''
@@ -306,18 +330,34 @@ async function parsePhrase() {
   }
 }
 
+function startDictation() {
+  dictationDraft = ed.value
+  dictationRevision = phraseRevision
+  phraseError.value = ''
+}
+
+function currentDictation() {
+  return ed.value && ed.value === dictationDraft && phraseRevision === dictationRevision && !busy.value && !parsing.value
+}
+
 function dictate(text) {
+  if (!currentDictation()) return
   phrase.value = text
   parsePhrase()
+}
+
+function dictationError(message) {
+  if (currentDictation()) phraseError.value = message
 }
 
 function applyParsed(r, keepUnspecified = false) {
   filling = true
   f.title = r.title || f.title
   const defaultDate = 'дата не указана — взято сегодня'
-  const keepDate = keepUnspecified && r.notes.includes(defaultDate) && !!f.startDate
+  const dateGiven = r.date_explicit ?? !r.notes.includes(defaultDate)
+  const keepDate = keepUnspecified && !dateGiven && !!f.startDate
   const date = keepDate ? f.startDate : r.date
-  if (!keepUnspecified || !r.all_day) {
+  if (!keepUnspecified || !r.all_day || r.all_day_explicit) {
     f.allDay = r.all_day
     f.startDate = date; f.endDate = date
     if (!r.all_day) { f.startTime = r.start; f.endTime = r.end }
@@ -367,6 +407,7 @@ function payload() {
 
 async function save() {
   if (busy.value || parsing.value || !f.title.trim()) return
+  if (pendingCreate.value) { await create(pendingCreate.value); return }
   error.value = ''
   const p = payload()
   if (!f.allDay && new Date(p.end) <= new Date(p.start)) {
@@ -375,21 +416,24 @@ async function save() {
     return
   }
   if (f.allDay && f.endDate < f.startDate) { error.value = 'Конец раньше начала'; return }
+  const repeat = f.repeat && f.repeat !== 'keep' ? { ...repeatRule(f.repeat), until: f.until || null } : null
+  if (isNew.value) {
+    try {
+      await create({ request_id: requestId(), calendar: f.calendar, title: f.title.trim(), ...p, location: f.location,
+        description: f.description, repeat, people: f.people.length ? f.people : null })
+    } catch (err) {
+      error.value = err.message
+    }
+    return
+  }
   busy.value = true
   try {
-    const repeat = f.repeat && f.repeat !== 'keep' ? { ...repeatRule(f.repeat), until: f.until || null } : null
-    if (isNew.value) {
-      await api.createEvent({ calendar: f.calendar, title: f.title.trim(), ...p, location: f.location,
-        description: f.description, repeat, people: f.people.length ? f.people : null })
-      try { localStorage.setItem(LS, f.calendar) } catch {}
-    } else {
-      const e = ed.value.event
-      const body = { calendar: f.calendar, title: f.title.trim(), ...p, location: f.location, description: f.description }
-      if (e.recurring) { body.occurrence = e.start; if (f.scope !== 'series') body.scope = f.scope }
-      if (f.repeat !== 'keep' && f.scope !== 'once') { body.repeat_set = true; body.repeat = repeat }
-      if (JSON.stringify(f.people) !== JSON.stringify(origPeople)) { body.people_set = true; body.people = f.people.length ? f.people : null }
-      await api.updateEvent(e.uid, body)
-    }
+    const e = ed.value.event
+    const body = { calendar: f.calendar, title: f.title.trim(), ...p, location: f.location, description: f.description }
+    if (e.recurring) { body.occurrence = e.start; if (f.scope !== 'series') body.scope = f.scope }
+    if (f.repeat !== 'keep' && f.scope !== 'once') { body.repeat_set = true; body.repeat = repeat }
+    if (JSON.stringify(f.people) !== JSON.stringify(origPeople)) { body.people_set = true; body.people = f.people.length ? f.people : null }
+    await api.updateEvent(e.uid, body)
     state.editor = null
     reload()
   } catch (err) {
@@ -397,6 +441,48 @@ async function save() {
   } finally {
     busy.value = false
   }
+}
+
+function requestId() {
+  // randomUUID доступен только по HTTPS, а домашний Android WebView может открывать HTTP.
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+async function create(body) {
+  pendingCreate.value = body
+  error.value = ''
+  busy.value = true
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 12000)
+  try {
+    const result = await api.createEvent(body, controller.signal)
+    if (!result?.ok || !result.uid) throw new Error('Получен неполный ответ сервера')
+    try { localStorage.setItem(LS, body.calendar) } catch {}
+    state.editor = null
+    toast(result.pending ? 'Событие сохранено. Отправка в Яндекс ожидается.' : 'Событие сохранено')
+    reload()
+  } catch (err) {
+    if (err.status >= 400 && err.status < 500 && ![408, 429].includes(err.status)) {
+      pendingCreate.value = null
+      error.value = err.message
+    } else {
+      error.value = 'Нет подтверждения сохранения. Нажмите «Повторить», чтобы завершить запись или получить её статус.'
+    }
+  } finally {
+    clearTimeout(timer)
+    busy.value = false
+  }
+}
+
+function showInvalid(event) {
+  const field = event.target
+  if (field.type === 'time') error.value = 'Укажите корректное время начала и окончания.'
+  else if (field.type === 'date') error.value = 'Укажите корректную дату события.'
+  else error.value = 'Проверьте обязательные поля.'
 }
 
 async function remove(onlyThis) {
@@ -416,10 +502,13 @@ async function remove(onlyThis) {
 </script>
 
 <style scoped>
+.editor-top { position: sticky; top: 0; z-index: 1; background: var(--surface); }
 .head {
-  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
   gap: 6px; background: var(--surface); padding: 6px 0 10px; margin-bottom: 4px;
 }
+.editor-fields { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
+.save-message { margin: 0; padding: 0 8px 10px; }
 .head h2 { margin: 0; font-size: 17px; font-weight: 600; }
 .head .btn { min-height: 40px; padding-inline: 10px; }
 .editor :deep(:is(input, button, select, textarea)) { scroll-margin-top: 64px; }

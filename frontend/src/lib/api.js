@@ -56,7 +56,9 @@ async function request(method, url, body, signal) {
   if (!res.ok) {
     let detail = res.statusText
     try { detail = (await res.json()).detail || detail } catch {}
-    throw new Error(detail)
+    const err = new Error(typeof detail === 'string' && detail ? detail : `Ошибка сервера (${res.status})`)
+    err.status = res.status
+    throw err
   }
   return res.json()
 }
@@ -76,7 +78,7 @@ export const api = {
   feeds: () => request('GET', '/api/feeds'),
   saveFeed: (b) => request('PUT', '/api/feeds', b),
   deleteFeed: (id) => request('DELETE', `/api/feeds/${encodeURIComponent(id)}`),
-  createEvent: (b) => request('POST', '/api/event', b),
+  createEvent: (b, signal) => request('POST', '/api/event', b, signal),
   eventWriteStatus: (uid, calendar, signal) => request('GET', `/api/event/${encodeURIComponent(uid)}/write-status?${q({ calendar })}`, undefined, signal),
   updateEvent: (uid, b) => request('PUT', `/api/event/${encodeURIComponent(uid)}`, b),
   deleteEvent: (uid, calendar, occurrence) =>
