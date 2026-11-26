@@ -12,7 +12,9 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.base import SchedulerNotRunningError
 from fastapi import HTTPException
 
 from .config import Settings, load_settings
@@ -139,6 +141,15 @@ def _remote_id(cal_key: str) -> str:
 def _after_write() -> None:
     if not ws.is_deferred:
         _ws_changed()
+
+
+def wake_write_queue() -> None:
+    # Очередь уже записана. Планировщик отправит её независимо от HTTP-запроса.
+    if scheduler.running:
+        try:
+            scheduler.modify_job("writeq", next_run_time=datetime.now(tz))
+        except (JobLookupError, SchedulerNotRunningError):
+            log.info("Немедленный запуск очереди недоступен, запись остаётся в очереди")
 
 
 def _ws_changed() -> None:

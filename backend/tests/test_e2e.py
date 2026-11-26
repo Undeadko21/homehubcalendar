@@ -105,6 +105,13 @@ def _titles(cal):
     return sorted(str(e.icalendar_component.get("SUMMARY")) for e in cal.events())
 
 
+def _wait_for_title(cal, title):
+    deadline = time.monotonic() + 10
+    while title not in _titles(cal):
+        assert time.monotonic() < deadline, f"Событие «{title}» не появилось в CalDAV"
+        time.sleep(0.1)
+
+
 def test_create_event_warns_about_conflict_and_writes_to_caldav(page, stack):
     _open_new(page)
     assert not page.locator("#ee-ed").is_visible()
@@ -116,7 +123,7 @@ def test_create_event_warns_about_conflict_and_writes_to_caldav(page, stack):
     assert "Йога" in page.inner_text(".warns")
     page.click("button:has-text('Сохранить')")
     page.wait_for_selector("input[placeholder='Название']", state="detached", timeout=10000)
-    assert "Врач" in _titles(stack["cal"])
+    _wait_for_title(stack["cal"], "Врач")
     page.click("text=Список")
     page.locator("button.item").filter(has_text="Врач").click()
     page.get_by_text("Последняя правка отправлена в Яндекс.", exact=True).wait_for()
@@ -147,10 +154,64 @@ def test_create_multiday_event_with_collapsed_details(page, stack):
     assert not page.locator("input[type=time]").count()
     page.get_by_role("button", name="Сохранить").click()
     page.locator(".editor").wait_for(state="detached", timeout=10000)
+    _wait_for_title(stack["cal"], "Семейная поездка на три дня")
     event = next(e.icalendar_component for e in stack["cal"].events()
                  if e.icalendar_component.get("SUMMARY") == "Семейная поездка на три дня")
     assert event.decoded("DTSTART") == day.date()
     assert event.decoded("DTEND") == (day + timedelta(days=3)).date()
+
+
+def test_create_event_retry_after_lost_response_uses_same_request(page, stack):
+    requests = []
+
+    def lose_first_response(route):
+        requests.append(route.request.post_data_json)
+        if len(requests) == 1:
+            response = route.fetch(timeout=10000)
+            assert response.ok and response.json()["uid"]
+            route.abort("connectionreset")
+        else:
+            route.continue_()
+
+    page.route("**/api/event", lose_first_response)
+    _open_new(page)
+    event = page.get_by_role("dialog", name="Новое событие", exact=True)
+    event.get_by_role("textbox", name="Название").fill("Проверка повтора записи")
+    event.get_by_role("button", name="Сохранить").click()
+    sync_api.expect(event.get_by_role("alert")).to_contain_text("Нет подтверждения сохранения")
+    assert event.get_by_role("textbox", name="Название").input_value() == "Проверка повтора записи"
+    event.get_by_role("button", name="Повторить").click()
+    event.wait_for(state="detached", timeout=10000)
+    assert len(requests) == 2 and requests[0] == requests[1] and requests[0]["request_id"]
+    _wait_for_title(stack["cal"], "Проверка повтора записи")
+    assert _titles(stack["cal"]).count("Проверка повтора записи") == 1
+
+
+def test_create_event_timeout_shows_progress_then_retry(page):
+    page.evaluate("""() => {
+        const fetchReal = window.fetch.bind(window)
+        const setTimeoutReal = window.setTimeout.bind(window)
+        window.setTimeout = (fn, ms, ...args) => setTimeoutReal(fn, ms === 12000 ? 900 : ms, ...args)
+        window.fetch = (url, init) => url === '/api/event' && init.method === 'POST'
+            ? new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason)))
+            : fetchReal(url, init)
+    }""")
+    _open_new(page)
+    event = page.get_by_role("dialog", name="Новое событие", exact=True)
+    event.get_by_role("textbox", name="Название").fill("Проверка таймаута")
+    event.get_by_role("button", name="Сохранить").click()
+    sync_api.expect(event.get_by_text("Сохраняем событие…", exact=True)).to_be_visible()
+    sync_api.expect(event.get_by_role("alert")).to_contain_text("Нет подтверждения сохранения")
+    sync_api.expect(event.get_by_role("button", name="Повторить")).to_be_enabled()
+
+
+def test_create_event_reports_invalid_time_before_sending(page):
+    _open_new(page)
+    event = page.get_by_role("dialog", name="Новое событие", exact=True)
+    event.get_by_role("textbox", name="Название").fill("Время обязательно")
+    event.locator("input[type=time]").last.fill("")
+    event.get_by_role("button", name="Сохранить").click()
+    sync_api.expect(event.get_by_role("alert")).to_contain_text("Укажите корректное время")
 
 
 def test_event_phrase_fills_current_form_with_one_parse(page, stack):

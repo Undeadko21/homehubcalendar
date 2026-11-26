@@ -17,8 +17,8 @@
         </button>
       </div>
     </div>
-    <div class="group">
-      <button v-if="canWrite && !state.editor" type="button" class="row link" :disabled="busy" @click="form">Новое событие вручную</button>
+    <div v-if="!state.editor" class="group">
+      <button v-if="canWrite" type="button" class="row link" :disabled="busy" @click="form">Новое событие вручную</button>
       <button type="button" class="row link" :disabled="busy" @click="lists">Списки дел и покупок</button>
     </div>
   </Sheet>
@@ -46,7 +46,12 @@ function recentSub(r) {
   const who = (r.people || []).map((id) => personById.value[id]?.name).filter(Boolean).join(', ')
   return who ? `${dur} · ${who}` : dur
 }
-function useRecent(r) { if (!busy.value) { close(); newEvent(state.editor?.date, r) } }
+function useRecent(r) {
+  if (busy.value) return
+  const date = state.editor?.quickDate ?? state.editor?.date
+  close()
+  newEvent(date, r)
+}
 
 watch(() => state.quickAdd, async (v) => {
   if (!v) return
@@ -73,7 +78,7 @@ async function go() {
 // Сказали голосом: фразу видно в поле, и она сразу добавляется (событие откроется в форме для проверки).
 function heard(t) { text.value = t; go() }
 function form() { close(); newEvent() }
-function lists() { close(); state.editor = null; setView('lists') }
+function lists() { close(); setView('lists') }
 </script>
 
 <style scoped>
