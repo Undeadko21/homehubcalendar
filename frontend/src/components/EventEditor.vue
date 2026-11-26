@@ -441,6 +441,7 @@ async function remove(onlyThis) {
   flex: 1; min-width: 0; min-height: 44px; border: 0; border-radius: 10px; padding: 6px 12px;
   background: var(--surface-2); color: var(--ink); font: inherit; font-size: 16px;
 }
+.phrase-input::placeholder { color: var(--ink-2); opacity: 1; }
 .phrase-row .btn { padding-inline: 8px; }
 .chev { margin-left: auto; color: var(--ink-3); transition: transform .2s; font-size: 20px; line-height: 1; }
 .chev.open { transform: rotate(90deg); }
