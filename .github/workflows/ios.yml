@@ -29,6 +29,23 @@ jobs:
           cp -R build/Build/Products/Release-iphoneos/HomeHubCalendar.app Payload/
           zip -qry HomeHub-Calendar.ipa Payload
           ls -la HomeHub-Calendar.ipa
+      - name: Сверить версии приложения и виджета внутри IPA
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import plistlib
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          expected = (Path('ios/version.txt').read_text().strip(), os.environ['GITHUB_RUN_NUMBER'])
+          app = 'Payload/HomeHubCalendar.app'
+          with ZipFile('ios/HomeHub-Calendar.ipa') as ipa:
+              for name in (f'{app}/Info.plist', f'{app}/PlugIns/HomeHubWidget.appex/Info.plist'):
+                  info = plistlib.loads(ipa.read(name))
+                  actual = (info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
+                  if actual != expected:
+                      raise SystemExit(f'{name}: {actual!r}, ожидалось {expected!r}')
+          PYTHON
       - uses: actions/upload-artifact@v4
         with:
           name: HomeHub-Calendar-ios

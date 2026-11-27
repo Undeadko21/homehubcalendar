@@ -21,6 +21,8 @@ targets:
     info:
       path: Info.plist
       properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleDisplayName: HomeHub Calendar
         CFBundleName: HomeHub Calendar
         UILaunchScreen: {}
@@ -52,6 +54,8 @@ targets:
     info:
       path: Widget/Info.plist
       properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleDisplayName: HomeHub Calendar
         CFBundleName: HomeHub Widget
         NSAppTransportSecurity:

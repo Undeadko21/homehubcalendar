@@ -55,6 +55,7 @@ export const state = reactive({
   personSheet: null, // id человека, чей профиль открыт
   toast: null, // { text, undo } — плашка внизу с «Отменить»
   quickAdd: false, // лист ввода фразой
+  uiUpdate: '', // версия, которую можно применить после закрытия черновика
   listsRev: 0, // списки изменились не на странице списков — перечитать
   textSize: params.get('size') || prefs.textSize || 'normal', // compact | normal | large
   initials: params.has('initials') ? params.get('initials') !== '0' : !!prefs.initials, // буква человека на плашке (не только цвет)
@@ -339,7 +340,19 @@ export function fetchRange(start, end) {
 
 // Версия интерфейса, с которой собрана эта страница (хеш коммита подставляет сборка образа), и проверка, не вышла ли новее.
 export const UI_BUILD = import.meta.env.VITE_BUILD || ''
+export const hasOpenDraft = computed(() => !!(state.editor || state.wizard || state.quickAdd))
 let checking = false
+
+export function applyUiUpdate() {
+  if (hasOpenDraft.value || !state.uiUpdate) return
+  const server = state.uiUpdate
+  try {
+    if (sessionStorage.getItem('homecal.reloaded') === server) return
+    sessionStorage.setItem('homecal.reloaded', server)
+  } catch { /* хранилище может быть недоступно */ }
+  location.reload()
+}
+
 export async function checkUiVersion() {
   if (!UI_BUILD || checking) return
   checking = true
@@ -348,13 +361,10 @@ export async function checkUiVersion() {
     const v = String((await r.json()).version || '')
     const server = v.includes('+') ? v.split('+')[1] : ''
     if (server && server !== UI_BUILD) {
-      // Один раз на версию: если страница всё равно приходит старой, не крутимся в перезагрузках.
-      let done = null
-      try { done = sessionStorage.getItem('homecal.reloaded') } catch {}
-      if (done === server) return
-      try { sessionStorage.setItem('homecal.reloaded', server) } catch {}
-      location.reload() // приложение держало старую страницу — берём новую
-    }
+      const awaitingUser = !!state.uiUpdate
+      state.uiUpdate = server
+      if (!awaitingUser) applyUiUpdate()
+    } else if (server === UI_BUILD) state.uiUpdate = ''
   } catch {} finally { checking = false }
 }
 if (typeof document !== 'undefined') {
