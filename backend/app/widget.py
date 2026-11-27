@@ -30,11 +30,11 @@ def _hm(s: str) -> str:
 
 def build(events: list[dict], people: dict[str, dict], tz: ZoneInfo, now: datetime,
           days: int = 2, only: set[str] | None = None, birthdays: list[dict] | None = None,
-          countdowns: list[dict] | None = None) -> dict:
+          countdowns: list[dict] | None = None, *, start_date: date | None = None) -> dict:
     today = now.astimezone(tz).date()
     out_days = []
     for i in range(days):
-        d = today + timedelta(days=i)
+        d = (start_date or today) + timedelta(days=i)
         d0 = datetime.combine(d, time(0), tz)
         d1 = d0 + timedelta(days=1)
         items = []
@@ -48,7 +48,7 @@ def build(events: list[dict], people: dict[str, dict], tz: ZoneInfo, now: dateti
                 s, en = datetime.fromisoformat(e["start"]), datetime.fromisoformat(e["end"])
             if not (s < d1 and en > d0):
                 continue
-            if i == 0 and not e["all_day"] and en <= now:
+            if start_date is None and i == 0 and not e["all_day"] and en <= now:
                 continue  # прошедшие сегодня не показываем
             who = [p for p in e["people"] if p in people]
             esc = e.get("escort")
