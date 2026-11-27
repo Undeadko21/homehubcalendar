@@ -143,7 +143,7 @@ fi
 
 # ---------- 5. запуск и автообновление ----------
 say "Собираю и запускаю (первая сборка займёт несколько минут)"
-run "cd $APP_DIR && docker compose up -d --build"
+run "cd $APP_DIR && GIT_SHA=\$(git rev-parse --short=7 HEAD) docker compose up -d --build"
 
 run "cat > /etc/systemd/system/homecal-update.service <<EOF
 [Unit]

@@ -110,10 +110,10 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("legacy_ops_removed", false)
         set(v) = sp.edit().putBoolean("legacy_ops_removed", v).apply()
 
-    /** Очередь команд изменилась и ещё не выгружена в облако. */
-    var outboxDirty: Boolean
-        get() = sp.getBoolean("outbox_dirty", false)
-        set(v) = sp.edit().putBoolean("outbox_dirty", v).apply()
+    /** Ревизия пакета, который успешно принят облаком. */
+    var outboxSentRevision: String?
+        get() = sp.getString("outbox_sent_revision", null)
+        set(v) = sp.edit().putString("outbox_sent_revision", v).apply()
 
     /** Откуда взяты последние данные: "home" или "cloud". */
     var dataSource: String

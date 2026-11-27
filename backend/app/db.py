@@ -156,6 +156,7 @@ class Database:
     def __init__(self, path: Path | str):
         self.path = str(path)
         self._lock = threading.RLock()
+        self._objects_revision = 0
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         try:
@@ -453,8 +454,17 @@ class Database:
                 c.execute("DELETE FROM calendar_people WHERE calendar_key=?", (k,))
             c.execute("DELETE FROM calendars WHERE source_id=?", (source_id,))
             c.execute("DELETE FROM sync_status WHERE source_id=?", (source_id,))
+            self.objects_changed()
 
     # ---------- объекты ----------
+    def objects_revision(self) -> int:
+        with self._lock:
+            return self._objects_revision
+
+    def objects_changed(self) -> None:
+        with self._lock:
+            self._objects_revision += 1
+
     def replace_objects(self, calendar_key: str, objects: dict[str, str]) -> None:
         with self.tx() as c:
             c.execute("DELETE FROM objects WHERE calendar_key=?", (calendar_key,))
@@ -462,6 +472,7 @@ class Database:
                 "INSERT INTO objects (calendar_key, href, ics) VALUES (?,?,?)",
                 [(calendar_key, href, ics) for href, ics in objects.items()],
             )
+            self.objects_changed()
 
     def objects_map(self, calendar_key: str) -> dict[str, str]:
         return {r["href"]: r["ics"] for r in self.query("SELECT href, ics FROM objects WHERE calendar_key=?", (calendar_key,))}
@@ -471,10 +482,12 @@ class Database:
             c.execute("INSERT INTO objects (calendar_key, href, ics) VALUES (?,?,?) "
                       "ON CONFLICT(calendar_key, href) DO UPDATE SET ics=excluded.ics",
                       (calendar_key, href, ics))
+            self.objects_changed()
 
     def delete_object(self, calendar_key: str, href: str) -> None:
         with self.tx() as c:
             c.execute("DELETE FROM objects WHERE calendar_key=? AND href=?", (calendar_key, href))
+            self.objects_changed()
 
     def find_object(self, uid: str, calendar_key: str | None = None) -> tuple[str, str, str] | None:
         """(calendar_key, href, ics) объекта с таким UID."""

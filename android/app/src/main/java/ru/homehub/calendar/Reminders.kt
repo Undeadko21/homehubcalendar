@@ -253,21 +253,22 @@ class TripActionReceiver : BroadcastReceiver() {
         val op = JSONObject().put("type", "escort").put("uid", uid).put("role", role)
             .put("occurrence", intent.getStringExtra("occurrence") ?: JSONObject.NULL)
             .put("person", if (cant) JSONObject.NULL else (intent.getStringExtra("person") ?: JSONObject.NULL))
-        Outbox.add(context, op)
         val result = goAsync()
         Thread {
-            val sent = runCatching { Outbox.push(context) }.getOrDefault(false)
-            val n = Notification.Builder(context, "reminders")
-                .setSmallIcon(R.drawable.ic_notify)
-                .setContentTitle(done)
-                .setContentText(if (sent) "Отправлено, календарь обновится в течение минуты" else "Нет связи — отправлю при следующем обновлении")
-                .setColor(context.getColor(R.color.red))
-                .setTimeoutAfter(15_000)
-                .setAutoCancel(true)
-                .build()
-            nm?.notify(nid, n)
-            if (sent) Widgets.refreshLater(context, 90)
-            result.finish()
+            try {
+                val queued = runCatching { Outbox.add(context, op) }.isSuccess
+                val notice = Notification.Builder(context, "reminders")
+                    .setSmallIcon(R.drawable.ic_notify)
+                    .setContentTitle(if (queued) done else "Не удалось сохранить команду")
+                    .setContentText(if (queued) "В очереди на отправку" else "Попробуйте ещё раз из календаря")
+                    .setColor(context.getColor(R.color.red))
+                    .setTimeoutAfter(15_000)
+                    .setAutoCancel(true)
+                    .build()
+                nm?.notify(nid, notice)
+            } finally {
+                result.finish()
+            }
         }.start()
     }
 }
@@ -280,23 +281,25 @@ class TakeActionReceiver : BroadcastReceiver() {
         val nm = context.getSystemService(NotificationManager::class.java)
         val nid = intent.getIntExtra("nid", 0)
         val ids = runCatching { JSONArray(intent.getStringExtra("ids") ?: "[]") }.getOrNull() ?: JSONArray()
-        for (k in 0 until ids.length()) {
-            Outbox.add(context, JSONObject().put("type", "item_done").put("item_id", ids.optLong(k)).put("done", true))
-        }
         val result = goAsync()
         Thread {
-            val sent = runCatching { Outbox.push(context) }.getOrDefault(false)
-            val n = Notification.Builder(context, "reminders")
-                .setSmallIcon(R.drawable.ic_notify)
-                .setContentTitle("Отмечено: всё взяли")
-                .setContentText(if (sent) "Список обновится в течение минуты" else "Нет связи — отправлю при следующем обновлении")
-                .setColor(context.getColor(R.color.red))
-                .setTimeoutAfter(15_000)
-                .setAutoCancel(true)
-                .build()
-            nm?.notify(nid, n)
-            if (sent) Widgets.refreshLater(context, 90)
-            result.finish()
+            try {
+                val ops = (0 until ids.length()).map { k ->
+                    JSONObject().put("type", "item_done").put("item_id", ids.optLong(k)).put("done", true)
+                }
+                val queued = runCatching { Outbox.addAll(context, ops) }.isSuccess
+                val notice = Notification.Builder(context, "reminders")
+                    .setSmallIcon(R.drawable.ic_notify)
+                    .setContentTitle(if (queued) "Отмечено: всё взяли" else "Не удалось сохранить список")
+                    .setContentText(if (queued) "В очереди на отправку" else "Проверьте список в календаре")
+                    .setColor(context.getColor(R.color.red))
+                    .setTimeoutAfter(15_000)
+                    .setAutoCancel(true)
+                    .build()
+                nm?.notify(nid, notice)
+            } finally {
+                result.finish()
+            }
         }.start()
     }
 }

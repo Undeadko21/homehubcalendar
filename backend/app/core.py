@@ -43,12 +43,12 @@ def initialize(config: Settings | None = None) -> None:
     engine.seed_people(settings.people)
     scheduler = BackgroundScheduler(timezone=tz)
     cloud = CloudSync(db, lambda: snapshot.build(events, db, tz, weather_cfg=settings.weather))
-    backup = BackupService(db, cloud, tz)
     sessions = Sessions(db)
     STARTED = datetime.now(tz)
     perf = PerfLog()
     # Право записи проверяет сам сервер: отложенные операции должны получить его ответ.
     ws = writeq.WriteService(db, lambda k: make_target(k, allow_denied=True), _ws_changed)
+    backup = BackupService(db, cloud, tz, pause_writes=ws.pause_for_restore)
 
 
 # Приложение для Android: собранный APK и его версия (android/release в репозитории).

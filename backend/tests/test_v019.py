@@ -283,12 +283,55 @@ def test_concurrent_flush_and_edit_keep_queue_consistent(api, monkeypatch):
             assert sending.wait(5)
             second = pool.submit(core.ws.flush)
             edit = pool.submit(core.ws.update, calendar, href, queued, latest)
+            assert not edit.result(timeout=2)
+            assert second.result(timeout=2)["done"] == 0
+            assert core.db.find_object(uid, calendar)[2] == latest
         finally:
             release.set()
-        assert first.result(timeout=5)["done"] == 1
-        assert second.result(timeout=5)["done"] == 0
-        assert edit.result(timeout=5)
+        assert first.result(timeout=5)["done"] == 2
     assert sent == [queued, latest]
     assert api.fake.store[href] == latest
     assert core.ws.queue() == []
     assert core.ws.event_status(calendar, uid) == "sent"
+
+
+def test_pending_split_depends_on_cutoff_after_inflight_update(api, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from app import writer
+
+    core = api.core
+    calendar = "ya/home"
+    start = core._today_start() + timedelta(days=1, hours=16)
+    _, before = writer.build_ics("Серия", start, start + timedelta(hours=1), False, core.tz)
+    edit = writer.apply_edit(before, {"title": "Правка"}, core.tz)
+    cutoff = writer.apply_edit(edit, {"title": "Обрезка"}, core.tz)
+    _, fork = writer.build_ics("Новая серия", start, start + timedelta(hours=1), False, core.tz)
+    sending, release = Event(), Event()
+    calls = []
+
+    def apply(op, *, queued):
+        title = writer.title_of(op["ics"])
+        calls.append(title)
+        if title == "Правка":
+            sending.set()
+            assert release.wait(5)
+        elif title == "Обрезка":
+            raise writer.WriteConflict("Конфликт", edit, "/series.ics")
+        else:
+            return "/fork.ics"
+
+    monkeypatch.setattr(core.ws, "_run", apply)
+    with core.ws.defer():
+        core.ws.update(calendar, "/series.ics", before, edit)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        sender = pool.submit(core.ws.flush)
+        try:
+            assert sending.wait(2)
+            assert not core.ws.split(calendar, "/series.ics", edit, cutoff, fork)
+        finally:
+            release.set()
+        assert sender.result(timeout=5) == {"done": 1, "failed": 2, "left": 0}
+    assert calls == ["Правка", "Обрезка"]
+    assert not core.db.find_object(writer.uid_of(fork), calendar)

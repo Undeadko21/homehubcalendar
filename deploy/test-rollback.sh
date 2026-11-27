@@ -13,7 +13,7 @@ cat > "$T/bin/docker" <<EOF
 #!/usr/bin/env bash
 echo "docker \$*" >> "$T/docker.log"
 if [ "\$1" = "compose" ] && [ "\$2" = "up" ]; then
-  if [ -e "$T/app/BROKEN" ]; then rm -f "$T/healthy"; else touch "$T/healthy"; fi
+  if [ -e "$T/app/BROKEN" ]; then rm -f "$T/healthy"; else git -C "$T/app" rev-parse --short=7 HEAD > "$T/healthy"; fi
 fi
 if [ "\$1" = "compose" ] && [ "\$2" = "build" ] && [ -e "$T/app/BUILD_BAD" ]; then exit 1; fi
 # проверка на копии базы: «docker run» падает, если в новой версии есть файл CANARY_BAD
@@ -29,20 +29,38 @@ if [ "\$1" = "run" ] && [ -e "$T/app/MIGRATE" ]; then
     *"/canary/migrated.sqlite3"*) [ ! -e "$T/app/OLD_INCOMPATIBLE" ] || exit 1 ;;
   esac
 fi
-if [ "\$1" = "image" ]; then echo "sha256:old"; fi
+if [ "\$1" = "load" ]; then
+  cp "\$3" "$T/loaded-commit"
+fi
+if [ "\$1" = "image" ] && [ "\$2" = "inspect" ]; then
+  cat "$T/loaded-commit" 2>/dev/null || exit 1
+fi
+if [ "\$1" = "inspect" ] && [ "\$3" = '{{.Image}}' ]; then
+  echo "sha256:$(printf '%064d' 1)"
+fi
 exit 0
 EOF
 cat > "$T/bin/curl" <<EOF
 #!/usr/bin/env bash
-[ -e "$T/healthy" ]
+if [[ "\$*" == *"/releases/download/"* ]]; then
+  [ -f "$T/ci-commit" ] || exit 22
+  if [[ "\$*" == *".sha256" ]]; then
+    sha256sum "$T/ci-commit" | cut -d ' ' -f 1
+  else
+    cp "$T/ci-commit" "\${*: -1}"
+  fi
+  exit 0
+fi
+[ -s "$T/healthy" ] || exit 1
+printf '{"version":"0.21.2+%s"}\n' "\$(cat "$T/healthy")"
 EOF
 chmod +x "$T/bin/docker" "$T/bin/curl"
-export PATH="$T/bin:$PATH" HEALTH_TRIES=2 HEALTH_SLEEP=0 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+export PATH="$T/bin:$PATH" HEALTH_TRIES=2 HEALTH_SLEEP=0 HOMECAL_DEPLOY_LOCAL=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 
 git init -q --bare -b main "$T/origin.git"
 git init -q -b main "$T/seed"; cd "$T/seed"
 git config user.email t@t; git config user.name t
-mkdir deploy; cp "$HERE/update.sh" deploy/update.sh; echo v1 > VERSION
+mkdir deploy; cp "$HERE/update.sh" "$HERE/update-release.sh" deploy/; echo v1 > VERSION
 echo "data/" > .gitignore
 git add -A; git commit -qm good1; git remote add origin "$T/origin.git"; git push -q origin main
 git clone -q "$T/origin.git" "$T/app2"; rm -rf "$T/app"; mv "$T/app2" "$T/app"; mkdir -p "$T/app/data"
@@ -83,7 +101,7 @@ check "рабочая копия осталась на прошлом комми
 check "плохой коммит записан, причина — проверка" "[ \"\$(cat data/.bad_commit)\" = \"$CB\" ] && grep -q 'копии базы' data/.bad_reason"
 check "в отчёте — строка с ошибкой" "grep -q ОШИБКА data/.canary_report"
 check "контейнер не перезапускали" "! grep -q 'compose up' \"$T/docker.log\""
-check "образ вернули на прежний" "grep -q 'tag sha256:old' \"$T/docker.log\""
+check "образ вернули на прежний" "grep -q 'tag sha256:' \"$T/docker.log\""
 check "копия базы удалена" "[ ! -e data/.canary ]"
 
 # 5. исправление после непрошедшей проверки — ставится
@@ -111,7 +129,7 @@ check "после ошибки сборки контейнер не переза
 cd "$T/seed"; git rm -q BUILD_BAD CANARY_BAD; touch MIGRATE OLD_INCOMPATIBLE; git add -A; git commit -qm old-incompatible; git push -q origin main
 cd "$T/app"; rm -f data/.no_canary; : > "$T/docker.log"
 if APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1; then exit 1; fi
-check "проверка отката использует старый образ" "grep -q 'sha256:old .* /canary/migrated.sqlite3' \"$T/docker.log\" || { cat \"$T/docker.log\"; false; }"
+check "проверка отката использует старый образ" "grep -q 'sha256:.* /canary/migrated.sqlite3' \"$T/docker.log\" || { cat \"$T/docker.log\"; false; }"
 check "несовместимая схема не попала в живую базу" "! grep -q 'compose up' \"$T/docker.log\""
 
 # 9. Совместимая миграция оставляет исходную резервную копию.
@@ -125,4 +143,23 @@ cd "$T/app"; touch "$T/stopped" data/homecal.sqlite3; : > "$T/docker.log"
 APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1
 check "копия остановленного сервера снимается через временный контейнер" "grep -q 'run --rm --network none --entrypoint python' \"$T/docker.log\" && ! grep -q '^docker exec' \"$T/docker.log\""
 check "после обновления остановленный сервер запущен" "[ -e \"$T/healthy\" ]"
+# 11. Уже переключённый HEAD и предыдущая запущенная версия: таймер должен продолжить.
+cd "$T/seed"; echo v11 > VERSION; git commit -qam interrupted; git push -q origin main
+cd "$T/app"; git fetch -q origin main
+PREV=$(git rev-parse HEAD)
+TARGET=$(git rev-parse origin/main)
+printf '%s %s sha256:%064d\n' "$TARGET" "$PREV" 1 > data/.deployment
+git reset -q --hard "$TARGET"
+APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1
+check "после прерывания запустился образ нужной версии" "[ \"\$(cat '$T/healthy')\" = \"${TARGET:0:7}\" ] && [ ! -e data/.deployment ]"
+
+# 12. Не скачанный из CI образ: оставляем доступную версию и повторяем.
+cd "$T/seed"; echo v12 > VERSION; git commit -qam wait-for-ci; git push -q origin main
+cd "$T/app"; : > "$T/docker.log"
+if HOMECAL_DEPLOY_LOCAL=0 APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1; then exit 1; fi
+check "недоступный образ не запускает локальную сборку и оставляет журнал" "[ -e data/.deployment ] && [ ! -e data/.bad_commit ] && ! grep -q 'compose build\|compose up' '$T/docker.log'"
+git rev-parse origin/main > "$T/ci-commit"
+: > "$T/docker.log"
+HOMECAL_DEPLOY_LOCAL=0 APP_DIR="$T/app" bash deploy/update.sh >/dev/null 2>&1
+check "следующая попытка ставит образ CI без сборки" "[ ! -e data/.deployment ] && grep -q 'docker load' '$T/docker.log' && ! grep -q 'compose build' '$T/docker.log'"
 echo "Откат деплоя работает."

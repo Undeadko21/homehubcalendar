@@ -124,6 +124,10 @@ def test_create_and_replay_acknowledge_while_caldav_is_waiting(api, event, monke
                 assert sending.wait(2)
                 replay = threads.submit(api.post, "/api/event", json=event).result(timeout=2)
                 assert replay.json() == first.json()
+                second_event = {**event, "title": "Второе событие", "request_id": str(uuid4())}
+                second = threads.submit(api.post, "/api/event", json=second_event).result(timeout=2)
+                assert second.status_code == 200 and second.json()["pending"]
+                assert second.json()["uid"] != first.json()["uid"]
                 assert api.fake.n == 0
             finally:
                 release.set()

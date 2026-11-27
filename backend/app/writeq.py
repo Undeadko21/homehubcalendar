@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
-from threading import RLock
+from threading import Lock, RLock
 from typing import Callable
 
 from . import writer
@@ -48,6 +48,8 @@ def _serialized(method):
 class WriteService:
     def __init__(self, db: Database, get_target: Callable[[str], object], on_change: Callable[[], None]):
         self._lock = RLock()
+        self._sender = Lock()
+        self._inflight_id: str | None = None
         self._deferred = ContextVar("deferred_calendar_write", default=False)
         self.db = db
         self.get_target = get_target   # key календаря -> цель записи (можно подменять в тестах)
@@ -66,6 +68,12 @@ class WriteService:
                 yield
             finally:
                 self._deferred.reset(token)
+
+    @contextmanager
+    def pause_for_restore(self):
+        """Восстановление базы начинается после завершения уже отправляемой операции."""
+        with self._sender, self._lock:
+            yield
 
     # ---------- очередь ----------
     def queue(self) -> list[dict]:
@@ -91,16 +99,20 @@ class WriteService:
     @_serialized
     def reapply(self) -> None:
         """После синхронизации возвращаем локально то, что ещё не дошло до Яндекса."""
-        for op in self.queue():
-            if op["kind"] in ("delete", "cancel_create"):
-                self.db.delete_object(op["cal"], op["href"])
-            else:
-                self.db.put_object(op["cal"], op["href"], op["ics"])
+        with self.db.tx():
+            for op in self.queue():
+                if op["kind"] in ("delete", "cancel_create"):
+                    self.db.delete_object(op["cal"], op["href"])
+                else:
+                    self.db.put_object(op["cal"], op["href"], op["ics"])
 
     def _enqueue(self, kind: str, cal: str, href: str, ics: str = "", *, before: str | None = None,
                  requires: str | None = None, attempted: str | None = None) -> None:
         q = self.queue()
-        same = next((o for o in q if o["cal"] == cal and o["href"] == href), None)
+        same = next((o for o in reversed(q) if o["cal"] == cal and o["href"] == href), None)
+        if same and same["id"] == self._inflight_id:
+            requires = same["id"]
+            same = None
         if same:
             if kind == "delete" and same["kind"] == "create":
                 settled = {same["id"]: "cancelled"}
@@ -175,58 +187,80 @@ class WriteService:
             self.on_change()
         return result
 
-    @_serialized
     def _flush(self) -> dict:
         done = failed = 0
-        q = self.queue()
-        while q:
-            op = q[0]
-            if op["kind"] == "create" and not op.get("attempted"):
-                op["attempted"] = op["ics"]
-                self._save_queue(q)
-            failure = None
-            try:
-                real = self._run(op, queued=True)
-            except Exception as exc:  # noqa: BLE001
-                if is_transient(exc):
-                    log.info("Очередь записи: сервер недоступен (%s)", type(exc).__name__)
-                    break
-                failure = exc
+        if not self._sender.acquire(blocking=False):
+            return {"done": done, "failed": failed, "left": self.pending_count()}
+        try:
+            while True:
+                with self._lock:
+                    q = self.queue()
+                    if not q:
+                        break
+                    op = q[0]
+                    if op["kind"] == "create" and not op.get("attempted"):
+                        op["attempted"] = op["ics"]
+                        self._save_queue(q)
+                    self._inflight_id = op["id"]
 
-            with self.db.tx():
-                q.pop(0)
-                settled = {op["id"]: "sent"}
-                if failure:
-                    log.warning("Очередь записи: операция отклонена (%s)", type(failure).__name__)
-                    failed += 1
-                    settled[op["id"]] = "failed"
-                    self.db.kv_set(ERR_KEY, f"{op['kind']}: {writer.friendly(failure)}")
-                    if isinstance(failure, writer.WriteConflict):
-                        settled[op["id"]] = "conflict"
-                        if failure.remote is None or op["href"].startswith("pending:"):
-                            self.db.delete_object(op["cal"], op["href"])
-                        if failure.remote is not None:
-                            href = failure.href if op["href"].startswith("pending:") else op["href"]
-                            if href:
-                                self.db.put_object(op["cal"], href, failure.remote)
-                    if op["kind"] == "create":
-                        self.db.delete_object(op["cal"], op["href"])
-                    self._discard_dependents(q, settled)
-                    failed += len(settled) - 1
+                try:
+                    real = self._run(op, queued=True)
+                except Exception as exc:  # noqa: BLE001
+                    if is_transient(exc):
+                        log.info("Очередь записи: сервер недоступен (%s)", type(exc).__name__)
+                        break
+                    failed += self._finish(op, failure=exc)
                 else:
+                    self._finish(op, real=real)
                     done += 1
-                    if real and op["kind"] == "create":
-                        self.db.delete_object(op["cal"], op["href"])
-                        self.db.put_object(op["cal"], real, op["ics"])
-                        for item in q:
-                            if item["cal"] == op["cal"] and item["href"] == op["href"]:
-                                item["href"] = real
+            return {"done": done, "failed": failed, "left": self.pending_count()}
+        finally:
+            with self._lock:
+                self._inflight_id = None
+            self._sender.release()
+
+    @_serialized
+    def _finish(self, op: dict, *, real: str | None = None, failure: Exception | None = None) -> int:
+        with self.db.tx():
+            # Сеть уже закончилась. Берём свежую очередь, в ней могли появиться новые операции.
+            q = self.queue()
+            if op not in q:
+                return 0
+            q.remove(op)
+            cal, href = op["cal"], op["href"]
+            settled = {op["id"]: "sent"}
+            if failure:
+                log.warning("Очередь записи: операция отклонена (%s)", type(failure).__name__)
+                settled[op["id"]] = "conflict" if isinstance(failure, writer.WriteConflict) else "failed"
+                self.db.kv_set(ERR_KEY, f"{op['kind']}: {writer.friendly(failure)}")
+                self._discard_dependents(q, settled)
+                if op["kind"] == "create" or isinstance(failure, writer.WriteConflict):
+                    self.db.delete_object(cal, href)
+                    if isinstance(failure, writer.WriteConflict) and failure.remote is not None:
+                        remote_href = failure.href if href.startswith("pending:") else href
+                        if remote_href:
+                            self.db.put_object(cal, remote_href, failure.remote)
+                elif any(item_id != op["id"] for item_id in settled) and op.get("before"):
+                    self.db.put_object(cal, href, op["before"])
+            else:
+                # Снимок CalDAV, начатый до подтверждения, может ещё не содержать отправленную правку.
+                self.db.objects_changed()
+                if real and op["kind"] == "create":
+                    self.db.delete_object(cal, href)
+                    latest = op
                     for item in q:
-                        if item.get("requires") == op["id"]:
-                            item.pop("requires")
-                self._save_queue(q)
-                self._settle(settled)
-        return {"done": done, "failed": failed, "left": len(q)}
+                        if item["cal"] == cal and item["href"] == href:
+                            item["href"] = real
+                            latest = item
+                    if latest["kind"] != "delete":
+                        self.db.put_object(cal, real, latest["ics"])
+                for item in q:
+                    if item.get("requires") == op["id"]:
+                        item.pop("requires")
+            self._save_queue(q)
+            self._settle(settled)
+        self._inflight_id = None
+        return len(settled) if failure else 0
 
     # ---------- журнал ----------
     def journal(self) -> list[dict]:
@@ -246,7 +280,7 @@ class WriteService:
     def _log(self, action: str, cal: str, uid: str, title: str, before: str | None,
              after: str | None, href: str, sent: bool) -> None:
         items = self.journal()
-        op = next((op for op in self.queue() if op["cal"] == cal and op["href"] == href), None) if not sent else None
+        op = next((op for op in reversed(self.queue()) if op["cal"] == cal and op["href"] == href), None) if not sent else None
         items.append({"id": uuid.uuid4().hex[:10], "t": datetime.now().astimezone().isoformat(timespec="seconds"),
                       "action": action, "calendar": cal, "uid": uid, "title": title,
                       "before": before, "after": after,
@@ -297,7 +331,7 @@ class WriteService:
     @_serialized
     def split(self, cal: str, href: str, before: str, series: str, new_ics: str) -> bool:
         sent = self.update(cal, href, before, series)
-        parent = next((op["id"] for op in self.queue() if op["cal"] == cal and op["href"] == href), None)
+        parent = next((op["id"] for op in reversed(self.queue()) if op["cal"] == cal and op["href"] == href), None)
         created = self.create(cal, new_ics, requires=parent)
         return sent and created
 
