@@ -68,10 +68,15 @@ local function connect(ca_file)
     return connection
 end
 
-function Network.fetch(token, ca_file)
+function Network.fetch(token, ca_file, start_date)
+    local url = Data.origin .. ":443/api/widget?days=7&week=true"
+    if start_date then
+        assert(Data.offset(start_date, 0) == start_date)
+        url = url .. "&date_from=" .. start_date
+    end
     local chunks, size = {}, 0
     local ok, code = http.request {
-        url = Data.origin .. ":443/api/widget?days=2",
+        url = url,
         method = "GET",
         headers = {
             ["X-Widget-Token"] = token,

@@ -232,18 +232,23 @@ def get_free(people: str, start: str, end: str, day_from: str = "08:00", day_to:
 
 
 @router.get("/api/widget")
-def get_widget(days: int = 2, people: str | None = None):
+def get_widget(days: int = 2, people: str | None = None, date_from: date | None = None, week: bool = False):
     """Готовые к показу события для виджета: сегодня (оставшиеся) и следующие дни."""
     days = max(1, min(days, 7))
     now = datetime.now(core.tz)
-    start = datetime.combine(now.date(), time(0), core.tz)
+    if date_from is None and week:
+        date_from = now.date() - timedelta(days=now.weekday())
+    if date_from is not None and abs((date_from - now.date()).days) > 63:
+        raise HTTPException(400, "Неделя вне доступного периода")
+    start = datetime.combine(date_from or now.date(), time(0), core.tz)
     plist = {p["id"]: p for p in core.db.list_people() if not p["hidden"]}
     only = set(people.split(",")) if people else None
     evs = core.events.visible(core.events.events(start, start + timedelta(days=days)))
-    soon = bd.upcoming(core.db.birthdays(), core.events.events(start, start + timedelta(days=15)), start.date(), 14)[:2]
+    today = datetime.combine(now.date(), time(0), core.tz)
+    soon = bd.upcoming(core.db.birthdays(), core.events.events(today, today + timedelta(days=15)), today.date(), 14)[:2]
     from .. import countdown
     near = [c for c in countdown.upcoming(core.events, core.db, core.tz) if 0 <= c["days"] <= 90][:1]
-    return widget.build(evs, plist, core.tz, now, days, only, soon, near)
+    return widget.build(evs, plist, core.tz, now, days, only, soon, near, start_date=date_from)
 
 
 # ---------- шаблоны поездок по дням недели ----------
