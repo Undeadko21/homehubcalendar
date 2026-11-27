@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -428,6 +429,15 @@ def parse_item(command: str) -> str | None:
     return (m.group(1) or m.group(2)).strip() if m else None
 
 
+def _op_id(req: dict, kind: str, index: int = 0) -> str:
+    session = req.get("session") or {}
+    sid, mid = session.get("session_id"), session.get("message_id")
+    if not isinstance(sid, str) or not sid or type(mid) is not int or mid < 0:
+        return uuid.uuid4().hex
+    identity = json.dumps(["alice", sid, mid, kind, index]).encode()
+    return hashlib.sha256(identity).hexdigest()[:32]
+
+
 def answer_item(req: dict, snap: dict, send=None) -> dict:
     send = send or send_command
     text = parse_item((req.get("request", {}).get("command") or ""))
@@ -439,8 +449,8 @@ def answer_item(req: dict, snap: dict, send=None) -> dict:
     state = (req.get("state") or {}).get("user") or {}
     items = [x.strip() for x in re.split(r",|\s+и\s+", text) if x.strip()][:10]
     try:
-        for it in items:
-            op = {"id": uuid.uuid4().hex[:12], "t": int(time.time() * 1000), "type": "item_add", "list_id": lst["id"], "text": it[:300]}
+        for index, it in enumerate(items):
+            op = {"id": _op_id(req, "item_add", index), "t": int(time.time() * 1000), "type": "item_add", "list_id": lst["id"], "text": it[:300]}
             if state.get("person"):
                 op["person_id"] = state["person"]
             send(op)
@@ -469,7 +479,7 @@ def answer_move(req: dict, send=None) -> dict:
     if not text or not _DAY_RE.search(text.lower()):
         return _reply("Что и на какой день перенести? Например: перенеси йогу на завтра в 19:00.", end=False)
     state = (req.get("state") or {}).get("user") or {}
-    op = {"id": uuid.uuid4().hex[:12], "t": int(time.time() * 1000), "type": "event_move", "text": text}
+    op = {"id": _op_id(req, "event_move"), "t": int(time.time() * 1000), "type": "event_move", "text": text}
     if re.search(r"(?<!\w)(мою|мой|моё|мне)(?!\w)", text.lower()) and state.get("person"):
         op["people"] = [state["person"]]
     try:
@@ -527,7 +537,7 @@ def answer_add(req: dict, send=send_command) -> dict:
         return _reply("Что добавить? Например: добавь на завтра в 18:00 врача Марку.", end=False)
     if not _DAY_RE.search(text.lower()):
         return _reply("На какой день? Скажите всё вместе: добавь на завтра в 18:00 врача Марку.", end=False)
-    op = {"id": uuid.uuid4().hex[:12], "t": int(time.time() * 1000), "type": "event_quick", "text": text}
+    op = {"id": _op_id(req, "event_quick"), "t": int(time.time() * 1000), "type": "event_quick", "text": text}
     if re.search(r"(?<!\w)(мне|мой|моя|моё)(?!\w)", text.lower()) and state.get("person"):
         op["people"] = [state["person"]]
     try:

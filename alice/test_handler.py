@@ -168,6 +168,26 @@ def test_move_command(monkeypatch):
     assert len(sent) == 1 and not r["response"]["end_session"]          # без дня — переспрашиваем
 
 
+def test_redelivered_message_reuses_ids(monkeypatch):
+    monkeypatch.setenv("HOMEHUB_TOKEN", "x" * 30)
+    session = {"session_id": "session-a", "message_id": 0}
+    sent = []
+    req = {"request": {"command": "купи хлеб и сыр"}, "session": session}
+    h.answer_item(req, SNAP, send=sent.append)
+    h.answer_item(req, SNAP, send=sent.append)
+    session["message_id"] = 1
+    h.answer_item(req, SNAP, send=sent.append)
+    ids = [op["id"] for op in sent]
+    assert ids[:2] == ids[2:4]
+    assert len(set(ids)) == 4
+    for answer, command in ((h.answer_add, "добавь врача на завтра"), (h.answer_move, "перенеси йогу на завтра")):
+        req["request"]["command"] = command
+        sent.clear()
+        answer(req, send=sent.append)
+        answer(req, send=sent.append)
+        assert len(sent) == 2 and sent[0]["id"] == sent[1]["id"]
+
+
 def test_weekend_and_free():
     # NOW — вторник 27.10.2026; суббота 31.10
     snap = {**SNAP, "events": SNAP["events"] + [

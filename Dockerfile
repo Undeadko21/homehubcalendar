@@ -1,21 +1,21 @@
 # --- сборка веб-интерфейса ---
-FROM node:22-alpine AS ui
+FROM node:22.16.0-alpine@sha256:41e4389f3d988d2ed55392df4db1420ad048ae53324a8e2b7c6d19508288107e AS ui
 WORKDIR /ui
-COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 ARG GIT_SHA=""
 ENV VITE_BUILD=$GIT_SHA
 RUN npm run build
 
 # --- бэкенд ---
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:191083cdf6c7bda8c76158983163ead5d5cf7b77cf3033e805bb0f5296f51b4b
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     HOMECAL_CONFIG=/config/config.yaml HOMECAL_DATA_DIR=/data HOMECAL_STATIC=/app/static \
     HOMECAL_APP_DIR=/app/android-release HOMECAL_MAC_DIR=/app/mac-release HOMECAL_IOS_DIR=/app/ios-release HOMECAL_VERSIONS_DIR=/app/versions
 WORKDIR /app
-COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 COPY backend/app ./app
 COPY --from=ui /ui/dist ./static
 COPY android/release ./android-release

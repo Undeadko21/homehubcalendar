@@ -68,6 +68,11 @@
           <button class="btn filled" @click="setView('settings')">Подключить</button>
         </div>
 
+        <div v-if="state.uiUpdate && !state.kiosk && !hasOpenDraft" class="setup" role="status">
+          <span>Доступна новая версия календаря.</span>
+          <button class="btn filled" @click="applyUiUpdate">Обновить</button>
+        </div>
+
         <!-- Нет связи: спокойная полоса, данные остаются на экране -->
         <div v-if="net.offline && !state.kiosk" class="netbar" role="status">
           <span class="nb-ico" aria-hidden="true"><Ico name="warn" /></span>
@@ -156,7 +161,7 @@
 <script setup>
 import Ico from './components/Ico.vue'
 import { computed, defineAsyncComponent, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen, animate, toast, newEvent, writableCalendars } from './lib/store'
+import { state, loadConfig, setView, refreshStatus, syncNow, reload, connectLive, CAL_VIEWS, weekDays, screen, animate, toast, newEvent, writableCalendars, hasOpenDraft, applyUiUpdate, checkUiVersion } from './lib/store'
 import { api, net } from './lib/api'
 import { haptic } from './lib/haptic'
 import { addDays, startOfWeek, relativeDayName, cap } from './lib/dates'
@@ -185,6 +190,7 @@ import { unseenNews } from './lib/news'
 // скачивать сетку «Недели» (FullCalendar) и настройки ради месяца и «Сегодня».
 // Если файл экрана не скачался (сервер только что обновился, и старых файлов уже нет) — один раз перезагружаем страницу.
 const fresh = (loader) => () => loader().catch((e) => {
+  if (hasOpenDraft.value) { checkUiVersion(); throw e }
   try {
     if (!sessionStorage.getItem('homecal.chunkReload')) { sessionStorage.setItem('homecal.chunkReload', '1'); location.reload() }
   } catch { /* без хранилища — покажем ошибку */ }
