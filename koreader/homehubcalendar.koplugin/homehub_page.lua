@@ -100,16 +100,12 @@ function DayPage:weekColumn(width, height)
     local row_h = math.floor(height / 7)
     self.week_row_height = row_h
     for i, day in ipairs(self.cache.days) do
-        local title = Data.shortDay(day.date)
-        if day.events[1] then title = title .. " · " .. day.events[1].title end
-        if day.unavailable then title = title .. " · —" end
         local inset = scale(7)
         local divider = i < 7 and 1 or 0
         local border = i == self.day_index and scale(2) or 0
         local line = CenterContainer:new {
             dimen = Geom:new { w = width - 2 * (inset + border), h = row_h - divider - 2 * (inset + border) },
-            ignore = "width",
-            headline(title, width - 2 * (inset + border), 19),
+            headline(Data.shortDay(day.date), width - 2 * (inset + border), 19),
         }
         group[#group + 1] = FrameContainer:new {
             padding = inset, bordersize = border, radius = 0, line,
@@ -147,7 +143,7 @@ function DayPage:init()
     }
     local footer = ButtonTable:new { width = width, buttons = self.buttons, show_parent = self, font_size = 17 }
     local viewport = math.max(1, screen_height - 2 * margin - header:getSize().h - footer:getSize().h - scale(10))
-    local left = self.landscape and math.floor(width * 0.37) or 0
+    local left = self.landscape and math.min(scale(100), math.floor(width / 4)) or 0
     local gap = self.landscape and scale(12) or 0
     local agenda_width = width - left - gap * 2
     local content_width = agenda_width - ScrollableContainer:getScrollbarWidth()
@@ -172,6 +168,7 @@ function DayPage:init()
         agenda[#agenda + 1] = text("На этот день событий нет.", content_width, 21)
     end
     local clock_width = math.floor(content_width * 0.23)
+    if self.landscape then clock_width = math.min(clock_width, scale(100)) end
     for _, event in ipairs(day.events) do
         agenda[#agenda + 1] = space(7)
         agenda[#agenda + 1] = eventRow(event, content_width, clock_width, self.landscape)
