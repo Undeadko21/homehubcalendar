@@ -9,10 +9,14 @@ from __future__ import annotations
 import gzip
 import logging
 import os
+import re
 import sqlite3
 import tempfile
+from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
+from threading import RLock
 from typing import Callable
 from zoneinfo import ZoneInfo
 
@@ -84,11 +88,54 @@ def check_db(gz_or_raw: bytes) -> dict:
             con.close()
 
 
+def attachment_sizes(data: bytes) -> dict[str, int]:
+    """Ссылки на бинарные вложения из конкретной копии базы, включая старые схемы."""
+    raw = gzip.decompress(data) if data[:2] == b"\x1f\x8b" else data
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "attachments.db"
+        path.write_bytes(raw)
+        con = sqlite3.connect(path)
+        try:
+            if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_files'").fetchone():
+                return {}
+            sizes = dict(con.execute("SELECT id, size FROM event_files WHERE url IS NULL"))
+        finally:
+            con.close()
+    if any(not re.fullmatch(r"[0-9a-f]{32}", fid) for fid in sizes):
+        raise ValueError("Некорректный идентификатор вложения в копии")
+    return sizes
+
+
+def restore_attachments(sizes: dict[str, int], key: bytes, fetch: Callable[[str], bytes],
+                        staged: Path | None = None) -> None:
+    """Проверяет шифр и размер каждого файла; при восстановлении пишет во временный каталог."""
+    for fid, size in sizes.items():
+        try:
+            data = unseal(key, fetch(fid))
+            if len(data) != size:
+                raise ValueError("размер вложения отличается от указанного в базе")
+            if staged is not None:
+                (staged / fid).write_bytes(data)
+        except Exception as e:
+            raise CloudError("В копии отсутствует или повреждено вложение") from e
+
+
+def _serialized(fn):
+    @wraps(fn)
+    def locked(self, *args, **kwargs):
+        with self._lock:
+            return fn(self, *args, **kwargs)
+    return locked
+
+
 class BackupService:
     def __init__(self, db: Database, cloud: CloudSync, tz: ZoneInfo,
-                 client_factory: Callable[[str], YandexDisk] = YandexDisk):
+                 client_factory: Callable[[str], YandexDisk] = YandexDisk, *,
+                 pause_writes: Callable[[], AbstractContextManager] = nullcontext):
         self.db, self.cloud, self.tz = db, cloud, tz
         self.client_factory = client_factory
+        self._lock = RLock()
+        self.pause_writes = pause_writes
 
     def status(self) -> dict:
         st = self.db.kv_get("backup:state")[0] or {}
@@ -96,6 +143,7 @@ class BackupService:
                 "size": st.get("size"), "name": st.get("name"), "count": st.get("count"), "keep": KEEP, "drill": st.get("drill"), "files": st.get("files"),
                 "verified": st.get("verified")}
 
+    @_serialized
     def run(self) -> dict:
         token = self.cloud._token()
         if not token:
@@ -107,6 +155,8 @@ class BackupService:
             check_db(unseal(self.cloud.key(), blob))   # копия должна расшифровываться и открываться
             name = f"{PREFIX}{datetime.now(self.tz):%Y%m%d-%H%M}{SUFFIX}"
             disk = self.client_factory(token)
+            sizes = attachment_sizes(raw)
+            st["files"] = self.sync_files(disk, sizes)
             disk.mkdir(DIR)
             disk.upload(blob, f"{DIR}/{name}")
             files = sorted(f["name"] for f in disk.ls(DIR) if f["name"].startswith(PREFIX) and f["name"].endswith(SUFFIX))
@@ -116,10 +166,10 @@ class BackupService:
                       name=name, count=min(len(files), KEEP))
             log.info("Резервная копия %s (%d КБ)", name, len(blob) // 1024)
             try:
-                st["files"] = self.sync_files(disk)
-            except Exception as e:  # noqa: BLE001 — база сохранена, вложения догоним в следующий раз
-                st["files"] = {**(st.get("files") or {}), "error": "Вложения скопированы не полностью"}
-                log.warning("Копия вложений: %s", e)
+                self._prune_files(disk, sizes, [item for item in files[-KEEP:] if item != name])
+            except Exception as e:
+                st["files"]["error"] = "Не удалось проверить историю вложений. Удаление отложено."
+                log.warning("Очистка старых вложений: %s", type(e).__name__)
         except CloudError as e:
             st["last_error"] = str(e)
             log.warning("Резервная копия не сделана: %s", e)
@@ -129,23 +179,44 @@ class BackupService:
         self.db.kv_set("backup:state", st)
         return self.status()
 
-    def sync_files(self, disk) -> dict:
-        """Вложения (data/files) → app:/files на Диске: новые загружаются, удалённые на сервере убираются.
-        Каждый файл — gzip + AES-GCM ключом облака (расшифровка тем же restore_backup.py)."""
+    def sync_files(self, disk, sizes: dict[str, int]) -> dict:
+        """Выгружает недостающие вложения снимка перед публикацией его базы."""
         local_dir = Path(self.db.path).parent / "files"
-        local = {r["id"]: r for r in self.db.query("SELECT id, size FROM event_files WHERE url IS NULL")}
         disk.mkdir(FILES_DIR)
         remote = {f["name"] for f in disk.ls(FILES_DIR)}
         sent = 0
-        for fid in local:
+        for fid in sizes.keys() - remote:
             path = local_dir / fid
-            if fid in remote or not path.is_file():
-                continue
-            disk.upload(seal(self.cloud.key(), gzip.compress(path.read_bytes(), 6)), f"{FILES_DIR}/{fid}")
+            if not path.is_file():
+                raise CloudError("Не удалось найти файл вложения для резервной копии")
+            data = path.read_bytes()
+            if len(data) != sizes[fid]:
+                raise CloudError("Размер вложения не совпадает с резервной копией")
+            disk.upload(seal(self.cloud.key(), gzip.compress(data, 6)), f"{FILES_DIR}/{fid}")
             sent += 1
-        for name in remote - set(local):
+        return {"count": len(sizes), "sent": sent, "bytes": sum(sizes.values()), "error": None}
+
+    def _prune_files(self, disk, sizes: dict[str, int], history: list[str]) -> None:
+        candidates = {f["name"] for f in disk.ls(FILES_DIR)} - sizes.keys()
+        if not candidates:
+            return
+        for name in history:
+            if not re.fullmatch(r"homehub-[0-9]{8}-[0-9]{4}\.db\.gz\.enc", name):
+                # Незнакомая или повреждённая копия: нельзя доказать, что файл осиротел.
+                return
+            data = unseal(self.cloud.key(), disk.download_path(f"{DIR}/{name}"))
+            candidates.difference_update(attachment_sizes(data))
+            if not candidates:
+                return
+        for name in candidates:
             disk.rm(f"{FILES_DIR}/{name}")
-        return {"count": len(local), "sent": sent, "bytes": sum(int(r["size"] or 0) for r in local.values()), "error": None}
+
+    def _check_attachments(self, data: bytes, staged: Path | None = None) -> int:
+        sizes = attachment_sizes(data)
+        if sizes:
+            disk = self.client_factory(self.cloud._token())
+            restore_attachments(sizes, self.cloud.key(), lambda fid: disk.download_path(f"{FILES_DIR}/{fid}"), staged)
+        return len(sizes)
 
     # --- восстановление ---------------------------------------------------------------------------
 
@@ -171,6 +242,7 @@ class BackupService:
         except Exception as e:  # noqa: BLE001
             raise CloudError("Копию не удалось расшифровать — ключ облака не тот, что при создании") from e
 
+    @_serialized
     def verify(self, name: str | None = None) -> dict:
         """Скачать копию (по умолчанию самую свежую), расшифровать и открыть. Результат запоминается."""
         st = self.db.kv_get("backup:state")[0] or {}
@@ -180,7 +252,9 @@ class BackupService:
                 if not fl:
                     raise CloudError("На Диске нет копий")
                 name = fl[0]["name"]
-            info = check_db(self._load(name))
+            data = self._load(name)
+            info = check_db(data)
+            info["attachments"] = self._check_attachments(data)
             res = {"ok": True, "name": name, **info}
         except (CloudError, ValueError, sqlite3.Error, OSError) as e:
             res = {"ok": False, "name": name, "error": str(e)}
@@ -189,6 +263,7 @@ class BackupService:
         self.db.kv_set("backup:state", st)
         return res
 
+    @_serialized
     def drill(self) -> dict:
         """Учебное восстановление (раз в месяц): скачать свежую копию, расшифровать, развернуть во временную базу,
         проверить целостность и сравнить с живой базой — копия, в которой заметно меньше событий, считается плохой."""
@@ -204,20 +279,30 @@ class BackupService:
         self.db.kv_set("backup:state", st)
         return res
 
+    @_serialized
     def restore(self, name: str) -> dict:
         """Заменить текущую базу содержимым копии. Перед этим — страховочная копия рядом с базой."""
         raw = self._load(name)
         info = check_db(raw)
         raw = gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw
         safety = Path(self.db.path).with_name("before-restore.db.gz")
-        safety.write_bytes(snapshot_db(Path(self.db.path)))
-        with tempfile.TemporaryDirectory() as d:
+        local_files = safety.parent / "files"
+        with tempfile.TemporaryDirectory(dir=safety.parent) as d:
+            staged = Path(d) / "files"
+            staged.mkdir(mode=0o700)
+            info["attachments"] = self._check_attachments(raw, staged)
             f = Path(d) / "restore.db"
             f.write_bytes(raw)
             src = sqlite3.connect(str(f))
             try:
-                with self.db._lock:
+                with self.pause_writes(), self.db._lock:
+                    safety.write_bytes(snapshot_db(Path(self.db.path)))
+                    if info["attachments"]:
+                        local_files.mkdir(mode=0o700, exist_ok=True)
+                        for item in staged.iterdir():
+                            item.replace(local_files / item.name)
                     src.backup(self.db._conn)
+                    self.db.objects_changed()
                     self.db._conn.commit()
                     self.db._migrate()
                     self.db.encrypt_secrets()

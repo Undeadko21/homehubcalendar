@@ -177,7 +177,6 @@ class SyncEngine:
         changed = False
         self._runs += 1
         full = full or self._runs % self.FULL_EVERY == 1
-        state = self.db.kv_get("sync:ctags")[0] or {}
         try:
             for scfg in self.sources:
                 sid = scfg.get("id", "?")
@@ -188,39 +187,50 @@ class SyncEngine:
                     if scfg.get("type") == "caldav" and not (scfg.get("username") and scfg.get("password")):
                         raise RuntimeError("не указаны логин и пароль приложения — откройте ⚙ Настройки → Учётные записи")
                     src = build_source(scfg)
+                    with self.db.tx():
+                        state = self.db.kv_get("sync:ctags")[0] or {}
+                        revision = self.db.objects_revision()
                     known = {} if full else {k.split('/', 1)[1]: _as_state(v) for k, v in state.items() if k.startswith(sid + '/')}
                     calendars = src.fetch(known)
-                    total = 0
-                    seen = set()
-                    for rc in calendars:
-                        key = f"{sid}/{rc.remote_id}"
-                        seen.add(key)
-                        self.db.touch_calendar(key, sid, rc.remote_id, rc.name,
-                                               calendar_defaults(scfg, rc.name, rc.color))
-                        if rc.unchanged:
-                            total += len(self.db.objects_map(key))
+                    next_state = state.copy()
+                    source_changed = False
+                    with self.db.tx():
+                        if revision != self.db.objects_revision():
+                            report[sid] = {"ok": True, "deferred": True}
                             continue
-                        if rc.delta:
-                            if self._apply_delta(key, rc):
-                                changed = True
-                            total += len(self.db.objects_map(key))
-                        else:
-                            if self.db.objects_map(key) != rc.objects:
-                                self.db.replace_objects(key, rc.objects)
-                                changed = True
-                            total += len(rc.objects)
-                        if rc.ctag or rc.token:
-                            state[key] = {"ctag": rc.ctag, "token": rc.token}
-                        else:
-                            state.pop(key, None)
-                    # Календари, исчезнувшие из источника, очищаем (настройки остаются).
-                    for cal in self.db.list_calendars():
-                        if cal["source_id"] == sid and cal["key"] not in seen:
-                            if self.db.objects_map(cal["key"]):
-                                changed = True
-                            self.db.replace_objects(cal["key"], {})
-                            state.pop(cal["key"], None)
-                    self.db.set_sync_status(sid, ok=True, count=total)
+                        total = 0
+                        seen = set()
+                        for rc in calendars:
+                            key = f"{sid}/{rc.remote_id}"
+                            seen.add(key)
+                            self.db.touch_calendar(key, sid, rc.remote_id, rc.name,
+                                                   calendar_defaults(scfg, rc.name, rc.color))
+                            if rc.unchanged:
+                                total += len(self.db.objects_map(key))
+                                continue
+                            if rc.delta:
+                                if self._apply_delta(key, rc):
+                                    source_changed = True
+                                total += len(self.db.objects_map(key))
+                            else:
+                                if self.db.objects_map(key) != rc.objects:
+                                    self.db.replace_objects(key, rc.objects)
+                                    source_changed = True
+                                total += len(rc.objects)
+                            if rc.ctag or rc.token:
+                                next_state[key] = {"ctag": rc.ctag, "token": rc.token}
+                            else:
+                                next_state.pop(key, None)
+                        # Календари, исчезнувшие из источника, очищаем (настройки остаются).
+                        for cal in self.db.list_calendars():
+                            if cal["source_id"] == sid and cal["key"] not in seen:
+                                if self.db.objects_map(cal["key"]):
+                                    source_changed = True
+                                self.db.replace_objects(cal["key"], {})
+                                next_state.pop(cal["key"], None)
+                        self.db.set_sync_status(sid, ok=True, count=total)
+                        self.db.kv_set("sync:ctags", next_state)
+                    changed = changed or source_changed
                     report[sid] = {"ok": True, "calendars": len(calendars), "objects": total}
                     log.info("Синхронизирован %s: %d календарей, %d объектов", sid, len(calendars), total)
                 except Exception as e:  # noqa: BLE001 — события остались прежними, ленту не пересобираем
@@ -229,7 +239,6 @@ class SyncEngine:
                     report[sid] = {"ok": False, "error": msg}
                     log.exception("Ошибка синхронизации %s", sid)
         finally:
-            self.db.kv_set("sync:ctags", state)
             self.running = False
             self._lock.release()
             if self.on_change and (changed or self._runs == 1):

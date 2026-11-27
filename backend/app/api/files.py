@@ -37,17 +37,21 @@ def _clean_name(name: str) -> str:
     return name[:120] or "файл"
 
 
+def _delete_attachment(fid: str) -> None:
+    core.db.delete_event_file(fid)
+    try:
+        (files_dir() / fid).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def drop(uid: str) -> int:
     """Удалить все вложения события или дела (uid `item:<id>`) — вместе с файлами на диске."""
-    n = 0
-    for row in core.db.event_files(uid):
-        core.db.delete_event_file(row["id"])
-        try:
-            (files_dir() / row["id"]).unlink(missing_ok=True)
-        except OSError:
-            pass
-        n += 1
-    return n
+    with core.db._lock:
+        rows = core.db.event_files(uid)
+        for row in rows:
+            _delete_attachment(row["id"])
+        return len(rows)
 
 
 @router.get("/api/event-files")
@@ -66,8 +70,6 @@ async def upload_file(request: Request, uid: str, name: str):
         declared = 0
     if declared > MAX_SIZE:
         raise HTTPException(413, "Файл больше 15 МБ")
-    if len(core.db.event_files(uid)) >= MAX_PER_EVENT:
-        raise HTTPException(400, f"У события уже {MAX_PER_EVENT} вложений")
     data = await request.body()
     if not data:
         raise HTTPException(400, "Пустой файл")
@@ -76,10 +78,19 @@ async def upload_file(request: Request, uid: str, name: str):
     name = _clean_name(name)
     mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
     fid = uuid.uuid4().hex
-    (files_dir() / fid).write_bytes(data)
-    core.db.add_event_file(fid, uid, name, mime, len(data))
+    with core.db._lock:
+        if len(core.db.event_files(uid)) >= MAX_PER_EVENT:
+            raise HTTPException(400, f"У события уже {MAX_PER_EVENT} вложений")
+        path = files_dir() / fid
+        path.write_bytes(data)
+        try:
+            core.db.add_event_file(fid, uid, name, mime, len(data))
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+        row = core.db.event_file(fid)
     core.events.invalidate()
-    return _public(core.db.event_file(fid))
+    return _public(row)
 
 
 class LinkIn(BaseModel):
@@ -115,14 +126,11 @@ def get_file(fid: str):
 
 @router.delete("/api/event-files/{fid}")
 def delete_file(fid: str):
-    row = core.db.event_file(fid) if re.fullmatch(r"[0-9a-f]{32}", fid) else None
-    if not row:
-        raise HTTPException(404, "Файл не найден")
-    core.db.delete_event_file(fid)
-    try:
-        (files_dir() / fid).unlink(missing_ok=True)
-    except OSError:
-        pass
+    with core.db._lock:
+        row = core.db.event_file(fid) if re.fullmatch(r"[0-9a-f]{32}", fid) else None
+        if not row:
+            raise HTTPException(404, "Файл не найден")
+        _delete_attachment(fid)
     core.events.invalidate()
     return {"ok": True}
 

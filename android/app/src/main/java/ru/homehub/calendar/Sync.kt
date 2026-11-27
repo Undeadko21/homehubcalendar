@@ -10,9 +10,8 @@ import org.json.JSONObject
 object Sync {
     fun run(context: Context): Boolean {
         val prefs = Prefs(context)
-        // Команды, сделанные вне дома, уходят первыми — сервер подхватит их в течение минуты.
-        val pushed = try { Outbox.push(context) } catch (_: Exception) { false }
-        if (pushed) Widgets.refreshLater(context, 90)
+        // При обновлении подхватываем также команды, сохранённые до перезапуска приложения.
+        Outbox.schedule(context)
 
         var json: String? = null
         var source = "home"
@@ -69,7 +68,8 @@ object Sync {
             val root = JSONObject(text)
             Outbox.saveSnapshot(context, text)
             root.optJSONArray("applied")?.let { a ->
-                Outbox.dropApplied(context, (0 until a.length()).map { a.getString(it) }.toSet())
+                val changed = Outbox.dropApplied(context, (0 until a.length()).map { a.getString(it) }.toSet())
+                if (changed) Outbox.schedule(context, afterCurrent = true)
             }
             prefs.widgetJson = root.getJSONObject("widget").toString()
             prefs.lastOk = System.currentTimeMillis()
